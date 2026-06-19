@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#111827"/>
+  <rect x="40" y="40" width="432" height="432" rx="92" fill="none" stroke="#2D3A4D" stroke-width="6"/>
+  <!-- dumbbell -->
+  <g stroke="#F97316" stroke-width="34" stroke-linecap="round" fill="none">
+    <line x1="176" y1="256" x2="336" y2="256"/>
+  </g>
+  <g fill="#F97316">
+    <rect x="120" y="196" width="40" height="120" rx="18"/>
+    <rect x="352" y="196" width="40" height="120" rx="18"/>
+  </g>
+  <g fill="#22C55E">
+    <rect x="92" y="216" width="34" height="80" rx="16"/>
+    <rect x="386" y="216" width="34" height="80" rx="16"/>
+  </g>
+  <!-- up arrow = "next / progression" -->
+  <path d="M256 150 l46 54 h-30 v60 h-32 v-60 h-30 z" fill="#22C55E"/>
+</svg>

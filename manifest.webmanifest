@@ -1,0 +1,14 @@
+{
+  "name": "NextSet — Workout Tracker",
+  "short_name": "NextSet",
+  "description": "Log sets, reps and exact weights on any machine. Get told what to try next time.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#111827",
+  "theme_color": "#111827",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
