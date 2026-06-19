@@ -1,5 +1,5 @@
 /* NextSet service worker — offline-first cache of the app shell */
-const CACHE = "nextset-v3";
+const CACHE = "nextset-v4";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", e => {

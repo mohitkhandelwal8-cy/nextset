@@ -467,8 +467,12 @@ function setTab(tab){
 }
 function render(){
   const v=$("#view"); v.innerHTML="";
+  const noGyms = !State.gyms.length;
+  // during first-run setup there are no tabs to switch between — hide the chrome
+  document.querySelector(".tabbar").style.display = noGyms ? "none" : "";
+  $("#gymPick").style.display = noGyms ? "none" : "";
   $("#gymPick").textContent = curGym()? curGym().name : "Set up gym";
-  if(!State.gyms.length){ return v.append(viewOnboard()); }
+  if(noGyms){ return v.append(viewOnboard()); }
   if(currentTab==="today") v.append(viewToday());
   else if(currentTab==="history") v.append(viewHistory());
   else if(currentTab==="insights") v.append(viewInsights());
@@ -601,19 +605,21 @@ function loggerCard(item){
       persistSession(); render();
     }}, {easy:"Easy",solid:"Solid",grind:"Grind"}[level]));
   });
-  card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"How did the top set feel?"), rpe);
+  card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"How hard did this feel?"), rpe);
 
-  const ctl=el("div",{class:"row",style:"gap:8px;margin-top:10px"});
+  const ctl=el("div",{style:"margin-top:12px"});
   ctl.append(
-    el("button",{class:"btn secondary sm","aria-label":"Add set",style:"flex:1",onClick:()=>{
+    el("button",{class:"btn secondary sm","aria-label":"Add set",style:"width:100%",onClick:()=>{
       const last=item.sets[item.sets.length-1];
       item.sets.push({weight:last?.weight||0,reps:last?.reps||(ex?.repMin||8),done:false});
       persistSession();render();
-    }},ic("plus",16),"Set"),
-    el("button",{class:"btn ghost sm","aria-label":"Remove last set",onClick:()=>{ if(item.sets.length>1){item.sets.pop();persistSession();render();} }},ic("minus",16),"Set"),
-    el("button",{class:"btn ghost sm","aria-label":"Remove exercise",onClick:()=>{
-      State.activeSession.items=State.activeSession.items.filter(x=>x!==item);persistSession();render();
-    }},ic("x",16),"Remove")
+    }},ic("plus",16),"Add set"),
+    el("div",{class:"row",style:"gap:8px;margin-top:8px"},
+      el("button",{class:"btn ghost sm","aria-label":"Remove last set",style:"flex:1",onClick:()=>{ if(item.sets.length>1){item.sets.pop();persistSession();render();} }},ic("minus",16),"Drop set"),
+      el("button",{class:"btn ghost sm","aria-label":"Remove exercise",style:"flex:1",onClick:()=>{
+        State.activeSession.items=State.activeSession.items.filter(x=>x!==item);persistSession();render();
+      }},ic("x",16),"Remove")
+    )
   );
   card.append(ctl);
   return card;
