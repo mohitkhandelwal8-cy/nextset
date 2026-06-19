@@ -931,38 +931,10 @@ function viewInsights(){
     if(!allSets.length){ mount.append(el("div",{class:"empty"},el("div",{class:"big"},ic("bulb",42)),
       el("p",{class:"muted"},"Log a few workouts and you'll get progress trends, plateau alerts and joint patterns here.")));return;}
 
-    // per-exercise trend (est 1RM by session)
-    const exMap={}; allSets.forEach(x=>{(exMap[x.exerciseId]=exMap[x.exerciseId]||[]).push(x);});
-    const card=el("div",{class:"card"}); card.append(el("h2",{},"Progress"));
-    let any=false;
-    for(const[exId,list] of Object.entries(exMap)){
-      const ex=State.exercises.find(e=>e.id===exId); if(!ex)continue;
-      const bw=isBW(ex);
-      const metric = bw ? (x=>x.reps) : (x=>epley(x.weight,x.reps));
-      const unitLbl = bw ? "reps" : "est 1RM";
-      const bySession={}; list.forEach(x=>{const se=sessions.find(s=>s.id===x.sessionId);if(!se)return;
-        const key=se.date+se.startedAt; bySession[key]=Math.max(bySession[key]||0, metric(x));});
-      const series=Object.entries(bySession).sort((a,b)=>a[0].localeCompare(b[0])).map(e=>e[1]);
-      if(series.length<1)continue; any=true;
-      const first=series[0],last=series[series.length-1];
-      const delta=last-first; const dir= delta>0.5?"good":delta<-0.5?"warn":"";
-      const hasTrend=series.length>=2;
-      const dStr = bw ? String(Math.round(Math.abs(delta))) : Math.abs(delta).toFixed(1);
-      card.append(el("div",{style:"margin-bottom:14px"},
-        el("div",{class:"row between"},
-          el("div",{style:"font-weight:600;font-size:14px"},ex.name),
-          hasTrend
-            ? el("div",{class:"small",style:dir==="good"?"color:var(--accent-2)":dir==="warn"?"color:var(--warn)":"color:var(--muted)"},
-                (delta>=0?"▲ ":"▼ ")+dStr+" "+unitLbl)
-            : el("div",{class:"small muted"}, `${Math.round(last)} ${unitLbl}`)),
-        hasTrend
-          ? sparkline(series, `${ex.name} ${unitLbl} trend: ${Math.round(first)} to ${Math.round(last)}, ${delta>=0?"up":"down"} ${dStr}`)
-          : el("div",{class:"tiny muted",style:"margin-top:4px"},"Log another session to see a trend")));
-    }
-    if(any) mount.append(card);
-
-    // weekly volume by muscle (primary = 1 set, secondary = ½)
     const exById=id=>State.exercises.find(e=>e.id===id);
+    const gymName=id=>State.gyms.find(g=>g.id===id)?.name||"";
+
+    // ---- body-level (unified across gyms): weekly volume by muscle ----
     const vol={};
     for(const x of allSets){
       const se=sessions.find(s=>s.id===x.sessionId); if(!se||daysAgo(se.date)>6) continue;
@@ -982,6 +954,50 @@ function viewInsights(){
       });
       vcard.append(el("div",{class:"tiny muted",style:"margin-top:4px"},"Working sets, last 7 days · secondary muscles count as ½."));
       mount.append(vcard);
+    }
+
+    // ---- strength progress: grouped by movement, relative % so gyms read as one story ----
+    const exMap={}; allSets.forEach(x=>{(exMap[x.exerciseId]=exMap[x.exerciseId]||[]).push(x);});
+    const norm = s => (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+    const stats=[];
+    for(const[exId,list] of Object.entries(exMap)){
+      const ex=exById(exId); if(!ex)continue;
+      const bw=isBW(ex);
+      const metric = bw ? (x=>x.reps) : (x=>epley(x.weight,x.reps));
+      const bySession={}; list.forEach(x=>{const se=sessions.find(s=>s.id===x.sessionId);if(!se)return;
+        const key=se.date+se.startedAt; bySession[key]=Math.max(bySession[key]||0, metric(x));});
+      const series=Object.entries(bySession).sort((a,b)=>a[0].localeCompare(b[0])).map(e=>e[1]);
+      if(!series.length)continue;
+      const first=series[0],last=series[series.length-1];
+      stats.push({ex,bw,series,first,last,pct:first>0?((last-first)/first*100):0,
+        unitLbl: bw?"reps":"est 1RM", hasTrend:series.length>=2});
+    }
+    if(stats.length){
+      const card=el("div",{class:"card"}); card.append(el("h2",{},"Strength progress"));
+      const groups={}; stats.forEach(s=>{(groups[norm(s.ex.name)]=groups[norm(s.ex.name)]||[]).push(s);});
+      const pctEl = s => s.hasTrend
+        ? el("div",{class:"small",style:(s.pct>1?"color:var(--accent-2)":s.pct<-1?"color:var(--warn)":"color:var(--muted)")},
+            (s.pct>=0?"▲ ":"▼ ")+Math.abs(Math.round(s.pct))+"%")
+        : el("div",{class:"small muted"}, `${Math.round(s.last)} ${s.unitLbl}`);
+      Object.values(groups).forEach(arr=>{
+        const block=el("div",{style:"margin-bottom:16px"});
+        if(arr.length===1){
+          const s=arr[0];
+          block.append(
+            el("div",{class:"row between",style:"margin-bottom:4px"},
+              el("div",{style:"font-weight:600;font-size:14px"}, s.ex.name), pctEl(s)),
+            s.hasTrend ? sparkline(s.series, `${s.ex.name}: ${s.pct>=0?"up":"down"} ${Math.abs(Math.round(s.pct))}%`)
+                       : el("div",{class:"tiny muted",style:"margin-top:4px"},"Log another session to see a trend"));
+        } else {
+          block.append(el("div",{class:"row between",style:"margin-bottom:6px"},
+            el("div",{style:"font-weight:600;font-size:14px"}, arr[0].ex.name),
+            el("span",{class:"tiny muted"}, `${arr.length} gyms · combined`)));
+          arr.forEach(s=>block.append(el("div",{class:"row between",style:"margin:4px 0"},
+            el("div",{class:"small muted"}, gymName(s.ex.gymId)||"Free weight"), pctEl(s))));
+        }
+        card.append(block);
+      });
+      mount.append(card);
     }
 
     // plateau alerts
