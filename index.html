@@ -333,6 +333,12 @@ function guessEquipment(name){
   if(has("curl","fly","flye","lateral raise","front raise","raise","kickback","extension")) return "dumbbell";
   return "other";
 }
+const isBW = ex => !!(ex && ex.equipment==="bodyweight");
+// short display of a logged set — for bodyweight, `weight` means ADDED load (0 = just bodyweight)
+function fmtSetShort(ex,w,r){
+  if(isBW(ex)) return (+w>0) ? `+${w}${ex.unit||"kg"}×${r}` : `${r} reps`;
+  return `${w}${ex.unit||"kg"}×${r}`;
+}
 
 /* ---------- app state ---------- */
 const State = {
@@ -403,7 +409,7 @@ async function suggestNext(ex){
   const repMin = ex.repMin||8, repMax = ex.repMax||12, inc = ex.increment||2.5;
   if(!prev){
     return { plan: Array.from({length:sets},()=>({weight:0,reps:repMin,target:repMin})),
-             note:"First time on this — log a working set and I'll progress it next time.", kind:"new" };
+             note: isBW(ex)?"First time — log your reps and I'll progress them next time.":"First time on this — log a working set and I'll progress it next time.", kind:"new" };
   }
   // working weight = heaviest weight used last time
   const workW = Math.max(...prev.sets.map(s=>s.weight));
@@ -415,24 +421,26 @@ async function suggestNext(ex){
   const allEasy = rpe.length===atWork.length && rpe.every(r=>r==="easy");
   const anyGrind = rpe.some(r=>r==="grind");
 
+  const bw = isBW(ex);
+  const loadStr = w => bw ? ((+w)>0 ? `+${fmtW(w,ex)}` : "bodyweight") : fmtW(w,ex);
   let plan, note, kind="rep";
   if(allTop || (allEasy && minReps>=Math.floor((repMin+repMax)/2))){
     const w = round(workW+inc, inc);
     plan = Array.from({length:sets},()=>({weight:w,reps:repMin,target:repMin}));
-    note = `Add weight → ${fmtW(w,ex)} × ${repMin}. You ${allTop?`hit ${repMax}+ on every set`:"left reps in the tank"} last time.`;
+    note = `${bw?"Add load":"Add weight"} → ${loadStr(w)} × ${repMin}. You ${allTop?`hit ${repMax}+ ${bw?"reps":"on every set"}`:"left reps in the tank"} last time.`;
     kind="weight";
   } else if(minReps>=repMin){
     const tgt = Math.min(maxReps+1, repMax);
     plan = Array.from({length:sets},()=>({weight:workW,reps:tgt,target:tgt}));
-    note = `Same weight ${fmtW(workW,ex)} → push for ${tgt} reps.${anyGrind?" (last set was a grind — only if it moves.)":""}`;
+    note = `${bw? (workW>0?loadStr(workW):"Bodyweight") : `Same weight ${fmtW(workW,ex)}`} → push for ${tgt} reps.${anyGrind?" (last set was a grind — only if it moves.)":""}`;
   } else {
     plan = Array.from({length:sets},()=>({weight:workW,reps:repMin,target:repMin}));
-    note = `Repeat ${fmtW(workW,ex)} × ${repMin} — you missed the bottom of the range last time.`;
+    note = `${bw?`Repeat ${loadStr(workW)} for ${repMin} reps`:`Repeat ${fmtW(workW,ex)} × ${repMin}`} — you missed the bottom of the range last time.`;
     kind="repeat";
     const stalls = await stallCount(ex.id);
-    if(stalls>=2){
+    if(stalls>=2 && !(bw && workW===0)){
       const dw = round(workW*0.9, inc);
-      note = `Stalled ${stalls+1} sessions at ${fmtW(workW,ex)}. Consider a deload to ${fmtW(dw,ex)} and rebuild.`;
+      note = `${bw?`Stalled ${stalls+1} sessions at ${loadStr(workW)}. Drop to ${loadStr(dw)}`:`Stalled ${stalls+1} sessions at ${fmtW(workW,ex)}. Consider a deload to ${fmtW(dw,ex)}`} and rebuild.`;
       kind="deload";
       plan = Array.from({length:sets},()=>({weight:dw,reps:repMin,target:repMin}));
     }
@@ -565,16 +573,19 @@ function loggerCard(item){
   card.append(head);
   if(item.note) card.append(el("div",{class:"suggestion"+(["deload","repeat"].includes(item.kind)?" warn":"")}, item.note));
 
+  const bw = isBW(ex);
+  const wUnit = bw ? "+"+(ex?.unit||"kg") : (ex?.unit||"kg");
   item.sets.forEach((set,si)=>{
     const row=el("div",{class:"setrow"});
     row.append(el("div",{class:"idx"}, si+1));
-    row.append(stepper(set.weight, ex?.increment||2.5, v=>{set.weight=Math.max(0,v);persistSession();}, ex?.unit||"kg"));
-    row.append(stepper(set.reps, 1, v=>{set.reps=Math.max(0,Math.round(v));persistSession();}, "reps"));
+    const wStep=stepper(set.weight, ex?.increment||2.5, v=>{set.weight=Math.max(0,v);persistSession();}, wUnit);
+    const rStep=stepper(set.reps, 1, v=>{set.reps=Math.max(0,Math.round(v));persistSession();}, "reps");
+    if(bw){ row.append(rStep, wStep); } else { row.append(wStep, rStep); }
     const done=el("button",{class:"done"+(set.done?" on":""),"aria-label":`Complete set ${si+1}`,"aria-pressed":set.done?"true":"false",onClick:()=>{
       set.done=!set.done; persistSession();
       done.classList.toggle("on",set.done);
       done.setAttribute("aria-pressed",set.done?"true":"false");
-      if(set.done) toast(`Set ${si+1}: ${set.weight}${ex?.unit||"kg"} × ${set.reps}`);
+      if(set.done) toast(`Set ${si+1}: ${fmtSetShort(ex,set.weight,set.reps)}`);
     }},ic("check",18));
     row.append(done);
     card.append(row);
@@ -890,7 +901,7 @@ function viewHistory(){
       if(regionsHit.length) card.append(el("div",{class:"mtags",style:"margin-top:8px"}, ...regionsHit.map(r=>el("span",{class:"mtag"},r))));
       for(const[exId,list] of Object.entries(byEx)){
         const ex=State.exercises.find(e=>e.id===exId);
-        const setsTxt=list.sort((a,b)=>a.order-b.order).map(x=>`${x.weight}×${x.reps}`).join("  ");
+        const setsTxt=list.sort((a,b)=>a.order-b.order).map(x=>fmtSetShort(ex,x.weight,x.reps)).join("  ");
         card.append(el("div",{style:"margin-top:8px"},
           el("div",{class:"small",style:"font-weight:600;display:flex;align-items:center;gap:6px"}, (ex?ex.name:"(deleted)"),
             ...(list.some(x=>x.joint)?[el("span",{style:"color:var(--warn);display:inline-flex",title:"joint flagged"},ic("alert",14))]:[])),
@@ -918,22 +929,26 @@ function viewInsights(){
     let any=false;
     for(const[exId,list] of Object.entries(exMap)){
       const ex=State.exercises.find(e=>e.id===exId); if(!ex)continue;
+      const bw=isBW(ex);
+      const metric = bw ? (x=>x.reps) : (x=>epley(x.weight,x.reps));
+      const unitLbl = bw ? "reps" : "est 1RM";
       const bySession={}; list.forEach(x=>{const se=sessions.find(s=>s.id===x.sessionId);if(!se)return;
-        const key=se.date+se.startedAt; bySession[key]=Math.max(bySession[key]||0, epley(x.weight,x.reps));});
+        const key=se.date+se.startedAt; bySession[key]=Math.max(bySession[key]||0, metric(x));});
       const series=Object.entries(bySession).sort((a,b)=>a[0].localeCompare(b[0])).map(e=>e[1]);
       if(series.length<1)continue; any=true;
       const first=series[0],last=series[series.length-1];
       const delta=last-first; const dir= delta>0.5?"good":delta<-0.5?"warn":"";
       const hasTrend=series.length>=2;
+      const dStr = bw ? String(Math.round(Math.abs(delta))) : Math.abs(delta).toFixed(1);
       card.append(el("div",{style:"margin-bottom:14px"},
         el("div",{class:"row between"},
           el("div",{style:"font-weight:600;font-size:14px"},ex.name),
           hasTrend
             ? el("div",{class:"small",style:dir==="good"?"color:var(--accent-2)":dir==="warn"?"color:var(--warn)":"color:var(--muted)"},
-                (delta>=0?"▲ ":"▼ ")+Math.abs(delta).toFixed(1)+" est 1RM")
-            : el("div",{class:"small muted"}, `${Math.round(last)} est 1RM`)),
+                (delta>=0?"▲ ":"▼ ")+dStr+" "+unitLbl)
+            : el("div",{class:"small muted"}, `${Math.round(last)} ${unitLbl}`)),
         hasTrend
-          ? sparkline(series, `${ex.name} estimated 1RM trend: ${first.toFixed(0)} to ${last.toFixed(0)}, ${delta>=0?"up":"down"} ${Math.abs(delta).toFixed(1)}`)
+          ? sparkline(series, `${ex.name} ${unitLbl} trend: ${Math.round(first)} to ${Math.round(last)}, ${delta>=0?"up":"down"} ${dStr}`)
           : el("div",{class:"tiny muted",style:"margin-top:4px"},"Log another session to see a trend")));
     }
     if(any) mount.append(card);
