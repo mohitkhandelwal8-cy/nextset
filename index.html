@@ -140,6 +140,11 @@
   .fchip{flex:none;font-size:13px;padding:7px 13px;min-height:40px;border-radius:999px;background:var(--surface-2);
     border:1px solid var(--line);color:var(--muted);display:inline-flex;align-items:center}
   .fchip.on{color:var(--on-accent);background:var(--accent);border-color:var(--accent);font-weight:600}
+  .updatebar{position:fixed;left:12px;right:12px;bottom:calc(82px + var(--safe-b));max-width:536px;margin:0 auto;z-index:45;
+    background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;
+    display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  .updatebar .t{flex:1;font-size:13px}
+  .updatebar button{background:var(--accent);color:var(--on-accent);border-radius:9px;padding:9px 14px;font-weight:700;font-size:13px;min-height:40px}
 </style>
 </head>
 <body>
@@ -228,6 +233,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
+const APP_VERSION = "v10"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1173,7 +1179,8 @@ function viewMore(){
   wrap.append(el("div",{class:"card"},
     el("h2",{},"About"),
     el("p",{class:"small muted",style:"margin:-4px 0 0"},
-      "NextSet · local-first workout tracker. Suggestions use double progression on your own history. Add to Home Screen to use it like an app.")
+      "NextSet · local-first workout tracker. Suggestions use double progression on your own history. Add to Home Screen to use it like an app."),
+    el("p",{class:"tiny muted",style:"margin:8px 0 0"}, `Version ${APP_VERSION}`)
   ));
   return wrap;
 }
@@ -1207,11 +1214,32 @@ async function exportData(kind){
 document.querySelectorAll(".tabbar button").forEach(b=>b.addEventListener("click",()=>setTab(b.dataset.tab)));
 $("#gymPick").addEventListener("click",openGymSheet);
 
+let swUpdateTriggered=false;
+function showUpdateBanner(reg){
+  if(document.getElementById("updateBar")) return;
+  const bar=el("div",{class:"updatebar",id:"updateBar"},
+    el("div",{class:"t"},"New version available"),
+    el("button",{onClick:()=>{ swUpdateTriggered=true; const w=reg.waiting||reg.installing; if(w) w.postMessage("SKIP_WAITING"); bar.remove(); }},"Update"));
+  document.body.append(bar);
+}
+
 (async function boot(){
   try{ await DB.open(); await loadState(); render(); }
   catch(e){ $("#view").innerHTML="<div class='empty'><div class='big'><svg viewBox='0 0 24 24' width='42' height='42' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'/><path d='M12 9v4'/><path d='M12 17h.01'/></svg></div><p>Couldn't open local storage.</p><p class='muted small'>"+esc(e.message||e)+"</p></div>"; }
   if("serviceWorker" in navigator && location.protocol.startsWith("http")){
-    navigator.serviceWorker.register("sw.js").catch(()=>{});
+    navigator.serviceWorker.register("sw.js").then(reg=>{
+      if(reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg);
+      reg.addEventListener("updatefound",()=>{
+        const nw=reg.installing; if(!nw) return;
+        nw.addEventListener("statechange",()=>{
+          if(nw.state==="installed" && navigator.serviceWorker.controller) showUpdateBanner(reg);
+        });
+      });
+    }).catch(()=>{});
+    let refreshing=false;
+    navigator.serviceWorker.addEventListener("controllerchange",()=>{
+      if(swUpdateTriggered && !refreshing){ refreshing=true; location.reload(); }
+    });
   }
 })();
 </script>
