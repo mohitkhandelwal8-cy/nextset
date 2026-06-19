@@ -374,12 +374,21 @@ const setMeta = (k,v)=>DB.put("meta",{k,v});
 const curGym = ()=>State.gyms.find(g=>g.id===State.currentGymId)||null;
 // a gym's exercises = its gym-scoped machines/cables + all global (free-weight/bodyweight) exercises
 const gymExercises = (gid=State.currentGymId)=>State.exercises.filter(e=>e.gymId===gid || e.gymId==null);
+const normName = s => (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+const gymNameOf = id => State.gyms.find(g=>g.id===id)?.name || "";
+// exercises confirmed as the SAME physical machine share a linkId; return every id in the group
+const linkedIds = exerciseId => {
+  const ex=State.exercises.find(e=>e.id===exerciseId);
+  if(!ex||!ex.linkId) return [exerciseId];
+  return State.exercises.filter(e=>e.linkId===ex.linkId).map(e=>e.id);
+};
 
 /* ============================================================
    PROGRESSION ENGINE  (double progression + RPE modifier)
    ============================================================ */
 async function lastSetsFor(exerciseId, beforeSessionId=null){
-  const sets = await DB.byIndex("sets","exerciseId",exerciseId);
+  let sets=[];
+  for(const id of linkedIds(exerciseId)) sets=sets.concat(await DB.byIndex("sets","exerciseId",id));
   if(!sets.length) return null;
   // group by session, find most recent completed session (excluding current)
   const bySession = {};
@@ -394,7 +403,8 @@ async function lastSetsFor(exerciseId, beforeSessionId=null){
 }
 // How many consecutive recent sessions stalled at the same top weight
 async function stallCount(exerciseId){
-  const sets = await DB.byIndex("sets","exerciseId",exerciseId);
+  let sets=[];
+  for(const id of linkedIds(exerciseId)) sets=sets.concat(await DB.byIndex("sets","exerciseId",id));
   const sessions = (await DB.all("sessions"));
   const bySession={};
   for(const s of sets){ if(s.reps>0)(bySession[s.sessionId]=bySession[s.sessionId]||[]).push(s); }
@@ -451,11 +461,31 @@ async function suggestNext(ex){
 }
 const fmtW = (w,ex)=> `${(+w).toLocaleString(undefined,{maximumFractionDigits:2})}${ex.unit||"kg"}`;
 
-/* ---------- new-gym calibration: find a same-named machine elsewhere ---------- */
-function findEquivalentElsewhere(name, gymId){
-  const norm = s=>s.toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
-  const target = norm(name);
-  return State.exercises.find(e=> e.gymId!==gymId && norm(e.name)===target);
+/* ---------- "same machine" linking across gyms ---------- */
+// a gym-scoped, same-named machine at a DIFFERENT gym, not already linked to ex
+function findSameNameOtherGym(ex){
+  const t=normName(ex.name);
+  return State.exercises.find(e=> e.id!==ex.id && e.gymId!=null && e.gymId!==ex.gymId
+    && normName(e.name)===t && !(ex.linkId && e.linkId===ex.linkId));
+}
+async function linkExercises(a,b){
+  const lid = b.linkId || a.linkId || b.id;
+  a.linkId=lid; b.linkId=lid;
+  await DB.put("exercises",a); await DB.put("exercises",b);
+  State.exercises=await DB.all("exercises");
+}
+// ask once, in context, whether a newly-added machine is the same as one at another gym
+function maybePromptSameMachine(ex){
+  if(!equipGymScoped(ex.equipment)) return;        // only machines/cables are gym-bound
+  const other=findSameNameOtherGym(ex);
+  if(!other) return;
+  openSheet("Same machine?", (body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin-top:-6px"},
+      `You also have "${other.name}" at ${gymNameOf(other.gymId)}. If it's the exact same machine, I'll combine their progress into one trend. If they feel different (e.g. one's a cable, the other a plate machine), keep them separate.`));
+    body.append(
+      el("button",{class:"btn",onClick:async()=>{ await linkExercises(ex,other); close(); render(); toast("Combined — progress is now shared"); }}, ic("check"), "Same machine — combine"),
+      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:close}, "Different machine"));
+  });
 }
 
 /* ============================================================
@@ -806,6 +836,7 @@ function openExerciseSheet(ex){
       await DB.put("exercises",ex);
       State.exercises=await DB.all("exercises");
       close(); render();
+      if(isNew) maybePromptSameMachine(ex);
     }},isNew?"Add exercise":"Save"));
     if(!isNew) body.append(el("button",{class:"btn danger",style:"margin-top:8px",onClick:async()=>{
       if(!confirm(`Delete "${ex.name}"? Logged history stays.`))return;
@@ -862,6 +893,7 @@ function openQuickAdd(){
         if(!p){toast("Couldn't parse — try “name weight x reps, reps”");return;}
         // find or create machine at this gym
         let ex=gymExercises().find(e=>e.name.toLowerCase()===p.name.toLowerCase());
+        const createdNew=!ex;
         if(!ex){
           const g=guessMuscles(p.name), eq=guessEquipment(p.name);
           ex={id:uid(),gymId:equipGymScoped(eq)?State.currentGymId:null,name:p.name,unit:"kg",
@@ -872,6 +904,7 @@ function openQuickAdd(){
         if(!item){ item={exerciseId:ex.id,kind:"manual",note:null,joint:false,rpe:null,sets:[]};State.activeSession.items.push(item); }
         item.sets=p.sets.map(s=>({weight:s.weight,reps:s.reps,done:true}));
         await persistSession(); close(); render(); toast("Logged");
+        if(createdNew) maybePromptSameMachine(ex);
       }},"Log it"));
   });
 }
@@ -957,24 +990,29 @@ function viewInsights(){
     }
 
     // ---- strength progress: grouped by movement, relative % so gyms read as one story ----
-    const exMap={}; allSets.forEach(x=>{(exMap[x.exerciseId]=exMap[x.exerciseId]||[]).push(x);});
-    const norm = s => (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+    // pool sets into "units" — machines confirmed as the same (shared linkId) count as one
+    const unitMap={};
+    allSets.forEach(x=>{ const ex=exById(x.exerciseId); if(!ex)return;
+      const key=ex.linkId||ex.id;
+      const u=unitMap[key]||(unitMap[key]={repEx:ex, sets:[], gymIds:new Set(), exIds:new Set()});
+      u.sets.push(x); u.exIds.add(ex.id); if(ex.gymId) u.gymIds.add(ex.gymId);
+    });
     const stats=[];
-    for(const[exId,list] of Object.entries(exMap)){
-      const ex=exById(exId); if(!ex)continue;
-      const bw=isBW(ex);
+    for(const key of Object.keys(unitMap)){
+      const u=unitMap[key], ex=u.repEx, bw=isBW(ex);
       const metric = bw ? (x=>x.reps) : (x=>epley(x.weight,x.reps));
-      const bySession={}; list.forEach(x=>{const se=sessions.find(s=>s.id===x.sessionId);if(!se)return;
-        const key=se.date+se.startedAt; bySession[key]=Math.max(bySession[key]||0, metric(x));});
+      const bySession={}; u.sets.forEach(x=>{const se=sessions.find(s=>s.id===x.sessionId);if(!se)return;
+        const k=se.date+se.startedAt; bySession[k]=Math.max(bySession[k]||0, metric(x));});
       const series=Object.entries(bySession).sort((a,b)=>a[0].localeCompare(b[0])).map(e=>e[1]);
       if(!series.length)continue;
       const first=series[0],last=series[series.length-1];
       stats.push({ex,bw,series,first,last,pct:first>0?((last-first)/first*100):0,
-        unitLbl: bw?"reps":"est 1RM", hasTrend:series.length>=2});
+        unitLbl: bw?"reps":"est 1RM", hasTrend:series.length>=2,
+        combined: u.exIds.size>1, gyms: u.gymIds.size});
     }
     if(stats.length){
       const card=el("div",{class:"card"}); card.append(el("h2",{},"Strength progress"));
-      const groups={}; stats.forEach(s=>{(groups[norm(s.ex.name)]=groups[norm(s.ex.name)]||[]).push(s);});
+      const groups={}; stats.forEach(s=>{(groups[normName(s.ex.name)]=groups[normName(s.ex.name)]||[]).push(s);});
       const pctEl = s => s.hasTrend
         ? el("div",{class:"small",style:(s.pct>1?"color:var(--accent-2)":s.pct<-1?"color:var(--warn)":"color:var(--muted)")},
             (s.pct>=0?"▲ ":"▼ ")+Math.abs(Math.round(s.pct))+"%")
@@ -983,17 +1021,17 @@ function viewInsights(){
         const block=el("div",{style:"margin-bottom:16px"});
         if(arr.length===1){
           const s=arr[0];
-          block.append(
-            el("div",{class:"row between",style:"margin-bottom:4px"},
-              el("div",{style:"font-weight:600;font-size:14px"}, s.ex.name), pctEl(s)),
-            s.hasTrend ? sparkline(s.series, `${s.ex.name}: ${s.pct>=0?"up":"down"} ${Math.abs(Math.round(s.pct))}%`)
-                       : el("div",{class:"tiny muted",style:"margin-top:4px"},"Log another session to see a trend"));
+          block.append(el("div",{class:"row between",style:"margin-bottom:4px"},
+            el("div",{style:"font-weight:600;font-size:14px"}, s.ex.name), pctEl(s)));
+          if(s.combined) block.append(el("div",{class:"tiny muted",style:"margin:-2px 0 6px"}, `combined across ${s.gyms} gyms`));
+          block.append(s.hasTrend ? sparkline(s.series, `${s.ex.name}: ${s.pct>=0?"up":"down"} ${Math.abs(Math.round(s.pct))}%`)
+                                  : el("div",{class:"tiny muted",style:"margin-top:4px"},"Log another session to see a trend"));
         } else {
           block.append(el("div",{class:"row between",style:"margin-bottom:6px"},
             el("div",{style:"font-weight:600;font-size:14px"}, arr[0].ex.name),
-            el("span",{class:"tiny muted"}, `${arr.length} gyms · combined`)));
+            el("span",{class:"tiny muted"}, `${arr.length} gyms · separate`)));
           arr.forEach(s=>block.append(el("div",{class:"row between",style:"margin:4px 0"},
-            el("div",{class:"small muted"}, gymName(s.ex.gymId)||"Free weight"), pctEl(s))));
+            el("div",{class:"small muted"}, gymNameOf(s.ex.gymId)||"Free weight"), pctEl(s))));
         }
         card.append(block);
       });
