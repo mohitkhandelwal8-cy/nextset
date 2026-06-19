@@ -785,6 +785,19 @@ function equipSelect(value){
   sel.value=value||"machine";
   return sel;
 }
+// togglable gym chips for a machine's "available at"; lockedSet = gyms already in the group (can't remove here)
+function gymMultiSelect(preChecked, lockedSet){
+  const checked=new Set(preChecked);
+  const wrap=el("div",{class:"filterchips",style:"flex-wrap:wrap"});
+  State.gyms.forEach(g=>{
+    const locked=lockedSet&&lockedSet.has(g.id);
+    const chip=el("button",{type:"button",class:"fchip"+(checked.has(g.id)?" on":"")}, g.name);
+    if(locked){ chip.disabled=true; chip.style.opacity="0.8"; }
+    else chip.addEventListener("click",()=>{ checked.has(g.id)?checked.delete(g.id):checked.add(g.id); chip.classList.toggle("on"); });
+    wrap.append(chip);
+  });
+  return {wrap, get:()=>[...checked]};
+}
 function openExerciseSheet(ex){
   const isNew=!ex;
   ex = ex || {id:uid(),gymId:State.currentGymId,name:"",unit:"kg",increment:2.5,sets:3,repMin:8,repMax:12,notes:""};
@@ -802,19 +815,30 @@ function openExerciseSheet(ex){
     const pSel=muscleSelect(ex.primary!==undefined?ex.primary:g0.primary, false);
     const sSel=muscleSelect(ex.secondary!==undefined?ex.secondary:g0.secondary, true);
     let mTouched=!!(ex.primary||ex.secondary), eqTouched=ex.equipment!==undefined, incTouched=!isNew;
+    // gym availability — only for machines/cables, and only worth asking when you have >1 gym
+    const groupGyms = isNew ? (State.currentGymId?[State.currentGymId]:[])
+      : [...new Set(linkedIds(ex.id).map(id=>State.exercises.find(e=>e.id===id)?.gymId).filter(Boolean))];
+    const lockedGyms = isNew ? new Set() : new Set(groupGyms); // existing gyms aren't removable here (use Delete)
+    const gms = gymMultiSelect(groupGyms, lockedGyms);
+    const gymField = el("label",{class:"field"}, el("span",{}, isNew?"Available at":"Also available at"), gms.wrap);
+    const globalNote = el("div",{class:"tiny muted",style:"margin:-4px 0 10px"},"Available at all your gyms — no need to add it per gym.");
+    const syncGymUI=()=>{ const scoped=equipGymScoped(eqSel.value);
+      gymField.style.display=(scoped && State.gyms.length>1)?"":"none";
+      globalNote.style.display=scoped?"none":""; };
     name.addEventListener("input",()=>{
       if(!mTouched){ const g=guessMuscles(name.value); pSel.value=g.primary||""; sSel.value=g.secondary||""; }
-      if(!eqTouched){ const e=guessEquipment(name.value); eqSel.value=e; if(!incTouched) inc.value=EQUIP[e].inc; }
+      if(!eqTouched){ const e=guessEquipment(name.value); eqSel.value=e; if(!incTouched) inc.value=EQUIP[e].inc; syncGymUI(); }
     });
     pSel.addEventListener("change",()=>mTouched=true);
     sSel.addEventListener("change",()=>mTouched=true);
-    eqSel.addEventListener("change",()=>{ eqTouched=true; if(!incTouched) inc.value=EQUIP[eqSel.value].inc; });
+    eqSel.addEventListener("change",()=>{ eqTouched=true; if(!incTouched) inc.value=EQUIP[eqSel.value].inc; syncGymUI(); });
     inc.addEventListener("input",()=>incTouched=true);
     body.append(
       el("label",{class:"field"},el("span",{},"Exercise name"),name),
       el("div",{class:"grid2"},
         el("label",{class:"field"},el("span",{},"Equipment"),eqSel),
         el("label",{class:"field"},el("span",{},"Weight unit"),unit)),
+      gymField, globalNote,
       el("div",{class:"grid2"},
         el("label",{class:"field"},el("span",{},"Smallest increment"),inc),
         el("label",{class:"field"},el("span",{},"Sets"),sets)),
@@ -826,17 +850,33 @@ function openExerciseSheet(ex){
         el("label",{class:"field"},el("span",{},"Rep min"),rmin),
         el("label",{class:"field"},el("span",{},"Rep max"),rmax)),
     );
+    syncGymUI();
     body.append(el("button",{class:"btn",onClick:async()=>{
       if(!name.value.trim())return;
       const equipment=eqSel.value;
-      Object.assign(ex,{name:name.value.trim(),equipment,unit:unit.value,increment:+inc.value||EQUIP[equipment].inc,
+      const base={name:name.value.trim(),equipment,unit:unit.value,increment:+inc.value||EQUIP[equipment].inc,
         sets:+sets.value||3,repMin:+rmin.value||8,repMax:+rmax.value||12,
-        primary:pSel.value||null, secondary:sSel.value||null});
-      ex.gymId = equipGymScoped(equipment) ? (ex.gymId!=null ? ex.gymId : State.currentGymId) : null;
-      await DB.put("exercises",ex);
+        primary:pSel.value||null, secondary:sSel.value||null};
+      if(equipGymScoped(equipment)){
+        let desired=gms.get(); if(!desired.length) desired=[State.currentGymId];
+        const groupRecords = isNew?[]:linkedIds(ex.id).map(id=>State.exercises.find(e=>e.id===id)).filter(Boolean);
+        let lid = ex.linkId || (new Set([...groupRecords.map(r=>r.gymId), ...desired]).size>1 ? uid() : null);
+        Object.assign(ex, base, {gymId: isNew?desired[0]:ex.gymId, linkId:lid||null});
+        await DB.put("exercises",ex);
+        for(const r of groupRecords){ if(r.id===ex.id)continue; Object.assign(r, base, {linkId:lid}); await DB.put("exercises",r); }
+        const have=new Set([ex.gymId, ...groupRecords.map(r=>r.gymId)]);
+        for(const gid of desired){ if(have.has(gid))continue; have.add(gid);
+          if(!lid){ lid=uid(); ex.linkId=lid; await DB.put("exercises",ex); }
+          const dupe=State.exercises.find(e=>e.gymId===gid && equipGymScoped(e.equipment) && normName(e.name)===normName(base.name));
+          if(dupe){ dupe.linkId=lid; await DB.put("exercises",dupe); }
+          else await DB.put("exercises",{...base, id:uid(), gymId:gid, linkId:lid});
+        }
+      } else {
+        Object.assign(ex, base, {gymId:null}); delete ex.linkId;
+        await DB.put("exercises",ex);
+      }
       State.exercises=await DB.all("exercises");
       close(); render();
-      if(isNew) maybePromptSameMachine(ex);
     }},isNew?"Add exercise":"Save"));
     if(!isNew) body.append(el("button",{class:"btn danger",style:"margin-top:8px",onClick:async()=>{
       if(!confirm(`Delete "${ex.name}"? Logged history stays.`))return;
