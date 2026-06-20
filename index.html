@@ -88,7 +88,7 @@
   .setrow .idx{color:var(--muted);font-size:13px;text-align:center}
   .stepper{display:flex;align-items:center;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
   .stepper button{width:46px;height:46px;font-size:22px;color:var(--accent);font-weight:700;display:flex;align-items:center;justify-content:center}
-  .stepper input{border:none;background:transparent;text-align:center;padding:0;border-radius:0;-moz-appearance:textfield}
+  .stepper input{height:46px;border:none;background:transparent;text-align:center;padding:0;border-radius:0;-moz-appearance:textfield}
   .stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
   .stepper .unit{font-size:10px;color:var(--muted);padding-right:6px}
   .setrow .done{width:42px;height:44px;border-radius:10px;background:var(--surface-2);
@@ -233,7 +233,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v10"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v11"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -319,7 +319,7 @@ const EQUIP={
   machine:{label:"Machine",gymScoped:true,inc:5},
   cable:{label:"Cable",gymScoped:true,inc:5},
   barbell:{label:"Barbell",gymScoped:false,inc:2.5},
-  dumbbell:{label:"Dumbbell",gymScoped:false,inc:2},
+  dumbbell:{label:"Dumbbell",gymScoped:false,inc:2.5},
   bodyweight:{label:"Bodyweight",gymScoped:false,inc:2.5},
   other:{label:"Other",gymScoped:false,inc:2.5},
 };
@@ -347,6 +347,20 @@ function fmtSetShort(ex,w,r){
   if(isBW(ex)) return (+w>0) ? `+${w}${ex.unit||"kg"}×${r}` : `${r} reps`;
   return `${w}${ex.unit||"kg"}×${r}`;
 }
+// rough time estimate (minutes) for one exercise = setup + sets × (work + rest)
+function exMinutes(ex, nSets){
+  if(!ex) return 0;
+  const sets=Math.max(1, nSets||ex.sets||3);
+  const reps=ex.repMax||12;
+  const heavy=ex.equipment==="barbell" || (ex.repMax && ex.repMax<=6);
+  const restSec=heavy?150:(isBW(ex)?60:(reps<=12?90:60));
+  const workSec=reps*3;            // ~3s per rep tempo
+  return Math.max(1, Math.round((60 + sets*(workSec+restSec))/60));
+}
+const planMinutes = items => items.reduce((t,it)=>{
+  const ex=State.exercises.find(e=>e.id===it.exerciseId);
+  return t + exMinutes(ex, it.sets?.length);
+},0);
 
 /* ---------- app state ---------- */
 const State = {
@@ -366,6 +380,13 @@ async function loadState(){
       changed=true;
     }
     if(changed) await DB.put("exercises",ex);
+  }
+  // one-time migration: old dumbbell default increment was 2 kg — standardize to 2.5
+  if(!(await DB.get("meta","dbInc25"))){
+    for(const ex of State.exercises){
+      if(ex.equipment==="dumbbell" && ex.increment===2){ ex.increment=2.5; await DB.put("exercises",ex); }
+    }
+    await setMeta("dbInc25", true);
   }
   const m = await DB.get("meta","currentGymId");
   State.currentGymId = m?.v || State.gyms[0]?.id || null;
@@ -563,7 +584,8 @@ function viewToday(){
     el("div",{class:"card",style:"border-color:var(--accent)"},
       el("div",{class:"row between"},
         el("div",{}, el("div",{style:"font-weight:700"},"Workout in progress"),
-          el("div",{class:"small muted"}, `${fmtDate(s.date)} · ${curGym()?.name||""}`)),
+          el("div",{class:"small muted"}, `${fmtDate(s.date)} · ${curGym()?.name||""}`),
+          ...(s.items.length?[el("div",{class:"tiny muted",style:"margin-top:2px"}, `~${planMinutes(s.items)} min · ${s.items.length} exercise${s.items.length>1?"s":""}`)]:[])),
         el("button",{class:"btn sm",style:"background:var(--accent-2);color:var(--on-accent-2)",onClick:finishSession},ic("check"),"Finish")
       )
     ),
@@ -905,28 +927,55 @@ function openExerciseSheet(ex){
 /* build / edit today's plan (customizable) */
 function openPlanSheet(){
   openSheet("Today's plan",(body,close)=>{
-    body.append(el("p",{class:"small muted",style:"margin-top:-6px"},
-      "Tap an exercise to add it — suggested weights/reps are pre-filled and fully editable in the workout."));
-    const gx=gymExercises();
-    const inPlan=new Set(State.activeSession.items.map(i=>i.exerciseId));
+    const items=State.activeSession.items;
+    const reopen=()=>{ close(); openPlanSheet(); render(); };
+
+    // ---- what's already in the plan: larger cells + estimated total time ----
+    if(items.length){
+      body.append(el("div",{class:"row between",style:"margin:-6px 0 10px"},
+        el("div",{class:"small muted"}, `${items.length} exercise${items.length>1?"s":""}`),
+        el("div",{class:"pill",style:"color:var(--accent);border-color:rgba(249,115,22,.45);font-weight:600"}, `~${planMinutes(items)} min total`)));
+      body.append(el("div",{class:"regionhead",style:"margin-top:0"},"In your plan"));
+      items.forEach((it,idx)=>{
+        const ex=State.exercises.find(e=>e.id===it.exerciseId);
+        if(!ex) return;
+        const grow=el("div",{class:"grow"},
+          el("div",{class:"name"},ex.name),
+          el("div",{class:"small muted"}, `${it.sets.length}×${ex.repMin}–${ex.repMax} · ~${exMinutes(ex,it.sets.length)} min`));
+        const tags=muscleTags(ex); if(tags) grow.append(tags);
+        body.append(el("div",{class:"listitem",style:"cursor:default"},
+          el("div",{class:"idx",style:"width:20px;text-align:center;color:var(--muted);flex:none"}, idx+1),
+          grow,
+          el("button",{class:"sheetclose",style:"width:40px;height:40px","aria-label":`Remove ${ex.name} from plan`,onClick:async()=>{
+            State.activeSession.items=items.filter(i=>i!==it);
+            await persistSession(); reopen();
+          }}, ic("x",18))));
+      });
+      body.append(el("div",{class:"divider"}));
+    } else {
+      body.append(el("p",{class:"small muted",style:"margin-top:-6px"},
+        "Tap an exercise to add it — suggested weights/reps are pre-filled and fully editable in the workout."));
+    }
+
+    // ---- add more: region-grouped chips, hiding what's already in the plan ----
+    const inPlan=new Set(items.map(i=>i.exerciseId));
+    const gx=gymExercises().filter(e=>!inPlan.has(e.id));
     if(gx.length){
+      if(items.length) body.append(el("div",{class:"regionhead"},"Add more"));
       REGION_ORDER.forEach(region=>{
         const inRegion=gx.filter(e=>exRegion(e)===region);
         if(!inRegion.length)return;
         body.append(el("div",{class:"regionhead"},region));
         const chips=el("div",{style:"margin:0 0 4px"});
         inRegion.forEach(ex=>{
-          const added=inPlan.has(ex.id);
-          chips.append(el("button",{class:"chip"+(added?"":" add"),onClick:async()=>{
-            if(added){
-              State.activeSession.items=State.activeSession.items.filter(i=>i.exerciseId!==ex.id);
-              await persistSession();
-            }else{ await addToPlan(ex); }
-            close(); openPlanSheet(); render();
-          }}, ic(added?"check":"plus",15), ex.name));
+          chips.append(el("button",{class:"chip add",onClick:async()=>{
+            await addToPlan(ex); reopen();
+          }}, ic("plus",15), ex.name));
         });
         body.append(chips);
       });
+    } else if(items.length){
+      body.append(el("p",{class:"muted small"},"Every exercise here is already in your plan."));
     } else {
       body.append(el("p",{class:"muted small"},"No exercises here yet."));
     }
