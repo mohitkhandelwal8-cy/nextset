@@ -173,13 +173,14 @@
 
 /* ---------- tiny DB layer (IndexedDB) ---------- */
 const DB = (() => {
-  const NAME = "nextset", VER = 1;
+  const NAME = "nextset", VER = 2;
   let db = null;
   const STORES = {
     gyms:      { key:"id" },
     exercises: { key:"id", idx:[["gymId","gymId"]] },     // a "machine" at a gym
     sessions:  { key:"id", idx:[["gymId","gymId"]] },
     sets:      { key:"id", idx:[["sessionId","sessionId"],["exerciseId","exerciseId"]] },
+    plans:     { key:"id", idx:[["gymId","gymId"]] },     // a saved, reusable workout (list of exercises)
     meta:      { key:"k" },
   };
   function open(){
@@ -233,7 +234,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v12"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v13"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -387,11 +388,12 @@ const planMinutes = items => items.reduce((t,it)=>{
 
 /* ---------- app state ---------- */
 const State = {
-  gyms:[], exercises:[], currentGymId:null, activeSession:null,
+  gyms:[], exercises:[], plans:[], currentGymId:null, activeSession:null,
 };
 async function loadState(){
   State.gyms = await DB.all("gyms");
   State.exercises = await DB.all("exercises");
+  State.plans = await DB.all("plans");
   // backfill tags for exercises saved before tagging existed (uses built-in knowledge)
   for(const ex of State.exercises){
     let changed=false;
@@ -425,6 +427,11 @@ const setMeta = (k,v)=>DB.put("meta",{k,v});
 const curGym = ()=>State.gyms.find(g=>g.id===State.currentGymId)||null;
 // a gym's exercises = its gym-scoped machines/cables + all global (free-weight/bodyweight) exercises
 const gymExercises = (gid=State.currentGymId)=>State.exercises.filter(e=>e.gymId===gid || e.gymId==null);
+// saved plans (routines) live at the gym they were built at
+const gymPlans = (gid=State.currentGymId)=>State.plans.filter(p=>p.gymId===gid);
+const templateMinutes = plan => plan.items.reduce((t,it)=>{ const ex=State.exercises.find(e=>e.id===it.exerciseId); return t + exMinutes(ex, it.sets); },0);
+function planRegions(plan){ return [...new Set(plan.items.map(it=>{const ex=State.exercises.find(e=>e.id===it.exerciseId);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))]; }
+function suggestPlanName(items){ const regs=[...new Set(items.map(it=>{const ex=State.exercises.find(e=>e.id===it.exerciseId);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))]; return regs.length? regs.slice(0,2).join(" & ") : "My plan"; }
 const normName = s => (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
 const gymNameOf = id => State.gyms.find(g=>g.id===id)?.name || "";
 // exercises confirmed as the SAME physical machine share a linkId; return every id in the group
@@ -580,6 +587,7 @@ function viewToday(){
   if(!State.activeSession){
     // start screen
     const gx = gymExercises();
+    const plans = gymPlans();
     wrap.append(
       el("div",{class:"card"},
         el("div",{class:"row between"},
@@ -589,10 +597,15 @@ function viewToday(){
         el("p",{class:"muted small",style:"margin:8px 0 14px"},
           gx.length? `${gx.length} exercise${gx.length>1?"s":""} available here.`
                    : "No exercises here yet — you can add them as you go."),
-        el("button",{class:"btn",onClick:startSession},ic("play"),"Start today's workout")
+        el("button",{class:plans.length?"btn secondary":"btn",onClick:startSession},ic("play"),plans.length?"Start an empty workout":"Start today's workout")
       )
     );
+    if(plans.length){
+      wrap.append(el("div",{class:"regionhead",style:"margin-top:4px"},"Your plans"));
+      plans.forEach(p=>wrap.append(planCard(p)));
+    }
     if(gx.length){
+      if(plans.length) wrap.append(el("div",{class:"regionhead",style:"margin-top:18px"},"All exercises"));
       REGION_ORDER.forEach(region=>{
         const inRegion=gx.filter(e=>exRegion(e)===region);
         if(!inRegion.length)return;
@@ -749,17 +762,52 @@ async function finishSession(){
   setTab("history");
 }
 
-/* build an editable plan; suggestions are pre-filled but fully editable */
-async function addToPlan(ex){
+/* build an editable plan; suggestions are pre-filled but fully editable.
+   setCount (optional) overrides how many sets to seed — used when loading a saved plan. */
+async function addToPlan(ex, setCount){
   const sug=await suggestNext(ex);
+  const base=sug.plan;
+  const n=Math.max(1, setCount||base.length);
   State.activeSession.items.push({
     exerciseId:ex.id, kind:sug.kind, note:sug.note, joint:false, rpe:null,
-    sets:sug.plan.map(p=>({weight:p.weight,reps:p.reps,done:false}))
+    sets:Array.from({length:n},(_,i)=>{const p=base[Math.min(i,base.length-1)]||{weight:0,reps:ex.repMin||8};return {weight:p.weight,reps:p.reps,done:false};})
   });
   await persistSession();
 }
 async function autofillPlanFromHistory(){
   // suggest the machines trained on this weekday most recently (light heuristic): skip — leave plan empty, user customizes
+}
+
+/* ---------- plans / routines: save a workout once, repeat it in one tap ---------- */
+// a plan stores the MOVEMENTS (exerciseId + set count), not frozen weights — so repeating it
+// re-suggests progressed targets from your latest history.
+async function savePlan(name){
+  const items=State.activeSession.items.map(it=>({exerciseId:it.exerciseId, sets:it.sets.length}));
+  const plan={ id:uid(), gymId:State.currentGymId, name:(name||"").trim()||suggestPlanName(State.activeSession.items),
+    items, createdAt:new Date().toISOString() };
+  await DB.put("plans",plan); State.plans.push(plan); return plan;
+}
+async function deletePlan(id){ await DB.del("plans",id); State.plans=State.plans.filter(p=>p.id!==id); }
+async function renamePlan(plan,name){ const n=(name||"").trim(); if(!n)return; plan.name=n; await DB.put("plans",plan); State.plans=await DB.all("plans"); }
+// add a plan's exercises to the current session (skip ones already in, drop ones since deleted)
+async function applyPlanToSession(plan){
+  const have=new Set(State.activeSession.items.map(i=>i.exerciseId));
+  let added=0, missing=0;
+  for(const it of plan.items){
+    const ex=State.exercises.find(e=>e.id===it.exerciseId);
+    if(!ex){ missing++; continue; }
+    if(have.has(ex.id)) continue;
+    await addToPlan(ex, it.sets); have.add(ex.id); added++;
+  }
+  return {added, missing};
+}
+async function startSessionFromPlan(plan){
+  if(!curGym()){ openGymSheet(); return; }
+  if(plan.gymId && plan.gymId!==State.currentGymId){ State.currentGymId=plan.gymId; await setMeta("currentGymId",plan.gymId); }
+  State.activeSession={ id:uid(), gymId:State.currentGymId, date:todayISO(), startedAt:new Date().toISOString(), items:[] };
+  const {added,missing}=await applyPlanToSession(plan);
+  await persistSession(); render();
+  toast(missing? `Loaded ${added} · ${missing} no longer exist` : `Loaded "${plan.name}"`);
 }
 
 /* ============================================================
@@ -1019,9 +1067,58 @@ function openPlanSheet(){
     } else {
       body.append(el("p",{class:"muted small"},"No exercises here yet."));
     }
-    body.append(el("div",{class:"divider"}),
-      el("button",{class:"btn secondary",onClick:()=>{close();openExerciseSheet(null);}},"+ Add a new exercise"),
+    body.append(el("div",{class:"divider"}));
+    if(items.length) body.append(el("button",{class:"btn secondary",onClick:savePlanSheet},ic("clipboard",16),"Save as a plan"));
+    if(gymPlans().length) body.append(el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>loadPlanSheet(reopen)},ic("download",16),"Load a saved plan"));
+    body.append(
+      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>{close();openExerciseSheet(null);}},"+ Add a new exercise"),
       el("button",{class:"btn",style:"margin-top:10px",onClick:close},"Done"));
+  });
+}
+
+/* a saved plan, shown on the start screen */
+function planCard(plan){
+  const n=plan.items.length, regs=planRegions(plan);
+  const grow=el("div",{class:"grow"},
+    el("div",{class:"name"},plan.name),
+    el("div",{class:"small muted"}, `${n} exercise${n>1?"s":""}${regs.length?" · "+regs.slice(0,3).join(", "):""} · ~${templateMinutes(plan)} min`));
+  return el("div",{class:"listitem",style:"cursor:default"},
+    grow,
+    el("button",{class:"btn sm",onClick:()=>startSessionFromPlan(plan)},ic("play",15),"Start"),
+    el("button",{class:"sheetclose",style:"margin-left:8px","aria-label":`Manage ${plan.name}`,onClick:()=>managePlan(plan)},ic("more",18)));
+}
+function managePlan(plan){
+  openSheet(plan.name,(body,close)=>{
+    const regs=planRegions(plan);
+    const name=el("input",{type:"text",value:plan.name});
+    body.append(
+      el("p",{class:"small muted",style:"margin-top:-6px"}, `${plan.items.length} exercise${plan.items.length>1?"s":""}${regs.length?" · "+regs.join(", "):""} · ~${templateMinutes(plan)} min`),
+      el("button",{class:"btn",onClick:()=>{ close(); startSessionFromPlan(plan); }},ic("play"),"Start this plan"),
+      el("label",{class:"field",style:"margin-top:16px"},el("span",{},"Rename"),name),
+      el("button",{class:"btn secondary",onClick:async()=>{ await renamePlan(plan,name.value); close(); render(); toast("Plan renamed"); }},"Save name"),
+      el("button",{class:"btn danger",style:"margin-top:8px",onClick:async()=>{ if(!confirm(`Delete plan "${plan.name}"? Your logged history stays.`))return; await deletePlan(plan.id); close(); render(); toast("Plan deleted"); }},"Delete plan"));
+  });
+}
+function savePlanSheet(){
+  openSheet("Save as a plan",(body,close)=>{
+    const name=el("input",{type:"text",value:suggestPlanName(State.activeSession.items),placeholder:"e.g. Push day, Leg day"});
+    body.append(
+      el("p",{class:"small muted",style:"margin-top:-6px"},"Saves these exercises as a reusable plan. Next time, start it in one tap — weights are re-suggested from your latest history, so it keeps progressing."),
+      el("label",{class:"field"},el("span",{},"Plan name"),name),
+      el("button",{class:"btn",onClick:async()=>{ const p=await savePlan(name.value); close(); render(); toast(`Saved plan "${p.name}"`); }},ic("check"),"Save plan"));
+  });
+}
+function loadPlanSheet(after){
+  openSheet("Load a saved plan",(body,close)=>{
+    const plans=gymPlans();
+    body.append(el("p",{class:"small muted",style:"margin-top:-6px"},"Adds a plan's exercises to today (skips any already in your plan). Weights are re-suggested from your history."));
+    if(!plans.length){ body.append(el("p",{class:"muted small"},"No saved plans at this gym yet.")); return; }
+    plans.forEach(p=>{
+      body.append(el("div",{class:"listitem",style:"cursor:default"},
+        el("div",{class:"grow"}, el("div",{class:"name"},p.name),
+          el("div",{class:"small muted"}, `${p.items.length} exercise${p.items.length>1?"s":""} · ~${templateMinutes(p)} min`)),
+        el("button",{class:"btn sm",onClick:async()=>{ const r=await applyPlanToSession(p); await persistSession(); close(); after&&after(); toast(r.missing?`Added ${r.added} · ${r.missing} missing`:`Added ${r.added}`); }},ic("plus",15),"Add")));
+    });
   });
 }
 
