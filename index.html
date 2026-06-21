@@ -152,6 +152,9 @@
   .setstep .setlbl strong{display:block;font-size:15px;color:var(--text);font-weight:700}
   .miniarrow{width:28px;height:20px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--muted);font-size:8px;display:flex;align-items:center;justify-content:center}
   .miniarrow:disabled{opacity:.3}
+  .progpill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .progpill.up{color:var(--accent-2);background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4)}
+  .progpill.down{color:var(--warn);background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35)}
 </style>
 </head>
 <body>
@@ -241,7 +244,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v14"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v15"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -504,7 +507,7 @@ async function suggestNext(ex){
   if(allTop || (allEasy && minReps>=Math.floor((repMin+repMax)/2))){
     const w = round(workW+inc, inc);
     plan = Array.from({length:sets},()=>({weight:w,reps:repMin,target:repMin}));
-    note = `${bw?"Add load":"Add weight"} → ${loadStr(w)} × ${repMin}. You ${allTop?`hit ${repMax}+ ${bw?"reps":"on every set"}`:"left reps in the tank"} last time.`;
+    note = `${bw?"Add load":"Add weight"} → ${loadStr(w)} × ${repMin} — up from ${loadStr(workW)} last time. You ${allTop?`hit ${repMax}+ ${bw?"reps":"on every set"}`:"left reps in the tank"}.`;
     kind="weight";
   } else if(minReps>=repMin){
     const tgt = Math.min(maxReps+1, repMax);
@@ -668,12 +671,22 @@ function exerciseCard(ex){
     grow, el("span",{class:"chev"},ic("chevron",18)));
 }
 
+// glanceable progression cue vs last time (the note below carries the detail)
+function progBadge(item){
+  if(item.kind==="weight") return el("span",{class:"progpill up"},"↑ heavier");
+  if(item.kind==="rep")    return el("span",{class:"progpill up"},"↑ more reps");
+  if(item.kind==="deload") return el("span",{class:"progpill down"},"↓ deload");
+  return null;
+}
 /* set logger card for an item in the active session */
 function loggerCard(item){
   const ex = State.exercises.find(e=>e.id===item.exerciseId);
+  const pb = progBadge(item);
   const card=el("div",{class:"card"});
   const head=el("div",{class:"row between",style:"margin-bottom:10px"},
-    el("div",{}, el("div",{style:"font-weight:700"},ex?.name||"Exercise"),
+    el("div",{style:"min-width:0"},
+      el("div",{class:"row",style:"gap:8px;align-items:center;flex-wrap:wrap"},
+        el("div",{style:"font-weight:700"},ex?.name||"Exercise"), ...(pb?[pb]:[])),
       el("div",{class:"tiny muted"}, ex?`${ex.sets}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest`:"")),
     el("button",{class:"jointbtn"+(item.joint?" on":""),"aria-pressed":item.joint?"true":"false",onClick:()=>{item.joint=!item.joint;persistSession();render();}},
       ic("alert",15), item.joint?"joint flagged":"flag joint")
@@ -799,22 +812,26 @@ async function renamePlan(plan,name){ const n=(name||"").trim(); if(!n)return; p
 // add a plan's exercises to the current session (skip ones already in, drop ones since deleted)
 async function applyPlanToSession(plan){
   const have=new Set(State.activeSession.items.map(i=>i.exerciseId));
-  let added=0, missing=0;
+  let added=0, missing=0, heavier=0;
   for(const it of plan.items){
     const ex=State.exercises.find(e=>e.id===it.exerciseId);
     if(!ex){ missing++; continue; }
     if(have.has(ex.id)) continue;
     await addToPlan(ex, it.sets); have.add(ex.id); added++;
+    if(State.activeSession.items[State.activeSession.items.length-1]?.kind==="weight") heavier++;
   }
-  return {added, missing};
+  return {added, missing, heavier};
 }
 async function startSessionFromPlan(plan){
   if(!curGym()){ openGymSheet(); return; }
   if(plan.gymId && plan.gymId!==State.currentGymId){ State.currentGymId=plan.gymId; await setMeta("currentGymId",plan.gymId); }
   State.activeSession={ id:uid(), gymId:State.currentGymId, date:todayISO(), startedAt:new Date().toISOString(), items:[] };
-  const {added,missing}=await applyPlanToSession(plan);
+  const {heavier,missing}=await applyPlanToSession(plan);
   await persistSession(); render();
-  toast(missing? `Loaded ${added} · ${missing} no longer exist` : `Loaded "${plan.name}"`);
+  let msg=`Loaded "${plan.name}"`;
+  if(heavier) msg+=` · ${heavier} lift${heavier>1?"s":""} going heavier`;
+  if(missing) msg+=` · ${missing} missing`;
+  toast(msg);
 }
 
 /* ============================================================
@@ -1185,7 +1202,7 @@ function loadPlanSheet(after){
       body.append(el("div",{class:"listitem",style:"cursor:default"},
         el("div",{class:"grow"}, el("div",{class:"name"},p.name),
           el("div",{class:"small muted"}, `${p.items.length} exercise${p.items.length>1?"s":""} · ~${templateMinutes(p)} min`)),
-        el("button",{class:"btn sm",onClick:async()=>{ const r=await applyPlanToSession(p); await persistSession(); close(); after&&after(); toast(r.missing?`Added ${r.added} · ${r.missing} missing`:`Added ${r.added}`); }},ic("plus",15),"Add")));
+        el("button",{class:"btn sm",onClick:async()=>{ const r=await applyPlanToSession(p); await persistSession(); close(); after&&after(); let m=`Added ${r.added}`; if(r.heavier) m+=` · ${r.heavier} going heavier`; if(r.missing) m+=` · ${r.missing} missing`; toast(m); }},ic("plus",15),"Add")));
     });
   });
 }
