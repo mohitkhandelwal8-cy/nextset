@@ -233,7 +233,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v11"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v12"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -347,15 +347,38 @@ function fmtSetShort(ex,w,r){
   if(isBW(ex)) return (+w>0) ? `+${w}${ex.unit||"kg"}×${r}` : `${r} reps`;
   return `${w}${ex.unit||"kg"}×${r}`;
 }
-// rough time estimate (minutes) for one exercise = setup + sets × (work + rest)
+/* ---------- rest between sets (evidence-based) + time estimate ---------- */
+// movement pattern → compound (multi-joint, rest longer) vs isolation (single-joint, rest less)
+const ISO_KEYS=["curl","fly","flye","raise","pushdown","push down","pressdown","press down","extension","pullover","shrug","calf","kickback","crossover","pec deck","pec fly","face pull","reverse fly","rear delt","lateral","wrist","forearm","grip","crunch","sit up","sit-up","situp","plank","leg raise","knee raise","russian twist","oblique","bicep","tricep","abductor","adductor","abduction","adduction","leg curl","leg extension"];
+const COMPOUND_KEYS=["squat","deadlift","rdl","romanian","bench","press","row","pulldown","pull down","pull up","pull-up","pullup","chin up","chin-up","chinup","dip","lunge","split squat","bulgarian","step up","step-up","hip thrust","thruster","clean","snatch","good morning","push up","push-up","pushup","arnold"];
+function guessMovement(name){
+  const n=" "+(name||"").toLowerCase()+" ";
+  if(ISO_KEYS.some(k=>n.includes(k))) return "isolation";   // check single-joint first (e.g. "chest fly", "leg curl")
+  if(COMPOUND_KEYS.some(k=>n.includes(k))) return "compound";
+  return "isolation"; // unknown → shorter rest (conservative)
+}
+// recommended rest (seconds) from rep range × movement — grounded in ACSM/Schoenfeld guidance:
+// strength 3–5 min, hypertrophy compound ~2 min, isolation 60–90s, endurance 30–60s
+function suggestRest(ex){
+  if(ex && ex.primary==="cardio") return 30;
+  const reps=(ex&&ex.repMax)||12, comp=guessMovement(ex&&ex.name)==="compound";
+  if(reps<=5)  return comp?180:120;   // strength
+  if(reps<=12) return comp?120:75;    // hypertrophy
+  if(reps<=20) return comp?75:60;     // endurance
+  return 45;                          // very high rep / conditioning
+}
+const restOf = ex => (ex && ex.restSec!=null) ? ex.restSec : suggestRest(ex||{});
+function fmtRest(sec){
+  if(sec%60===0) return `${sec/60} min`;
+  if(sec<120) return `${sec}s`;
+  return `${(sec/60).toFixed(1)} min`;
+}
+// time estimate (minutes) for one exercise = setup + work + rest between sets (n-1 gaps)
 function exMinutes(ex, nSets){
   if(!ex) return 0;
   const sets=Math.max(1, nSets||ex.sets||3);
-  const reps=ex.repMax||12;
-  const heavy=ex.equipment==="barbell" || (ex.repMax && ex.repMax<=6);
-  const restSec=heavy?150:(isBW(ex)?60:(reps<=12?90:60));
-  const workSec=reps*3;            // ~3s per rep tempo
-  return Math.max(1, Math.round((60 + sets*(workSec+restSec))/60));
+  const workSec=(ex.repMax||12)*3;            // ~3s per rep tempo
+  return Math.max(1, Math.round((60 + sets*workSec + Math.max(0,sets-1)*restOf(ex))/60));
 }
 const planMinutes = items => items.reduce((t,it)=>{
   const ex=State.exercises.find(e=>e.id===it.exerciseId);
@@ -379,6 +402,7 @@ async function loadState(){
       if(!equipGymScoped(ex.equipment)) ex.gymId=null;
       changed=true;
     }
+    if(ex.restSec===undefined){ ex.restSec=suggestRest(ex); changed=true; }
     if(changed) await DB.put("exercises",ex);
   }
   // one-time migration: old dumbbell default increment was 2 kg — standardize to 2.5
@@ -630,7 +654,7 @@ function loggerCard(item){
   const card=el("div",{class:"card"});
   const head=el("div",{class:"row between",style:"margin-bottom:10px"},
     el("div",{}, el("div",{style:"font-weight:700"},ex?.name||"Exercise"),
-      el("div",{class:"tiny muted"}, ex?`${ex.sets}×${ex.repMin}–${ex.repMax}`:"")),
+      el("div",{class:"tiny muted"}, ex?`${ex.sets}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest`:"")),
     el("button",{class:"jointbtn"+(item.joint?" on":""),"aria-pressed":item.joint?"true":"false",onClick:()=>{item.joint=!item.joint;persistSession();render();}},
       ic("alert",15), item.joint?"joint flagged":"flag joint")
   );
@@ -813,6 +837,15 @@ function equipSelect(value){
   sel.value=value||"machine";
   return sel;
 }
+const REST_OPTS=[30,45,60,75,90,120,150,180,240,300];
+function restSelect(value){
+  const sel=document.createElement("select");
+  REST_OPTS.forEach(s=>{ const o=document.createElement("option"); o.value=s; o.textContent=fmtRest(s); sel.append(o); });
+  // snap to the nearest preset if the value isn't already one
+  const snapped=REST_OPTS.includes(+value)?+value:REST_OPTS.reduce((a,b)=>Math.abs(b-value)<Math.abs(a-value)?b:a,REST_OPTS[0]);
+  sel.value=String(snapped);
+  return sel;
+}
 // togglable gym chips for a machine's "available at"; lockedSet = gyms already in the group (can't remove here)
 function gymMultiSelect(preChecked, lockedSet, onChange){
   const checked=new Set(preChecked);
@@ -842,7 +875,9 @@ function openExerciseSheet(ex){
     const g0=guessMuscles(ex.name);
     const pSel=muscleSelect(ex.primary!==undefined?ex.primary:g0.primary, false);
     const sSel=muscleSelect(ex.secondary!==undefined?ex.secondary:g0.secondary, true);
-    let mTouched=!!(ex.primary||ex.secondary), eqTouched=ex.equipment!==undefined, incTouched=!isNew;
+    const restSel=restSelect(isNew ? suggestRest({name:ex.name,repMax:ex.repMax,primary:g0.primary}) : restOf(ex));
+    let mTouched=!!(ex.primary||ex.secondary), eqTouched=ex.equipment!==undefined, incTouched=!isNew, restTouched=!isNew;
+    const reSuggestRest=()=>{ if(!restTouched) restSel.value=String(suggestRest({name:name.value,repMax:+rmax.value||12,primary:pSel.value})); };
     // gym availability — only for machines/cables, and only worth asking when you have >1 gym
     const groupGyms = isNew ? (State.currentGymId?[State.currentGymId]:[])
       : [...new Set(linkedIds(ex.id).map(id=>State.exercises.find(e=>e.id===id)?.gymId).filter(Boolean))];
@@ -865,12 +900,15 @@ function openExerciseSheet(ex){
     name.addEventListener("input",()=>{
       if(!mTouched){ const g=guessMuscles(name.value); pSel.value=g.primary||""; sSel.value=g.secondary||""; }
       if(!eqTouched){ const e=guessEquipment(name.value); eqSel.value=e; if(!incTouched) inc.value=EQUIP[e].inc; }
+      reSuggestRest();
       syncGymUI();
     });
-    pSel.addEventListener("change",()=>mTouched=true);
+    pSel.addEventListener("change",()=>{ mTouched=true; reSuggestRest(); });
     sSel.addEventListener("change",()=>mTouched=true);
     eqSel.addEventListener("change",()=>{ eqTouched=true; if(!incTouched) inc.value=EQUIP[eqSel.value].inc; syncGymUI(); });
     inc.addEventListener("input",()=>incTouched=true);
+    rmax.addEventListener("input",reSuggestRest);
+    restSel.addEventListener("change",()=>restTouched=true);
     body.append(
       el("label",{class:"field"},el("span",{},"Exercise name"),name),
       el("div",{class:"grid2"},
@@ -887,6 +925,8 @@ function openExerciseSheet(ex){
       el("div",{class:"grid2"},
         el("label",{class:"field"},el("span",{},"Rep min"),rmin),
         el("label",{class:"field"},el("span",{},"Rep max"),rmax)),
+      el("label",{class:"field"},el("span",{},"Rest between sets"),restSel),
+      el("div",{class:"tiny muted",style:"margin:-4px 0 4px"},"Auto-set from rep range & movement — heavy compounds rest longer, isolation less. Change anytime."),
     );
     syncGymUI();
     body.append(el("button",{class:"btn",onClick:async()=>{
@@ -894,7 +934,7 @@ function openExerciseSheet(ex){
       const equipment=eqSel.value;
       const base={name:name.value.trim(),equipment,unit:unit.value,increment:+inc.value||EQUIP[equipment].inc,
         sets:+sets.value||3,repMin:+rmin.value||8,repMax:+rmax.value||12,
-        primary:pSel.value||null, secondary:sSel.value||null};
+        primary:pSel.value||null, secondary:sSel.value||null, restSec:+restSel.value||suggestRest({name:name.value,repMax:+rmax.value||12,primary:pSel.value})};
       if(equipGymScoped(equipment)){
         let desired=gms.get(); if(!desired.length) desired=[State.currentGymId];
         const groupRecords = isNew?[]:linkedIds(ex.id).map(id=>State.exercises.find(e=>e.id===id)).filter(Boolean);
@@ -941,7 +981,7 @@ function openPlanSheet(){
         if(!ex) return;
         const grow=el("div",{class:"grow"},
           el("div",{class:"name"},ex.name),
-          el("div",{class:"small muted"}, `${it.sets.length}×${ex.repMin}–${ex.repMax} · ~${exMinutes(ex,it.sets.length)} min`));
+          el("div",{class:"small muted"}, `${it.sets.length}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest · ~${exMinutes(ex,it.sets.length)} min`));
         const tags=muscleTags(ex); if(tags) grow.append(tags);
         body.append(el("div",{class:"listitem",style:"cursor:default"},
           el("div",{class:"idx",style:"width:20px;text-align:center;color:var(--muted);flex:none"}, idx+1),
@@ -1003,7 +1043,8 @@ function openQuickAdd(){
         if(!ex){
           const g=guessMuscles(p.name), eq=guessEquipment(p.name);
           ex={id:uid(),gymId:equipGymScoped(eq)?State.currentGymId:null,name:p.name,unit:"kg",
-              equipment:eq,increment:EQUIP[eq].inc,sets:p.sets.length,repMin:8,repMax:12,primary:g.primary,secondary:g.secondary};
+              equipment:eq,increment:EQUIP[eq].inc,sets:p.sets.length,repMin:8,repMax:12,primary:g.primary,secondary:g.secondary,
+              restSec:suggestRest({name:p.name,repMax:12,primary:g.primary})};
           await DB.put("exercises",ex); State.exercises=await DB.all("exercises");
         }
         let item=State.activeSession.items.find(i=>i.exerciseId===ex.id);
