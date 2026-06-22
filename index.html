@@ -244,7 +244,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v15"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v16"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -437,8 +437,21 @@ const setMeta = (k,v)=>DB.put("meta",{k,v});
 const curGym = ()=>State.gyms.find(g=>g.id===State.currentGymId)||null;
 // a gym's exercises = its gym-scoped machines/cables + all global (free-weight/bodyweight) exercises
 const gymExercises = (gid=State.currentGymId)=>State.exercises.filter(e=>e.gymId===gid || e.gymId==null);
-// saved plans (routines) live at the gym they were built at
-const gymPlans = (gid=State.currentGymId)=>State.plans.filter(p=>p.gymId===gid);
+// saved plans (routines) are global — they travel with you and adapt to whatever gym you're in
+const allPlans = ()=>State.plans;
+// resolve a plan's stored exercise to the equivalent at a given gym:
+// globals work anywhere; a machine from another gym maps via its cross-gym link, then by name
+function resolveExerciseAtGym(exerciseId, gid=State.currentGymId){
+  const ex=State.exercises.find(e=>e.id===exerciseId);
+  if(!ex) return null;                                  // exercise was deleted
+  if(ex.gymId==null || ex.gymId===gid) return ex;       // global, or already at this gym
+  if(ex.linkId){                                         // same machine confirmed across gyms
+    const linked=State.exercises.find(e=>e.gymId===gid && e.linkId===ex.linkId);
+    if(linked) return linked;
+  }
+  const t=normName(ex.name);                             // same-named machine set up here
+  return State.exercises.find(e=>e.gymId===gid && equipGymScoped(e.equipment) && normName(e.name)===t) || null;
+}
 const templateMinutes = plan => plan.items.reduce((t,it)=>{ const ex=State.exercises.find(e=>e.id===it.exerciseId); return t + exMinutes(ex, it.sets); },0);
 function planRegions(plan){ return [...new Set(plan.items.map(it=>{const ex=State.exercises.find(e=>e.id===it.exerciseId);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))]; }
 function suggestPlanName(items){ const regs=[...new Set(items.map(it=>{const ex=State.exercises.find(e=>e.id===it.exerciseId);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))]; return regs.length? regs.slice(0,2).join(" & ") : "My plan"; }
@@ -597,7 +610,7 @@ function viewToday(){
   if(!State.activeSession){
     // start screen
     const gx = gymExercises();
-    const plans = gymPlans().filter(p=>p.items.length);  // hide empty drafts here; manage them in More
+    const plans = allPlans().filter(p=>p.items.length);  // hide empty drafts here; manage them in More
     wrap.append(
       el("div",{class:"card"},
         el("div",{class:"row between"},
@@ -809,29 +822,56 @@ async function savePlan(name){
 }
 async function deletePlan(id){ await DB.del("plans",id); State.plans=State.plans.filter(p=>p.id!==id); }
 async function renamePlan(plan,name){ const n=(name||"").trim(); if(!n)return; plan.name=n; await DB.put("plans",plan); State.plans=await DB.all("plans"); }
-// add a plan's exercises to the current session (skip ones already in, drop ones since deleted)
+// add a plan's exercises to the current session, resolving each to this gym's equivalent.
+// `unresolved` = machines that exist (at another gym) but aren't set up here yet — offer to add them.
 async function applyPlanToSession(plan){
   const have=new Set(State.activeSession.items.map(i=>i.exerciseId));
-  let added=0, missing=0, heavier=0;
+  let added=0, heavier=0; const unresolved=[];
   for(const it of plan.items){
-    const ex=State.exercises.find(e=>e.id===it.exerciseId);
-    if(!ex){ missing++; continue; }
+    const orig=State.exercises.find(e=>e.id===it.exerciseId);
+    const ex=resolveExerciseAtGym(it.exerciseId, State.currentGymId);
+    if(!ex){ if(orig) unresolved.push({ex:orig, sets:it.sets}); continue; }  // deleted → silently skip
     if(have.has(ex.id)) continue;
     await addToPlan(ex, it.sets); have.add(ex.id); added++;
     if(State.activeSession.items[State.activeSession.items.length-1]?.kind==="weight") heavier++;
   }
-  return {added, missing, heavier};
+  return {added, heavier, unresolved};
 }
 async function startSessionFromPlan(plan){
   if(!curGym()){ openGymSheet(); return; }
-  if(plan.gymId && plan.gymId!==State.currentGymId){ State.currentGymId=plan.gymId; await setMeta("currentGymId",plan.gymId); }
   State.activeSession={ id:uid(), gymId:State.currentGymId, date:todayISO(), startedAt:new Date().toISOString(), items:[] };
-  const {heavier,missing}=await applyPlanToSession(plan);
+  const {heavier,unresolved}=await applyPlanToSession(plan);
   await persistSession(); render();
   let msg=`Loaded "${plan.name}"`;
   if(heavier) msg+=` · ${heavier} lift${heavier>1?"s":""} going heavier`;
-  if(missing) msg+=` · ${missing} missing`;
   toast(msg);
+  if(unresolved.length) promptAddMissing(unresolved);
+}
+// machines in the plan that aren't set up at the current gym — add them here (linked, so progress pools) or skip
+function promptAddMissing(list){
+  openSheet("Not at this gym yet",(body,close)=>{
+    const gn=curGym()?.name||"this gym";
+    body.append(el("p",{class:"small muted",style:"margin-top:-6px"},
+      `${list.length} exercise${list.length>1?"s aren't":" isn't"} set up at ${gn}. Add ${list.length>1?"them":"it"} here and ${list.length>1?"they'll":"it'll"} share progress with your other gym${list.length>1?"s":""} — or skip for today.`));
+    list.forEach(({ex})=> body.append(el("div",{class:"listitem",style:"cursor:default"},
+      el("div",{class:"grow"}, el("div",{class:"name"},ex.name),
+        el("div",{class:"small muted"}, `${equipLabel(ex.equipment)||"Machine"}${ex.gymId?` · from ${gymNameOf(ex.gymId)}`:""}`)))));
+    body.append(
+      el("button",{class:"btn",onClick:async()=>{ const n=await addMissingToGym(list); close(); render(); toast(`Added ${n} to ${gn}`); }},ic("plus"),`Add to ${gn}`),
+      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:close},"Skip for now"));
+  });
+}
+async function addMissingToGym(list){
+  let n=0;
+  for(const {ex,sets} of list){
+    let lid=ex.linkId;                                   // link the new copy to the original so progress pools
+    if(!lid){ lid=uid(); ex.linkId=lid; await DB.put("exercises",ex); }
+    const copy={...ex, id:uid(), gymId:State.currentGymId, linkId:lid}; delete copy.createdAt;
+    await DB.put("exercises",copy); State.exercises.push(copy);
+    await addToPlan(copy, sets); n++;
+  }
+  await persistSession();
+  return n;
 }
 
 /* ============================================================
@@ -1093,7 +1133,7 @@ function openPlanSheet(){
     }
     body.append(el("div",{class:"divider"}));
     if(items.length) body.append(el("button",{class:"btn secondary",onClick:savePlanSheet},ic("clipboard",16),"Save as a plan"));
-    if(gymPlans().length) body.append(el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>loadPlanSheet(reopen)},ic("download",16),"Load a saved plan"));
+    if(allPlans().length) body.append(el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>loadPlanSheet(reopen)},ic("download",16),"Load a saved plan"));
     body.append(
       el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>{close();openExerciseSheet(null);}},"+ Add a new exercise"),
       el("button",{class:"btn",style:"margin-top:10px",onClick:close},"Done"));
@@ -1151,10 +1191,10 @@ function openPlanEditor(plan){
           el("button",{type:"button","aria-label":"More sets",onClick:async()=>{ it.sets++; await persist(); refresh(); }},"+"));
         listEl.append(el("div",{class:"listitem",style:"gap:8px;cursor:default"}, move, grow, setCtl, removeBtn));
       });
-      // add exercises not already in the plan (this plan's gym)
+      // add exercises not already in the plan — drawn from the gym you're currently at
       addEl.innerHTML="";
       const inPlan=new Set(plan.items.map(it=>it.exerciseId));
-      const gx=gymExercises(plan.gymId).filter(e=>!inPlan.has(e.id));
+      const gx=gymExercises().filter(e=>!inPlan.has(e.id));
       addEl.append(el("div",{class:"regionhead",style:"margin-top:0"},"Add an exercise"));
       if(gx.length){
         REGION_ORDER.forEach(region=>{
@@ -1195,14 +1235,14 @@ function savePlanSheet(){
 }
 function loadPlanSheet(after){
   openSheet("Load a saved plan",(body,close)=>{
-    const plans=gymPlans();
+    const plans=allPlans();
     body.append(el("p",{class:"small muted",style:"margin-top:-6px"},"Adds a plan's exercises to today (skips any already in your plan). Weights are re-suggested from your history."));
-    if(!plans.length){ body.append(el("p",{class:"muted small"},"No saved plans at this gym yet.")); return; }
+    if(!plans.length){ body.append(el("p",{class:"muted small"},"No saved plans yet.")); return; }
     plans.forEach(p=>{
       body.append(el("div",{class:"listitem",style:"cursor:default"},
         el("div",{class:"grow"}, el("div",{class:"name"},p.name),
           el("div",{class:"small muted"}, `${p.items.length} exercise${p.items.length>1?"s":""} · ~${templateMinutes(p)} min`)),
-        el("button",{class:"btn sm",onClick:async()=>{ const r=await applyPlanToSession(p); await persistSession(); close(); after&&after(); let m=`Added ${r.added}`; if(r.heavier) m+=` · ${r.heavier} going heavier`; if(r.missing) m+=` · ${r.missing} missing`; toast(m); }},ic("plus",15),"Add")));
+        el("button",{class:"btn sm",onClick:async()=>{ const r=await applyPlanToSession(p); await persistSession(); close(); after&&after(); let m=`Added ${r.added}`; if(r.heavier) m+=` · ${r.heavier} going heavier`; toast(m); if(r.unresolved.length) promptAddMissing(r.unresolved); }},ic("plus",15),"Add")));
     });
   });
 }
@@ -1441,7 +1481,7 @@ function viewMore(){
   const plansCard=el("div",{class:"card"});
   plansCard.append(el("h2",{},"Plans"),
     el("p",{class:"small muted",style:"margin:-6px 0 10px"},"Reusable workouts you can start in one tap. Tap to edit."));
-  const plans=gymPlans();
+  const plans=allPlans();
   plans.forEach(p=>{
     const n=p.items.length, regs=planRegions(p);
     plansCard.append(el("div",{class:"listitem",role:"button",tabindex:"0",style:"cursor:pointer","aria-label":`Edit ${p.name}`,
