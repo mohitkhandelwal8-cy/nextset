@@ -163,6 +163,16 @@
   .stepper.locked{opacity:.55;background:rgba(34,197,94,.06);border-color:rgba(34,197,94,.3)}
   .stepper.locked button{color:var(--muted)}
   .stepper.locked input{color:var(--muted)}
+  /* insights */
+  .statgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .stat{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:12px 13px}
+  .stat .num{font-family:'Barlow Condensed','Barlow',sans-serif;font-size:27px;font-weight:700;line-height:1.05}
+  .stat .lbl{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.3}
+  .stat.accent2 .num{color:var(--accent-2)} .stat.warn .num{color:var(--warn)} .stat.accent .num{color:var(--accent)}
+  .chart{margin:10px 0 2px}
+  .vbar.tappable{width:100%;text-align:left;padding:6px 2px;border-radius:8px}
+  .vbar.tappable:active{background:var(--surface-2)}
+  .vbar.tappable .chev{flex:none;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -252,7 +262,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v17"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v18"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1364,7 +1374,29 @@ function viewHistory(){
   return wrap;
 }
 
-/* ---------- INSIGHTS (local "ask your data") ---------- */
+/* ---------- INSIGHTS ---------- */
+// week bucket = the Monday of that date (local noon dodges TZ/DST slip)
+function mondayOf(iso){ const d=new Date(iso+"T12:00:00"); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d.toISOString().slice(0,10); }
+function lastNWeeks(n){ const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); const out=[]; for(let i=n-1;i>=0;i--){ const w=new Date(d); w.setDate(d.getDate()-i*7); out.push(w.toISOString().slice(0,10)); } return out; }
+function weekStreak(weekSet){ const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); let cur=new Date(d); if(!weekSet.has(cur.toISOString().slice(0,10))) cur.setDate(cur.getDate()-7); let s=0; while(weekSet.has(cur.toISOString().slice(0,10))){ s++; cur.setDate(cur.getDate()-7); } return s; }
+function fmtWeekLbl(iso){ const d=new Date(iso+"T12:00:00"); return (d.getMonth()+1)+"/"+d.getDate(); }
+// progressive-overload score: share of tracked lifts (pooled by linkId) moving up over the last 28 days
+function overloadScore(sessions, sets){
+  const sesById=Object.fromEntries(sessions.map(s=>[s.id,s])); const unit={};
+  for(const x of sets){ const ex=State.exercises.find(e=>e.id===x.exerciseId); if(!ex)continue;
+    const se=sesById[x.sessionId]; if(!se||daysAgo(se.date)>28)continue;
+    const key=ex.linkId||ex.id, m=isBW(ex)?x.reps:epley(x.weight,x.reps);
+    (unit[key]=unit[key]||{})[se.date]=Math.max(unit[key][se.date]||0, m); }
+  let up=0,hold=0,down=0;
+  for(const k in unit){ const ks=Object.keys(unit[k]).sort(); if(ks.length<2)continue;
+    const f=unit[k][ks[0]], l=unit[k][ks[ks.length-1]], dd=f>0?(l-f)/f:0;
+    if(dd>0.01)up++; else if(dd<-0.01)down++; else hold++; }
+  const total=up+hold+down, ratio=total?(up+0.5*hold)/total:0;
+  return { score: total?Math.round(100*ratio):null, up, hold, down, total,
+    label: !total?"Keep logging": ratio>=0.75?"Progressing": ratio>=0.5?"Holding":"Stalling" };
+}
+function statTile(num,label,tone){ return el("div",{class:"stat"+(tone?" "+tone:"")}, el("div",{class:"num"},String(num)), el("div",{class:"lbl"},label)); }
+
 function viewInsights(){
   const wrap=el("div",{});
   const mount=el("div",{}); wrap.append(mount);
@@ -1372,30 +1404,60 @@ function viewInsights(){
     const sessions=await DB.all("sessions");
     const allSets=await DB.all("sets");
     if(!allSets.length){ mount.append(el("div",{class:"empty"},el("div",{class:"big"},ic("bulb",42)),
-      el("p",{class:"muted"},"Log a few workouts and you'll get progress trends, plateau alerts and joint patterns here.")));return;}
-
+      el("p",{class:"muted"},"Log a few workouts and you'll get trends, a streak, a progressive-overload score and muscle breakdowns here.")));return;}
     const exById=id=>State.exercises.find(e=>e.id===id);
     const gymName=id=>State.gyms.find(g=>g.id===id)?.name||"";
+    const sesById=Object.fromEntries(sessions.map(s=>[s.id,s]));
+    const dateOf=x=>sesById[x.sessionId]?.date;
 
-    // ---- body-level (unified across gyms): weekly volume by muscle ----
+    // ===== Overview =====
+    const year=new Date().getFullYear();
+    const daysThisYear=[...new Set(sessions.map(s=>s.date))].filter(d=>d.startsWith(year+"-")).length;
+    const streak=weekStreak(new Set(sessions.map(s=>mondayOf(s.date))));
+    const ov=overloadScore(sessions, allSets);
+    const WK=lastNWeeks(10), thisWeek=WK[WK.length-1];
+    const wkSets=Object.fromEntries(WK.map(k=>[k,0]));
+    for(const x of allSets){ const d=dateOf(x); if(!d)continue; const wk=mondayOf(d); if(wk in wkSets) wkSets[wk]++; }
+    const setsThis=wkSets[thisWeek]||0, setsLast=wkSets[WK[WK.length-2]]||0;
+    const grid=el("div",{class:"statgrid"});
+    grid.append(
+      statTile(daysThisYear, `workout days in ${year}`),
+      statTile(streak, streak===1?"week streak":"weeks streak", "accent2"),
+      statTile(setsThis, "working sets this week"),
+      statTile(ov.score==null?"—":ov.score, "overload · "+ov.label, ov.score==null?"":ov.score>=75?"accent2":ov.score<50?"warn":""));
+    const ovCard=el("div",{class:"card"}); ovCard.append(el("h2",{},"Overview"), grid);
+    if(ov.total) ovCard.append(el("div",{class:"tiny muted",style:"margin-top:10px"},
+      `Overload score = share of your lifts moving up over 4 weeks · ${ov.up} up · ${ov.hold} holding · ${ov.down} down.`));
+    mount.append(ovCard);
+
+    // ===== Training volume trend (weekly working sets) =====
+    const deltaPct = setsLast? Math.round((setsThis-setsLast)/setsLast*100) : null;
+    const volCard=el("div",{class:"card"});
+    volCard.append(el("div",{class:"row between"},
+      el("h2",{style:"margin:0"},"Training volume"),
+      el("span",{class:"small",style: deltaPct==null?"color:var(--muted)":deltaPct>=0?"color:var(--accent-2)":"color:var(--warn)"},
+        deltaPct==null?"new":`${deltaPct>=0?"▲":"▼"} ${Math.abs(deltaPct)}% vs last wk`)));
+    volCard.append(lineChart(WK.map(k=>wkSets[k]), {labels:WK.map(fmtWeekLbl)}));
+    volCard.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Working sets per week · last 10 weeks."));
+    mount.append(volCard);
+
+    // ===== Muscle groups (tap for detail) =====
     const vol={};
-    for(const x of allSets){
-      const se=sessions.find(s=>s.id===x.sessionId); if(!se||daysAgo(se.date)>6) continue;
-      const ex=exById(x.exerciseId); if(!ex)continue;
+    for(const x of allSets){ const d=dateOf(x); if(!d||mondayOf(d)!==thisWeek)continue; const ex=exById(x.exerciseId); if(!ex)continue;
       if(ex.primary) vol[ex.primary]=(vol[ex.primary]||0)+1;
-      if(ex.secondary) vol[ex.secondary]=(vol[ex.secondary]||0)+0.5;
-    }
+      if(ex.secondary) vol[ex.secondary]=(vol[ex.secondary]||0)+0.5; }
     const volEntries=Object.entries(vol).sort((a,b)=>b[1]-a[1]);
     if(volEntries.length){
-      const vcard=el("div",{class:"card"}); vcard.append(el("h2",{},"Volume this week"));
+      const vcard=el("div",{class:"card"}); vcard.append(el("h2",{},"Muscle groups · this week"));
       const vmax=Math.max(...volEntries.map(e=>e[1]));
       volEntries.forEach(([k,v])=>{
-        vcard.append(el("div",{class:"vbar"},
+        vcard.append(el("button",{class:"vbar tappable","aria-label":`${muscleLabel(k)||k} detail`,onClick:()=>openMuscleDetail(k)},
           el("div",{class:"lbl"}, muscleLabel(k)||k),
           el("div",{class:"track"}, el("div",{class:"fill",style:`width:${Math.round(v/vmax*100)}%`})),
-          el("div",{class:"val"}, v%1?v.toFixed(1):String(v))));
+          el("div",{class:"val"}, v%1?v.toFixed(1):String(v)),
+          el("span",{class:"chev"},ic("chevron",16))));
       });
-      vcard.append(el("div",{class:"tiny muted",style:"margin-top:4px"},"Working sets, last 7 days · secondary muscles count as ½."));
+      vcard.append(el("div",{class:"tiny muted",style:"margin-top:4px"},"Working sets · this week · secondary muscles count as ½ · tap for detail."));
       mount.append(vcard);
     }
 
@@ -1508,6 +1570,88 @@ function sparkline(series,label=""){
     ${pts.length?`<circle cx="${pts[pts.length-1].split(",")[0]}" cy="${pts[pts.length-1].split(",")[1]}" r="3" fill="var(--accent)"/>`:""}
   </svg>`;
   return wrap;
+}
+
+// a filled line chart (SVG, responsive). values = numbers; opts.labels = x-axis labels
+function lineChart(values, opts={}){
+  const {labels=[], fmt=(v=>String(Math.round(v)))}=opts;
+  const n=values.length, W=324,H=132,padL=6,padR=6,padT=14,padB=18;
+  if(!n || values.every(v=>!v)) return el("div",{class:"tiny muted",style:"padding:20px 0;text-align:center"},"Not enough data yet — keep logging.");
+  const max=Math.max(...values), min=Math.min(...values,0), rng=(max-min)||1;
+  const X=i=> padL + (n<2?(W-padL-padR)/2 : i/(n-1)*(W-padL-padR));
+  const Y=v=> padT + (1-(v-min)/rng)*(H-padT-padB);
+  const line=values.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const li=n-1, base=(H-padB).toFixed(1);
+  const fillPts=`${X(0).toFixed(1)},${base} ${line} ${X(li).toFixed(1)},${base}`;
+  let xl=""; if(labels.length===n){ [0,Math.floor(li/2),li].forEach(i=>{ const a=i===0?"start":i===li?"end":"middle"; xl+=`<text x="${X(i).toFixed(1)}" y="${H-5}" fill="var(--muted)" font-size="9" text-anchor="${a}">${esc(labels[i])}</text>`; }); }
+  const wrap=el("div",{class:"chart",role:"img","aria-label":"Trend chart"});
+  wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    <line x1="${padL}" y1="${base}" x2="${W-padR}" y2="${base}" stroke="var(--line)"/>
+    <polygon points="${fillPts}" fill="var(--accent)" opacity="0.10"/>
+    <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${X(li).toFixed(1)}" cy="${Y(values[li]).toFixed(1)}" r="3.5" fill="var(--accent)"/>
+    <text x="${padL}" y="${(padT-3).toFixed(1)}" fill="var(--muted)" font-size="9">${esc(fmt(max))}</text>
+    ${xl}
+  </svg>`;
+  return wrap;
+}
+// drill-down for one muscle: weekly sets/volume, focus %, overload, top exercises, tips
+function openMuscleDetail(mk){
+  openSheet(muscleLabel(mk)||mk, (body)=>{
+    const mount=el("div",{}); body.append(mount);
+    (async()=>{
+      const sessions=await DB.all("sessions"), allSets=await DB.all("sets");
+      const sesById=Object.fromEntries(sessions.map(s=>[s.id,s]));
+      const exById=id=>State.exercises.find(e=>e.id===id);
+      const wOf=ex=> ex.primary===mk?1: ex.secondary===mk?0.5:0;
+      const WK=lastNWeeks(10);
+      const wkSets=Object.fromEntries(WK.map(k=>[k,0])), wkTon=Object.fromEntries(WK.map(k=>[k,0]));
+      const recentEx={}; let allSetsThisWeek=0;
+      const thisWeek=WK[WK.length-1], lastWeek=WK[WK.length-2];
+      for(const x of allSets){ const se=sesById[x.sessionId]; if(!se)continue; const recent=mondayOf(se.date)===thisWeek;
+        if(recent) allSetsThisWeek++;
+        const ex=exById(x.exerciseId); if(!ex)continue; const w=wOf(ex); if(!w)continue;
+        const wk=mondayOf(se.date); if(wk in wkSets){ wkSets[wk]+=w; wkTon[wk]+= w*(x.weight||0)*(x.reps||0); }
+        if(recent) recentEx[ex.id]=(recentEx[ex.id]||0)+w; }
+      const setsThis=wkSets[thisWeek]||0, setsLast=wkSets[lastWeek]||0, tonThis=Math.round(wkTon[thisWeek]||0);
+      const focus= allSetsThisWeek? Math.round(100*setsThis/allSetsThisWeek):0;
+      const ov=overloadScore(sessions, allSets.filter(x=>{const ex=exById(x.exerciseId);return ex&&ex.primary===mk;}));
+
+      const grid=el("div",{class:"statgrid"});
+      grid.append(
+        statTile(setsThis%1?setsThis.toFixed(1):setsThis, "sets this week"),
+        statTile(focus+"%", "of weekly volume"),
+        statTile(tonThis.toLocaleString(), "kg moved this week"),
+        statTile(ov.score==null?"—":ov.score, "overload · "+ov.label, ov.score==null?"":ov.score>=75?"accent2":ov.score<50?"warn":""));
+      mount.append(grid);
+
+      const deltaPct = setsLast? Math.round((setsThis-setsLast)/setsLast*100):null;
+      mount.append(el("div",{class:"row between",style:"margin:16px 0 0"},
+        el("div",{style:"font-weight:600;font-size:14px"},"Weekly sets"),
+        el("span",{class:"small",style:deltaPct==null?"color:var(--muted)":deltaPct>=0?"color:var(--accent-2)":"color:var(--warn)"}, deltaPct==null?"new":`${deltaPct>=0?"▲":"▼"} ${Math.abs(deltaPct)}% vs last wk`)));
+      mount.append(lineChart(WK.map(k=>wkSets[k]), {labels:WK.map(fmtWeekLbl), fmt:v=>v%1?v.toFixed(1):Math.round(v)+""}));
+
+      const tops=Object.entries(recentEx).sort((a,b)=>b[1]-a[1]).slice(0,6);
+      if(tops.length){
+        mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Top exercises · this week"));
+        const vmax=Math.max(...tops.map(t=>t[1]));
+        tops.forEach(([id,v])=>{ const ex=exById(id); if(!ex)return;
+          mount.append(el("div",{class:"vbar"}, el("div",{class:"lbl"},ex.name),
+            el("div",{class:"track"}, el("div",{class:"fill",style:`width:${Math.round(v/vmax*100)}%`})),
+            el("div",{class:"val"}, v%1?v.toFixed(1):String(v)))); });
+      }
+
+      const tips=[];
+      if(setsThis===0) tips.push(["warn",`No volume this week`,`Slot in a couple of ${(muscleLabel(mk)||mk).toLowerCase()} sets to keep it progressing.`]);
+      else if(setsThis<6) tips.push(["warn","Low volume","Most lifters grow on ~10–20 hard sets per muscle per week — this is below maintenance."]);
+      else if(setsThis<=20) tips.push(["good","In the growth range","~10–20 sets per week is the sweet spot for most people."]);
+      else tips.push(["warn","Very high volume","Above ~20 sets/week — make sure you're recovering, not just accumulating."]);
+      if(ov.total>=1){ if(ov.score>=75) tips.push(["good","Progressing","Loads and reps here are trending up."]);
+        else if(ov.score<50) tips.push(["warn","Stalling","Little upward movement lately — try a deload or a new rep range."]); }
+      mount.append(el("div",{class:"divider"}));
+      tips.forEach(([tone,t,d])=> mount.append(el("div",{class:"insight"+(tone==="good"?" good":tone==="warn"?" warn":"")}, el("div",{class:"t"},t), el("div",{class:"d"},d))));
+    })();
+  });
 }
 
 /* ---------- MORE (machines mgmt, export, about) ---------- */
