@@ -177,6 +177,9 @@
   .rowbtn{width:100%;background:none;text-align:left;padding:2px 0;border-radius:8px}
   .rowbtn:active{background:var(--surface-2)}
   .rowbtn .chev{flex:none;color:var(--muted)}
+  .histrow{width:100%;text-align:left;display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+  .histrow:active{background:var(--surface-2)}
+  .histrow .chev{flex:none;color:var(--muted)}
   .bodymap{margin:8px 0 2px}
   .cal{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:2px}
   .cal i{aspect-ratio:1;border-radius:2px;background:var(--surface-2)}
@@ -270,7 +273,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v21"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v22"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1351,6 +1354,11 @@ function parseNL(str){
 }
 
 /* ---------- HISTORY ---------- */
+// actual workout duration (min) from timestamps, if sane
+function sessionMins(se){ if(se.startedAt&&se.finishedAt){ const m=Math.round((new Date(se.finishedAt)-new Date(se.startedAt))/60000); if(m>0&&m<600) return m; } return null; }
+function relDate(iso){ const a=daysAgo(iso); return a===0?"Today":a===1?"Yesterday":null; }
+function monthYearLbl(ym){ const [y,m]=ym.split("-"); return ["January","February","March","April","May","June","July","August","September","October","November","December"][+m-1]+" "+y; }
+
 function viewHistory(){
   const wrap=el("div",{});
   const mount=el("div",{}); wrap.append(mount);
@@ -1359,28 +1367,68 @@ function viewHistory(){
     if(!sessions.length){ mount.append(el("div",{class:"empty"},el("div",{class:"big"},ic("inbox",42)),
       el("p",{class:"muted"},"No workouts logged yet. Finish a session and it shows up here.")));return;}
     const allSets=await DB.all("sets");
+    const exById=id=>State.exercises.find(e=>e.id===id);
+    const setsBy={}; allSets.forEach(x=>{(setsBy[x.sessionId]=setsBy[x.sessionId]||[]).push(x);});
+    const thisM=todayISO().slice(0,7), monthCount=sessions.filter(s=>s.date.slice(0,7)===thisM).length;
+    mount.append(el("div",{class:"row between",style:"margin:0 2px 12px"},
+      el("div",{style:"font-weight:700;font-size:20px"}, `${sessions.length} workout${sessions.length>1?"s":""}`),
+      el("span",{class:"small muted"}, `${monthCount} this month`)));
+    let curMonth=null;
     for(const se of sessions){
-      const ss=allSets.filter(x=>x.sessionId===se.id);
-      const byEx={}; ss.forEach(x=>{(byEx[x.exerciseId]=byEx[x.exerciseId]||[]).push(x);});
-      const gym=State.gyms.find(g=>g.id===se.gymId);
-      const card=el("div",{class:"card"});
-      card.append(el("div",{class:"row between"},
-        el("div",{style:"font-weight:700"},fmtDate(se.date)),
-        el("span",{class:"pill"}, gym?gym.name:"—")));
-      const regionsHit=[...new Set(Object.keys(byEx).map(id=>{const ex=State.exercises.find(e=>e.id===id);return ex?exRegion(ex):"Other";}))].filter(r=>r!=="Other");
-      if(regionsHit.length) card.append(el("div",{class:"mtags",style:"margin-top:8px"}, ...regionsHit.map(r=>el("span",{class:"mtag"},r))));
-      for(const[exId,list] of Object.entries(byEx)){
-        const ex=State.exercises.find(e=>e.id===exId);
-        const setsTxt=list.sort((a,b)=>a.order-b.order).map(x=>fmtSetShort(ex,x.weight,x.reps)).join("  ");
-        card.append(el("div",{style:"margin-top:8px"},
-          el("div",{class:"small",style:"font-weight:600;display:flex;align-items:center;gap:6px"}, (ex?ex.name:"(deleted)"),
-            ...(list.some(x=>x.joint)?[el("span",{style:"color:var(--warn);display:inline-flex",title:"joint flagged"},ic("alert",14))]:[])),
-          el("div",{class:"small muted"}, setsTxt)));
-      }
-      mount.append(card);
+      const mk=se.date.slice(0,7);
+      if(mk!==curMonth){ curMonth=mk; mount.append(el("div",{class:"regionhead",style:"margin-top:12px"}, monthYearLbl(mk))); }
+      const sets=setsBy[se.id]||[];
+      const byEx={}; sets.forEach(x=>{(byEx[x.exerciseId]=byEx[x.exerciseId]||[]).push(x);});
+      const exCount=Object.keys(byEx).length, vol=Math.round(sets.reduce((t,x)=>t+(x.weight||0)*(x.reps||0),0)), mins=sessionMins(se);
+      const regions=[...new Set(Object.keys(byEx).map(id=>{const ex=exById(id);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))];
+      const joint=sets.some(x=>x.joint), rel=relDate(se.date);
+      const meta=[`${exCount} exercise${exCount!==1?"s":""}`, `${sets.length} sets`];
+      if(mins) meta.push(`${mins} min`); if(vol>0) meta.push(`${vol.toLocaleString()} kg`);
+      mount.append(el("button",{class:"histrow",onClick:()=>openSessionDetail(se)},
+        el("div",{class:"grow"},
+          el("div",{class:"row",style:"gap:8px;align-items:baseline;flex-wrap:wrap"},
+            el("div",{style:"font-weight:700"}, rel||fmtDate(se.date)),
+            el("span",{class:"tiny muted"}, (rel?fmtDate(se.date)+" · ":"")+(gymNameOf(se.gymId)||"")),
+            ...(joint?[el("span",{style:"color:var(--warn);display:inline-flex"},ic("alert",13))]:[])),
+          el("div",{class:"small muted",style:"margin-top:3px"}, meta.join(" · ")),
+          ...(regions.length?[el("div",{class:"mtags",style:"margin-top:7px"}, ...regions.slice(0,4).map(r=>el("span",{class:"mtag"},r)))]:[])),
+        el("span",{class:"chev"},ic("chevron",18))));
     }
   })();
   return wrap;
+}
+// full breakdown for one past workout (opened from the History list)
+function openSessionDetail(se){
+  openSheet(relDate(se.date)||fmtDate(se.date),(body,close)=>{
+    const mount=el("div",{}); body.append(mount);
+    (async()=>{
+      const exById=id=>State.exercises.find(e=>e.id===id);
+      const sets=(await DB.all("sets")).filter(x=>x.sessionId===se.id);
+      const byEx={}; sets.forEach(x=>{(byEx[x.exerciseId]=byEx[x.exerciseId]||[]).push(x);});
+      const mins=sessionMins(se), vol=Math.round(sets.reduce((t,x)=>t+(x.weight||0)*(x.reps||0),0));
+      mount.append(el("div",{class:"small muted",style:"margin:-6px 0 10px"}, `${fmtDate(se.date)} · ${gymNameOf(se.gymId)||"—"}`));
+      const grid=el("div",{class:"statgrid"});
+      grid.append(statTile(Object.keys(byEx).length,"exercises"), statTile(sets.length,"sets"),
+        statTile(mins?String(mins):"—","minutes"), statTile(vol.toLocaleString(),"kg volume"));
+      mount.append(grid, el("div",{class:"divider"}));
+      for(const [exId,list] of Object.entries(byEx)){
+        const ex=exById(exId);
+        const setsTxt=list.sort((a,b)=>a.order-b.order).map(x=>fmtSetShort(ex,x.weight,x.reps)).join("   ");
+        const head=el("div",{class:"row",style:"gap:6px;align-items:center"},
+          el("div",{style:"font-weight:600"}, ex?ex.name:"(deleted)"),
+          ...(list.some(x=>x.joint)?[el("span",{style:"color:var(--warn);display:inline-flex",title:"joint flagged"},ic("alert",14))]:[]),
+          ...(ex?[el("span",{class:"chev",style:"margin-left:auto"},ic("chevron",15))]:[]));
+        mount.append(el(ex?"button":"div", ex?{class:"rowbtn",style:"margin-bottom:10px",onClick:()=>openExerciseProgress(ex.id)}:{style:"margin-bottom:10px"},
+          el("div",{style:"width:100%"}, head, el("div",{class:"small muted",style:"margin-top:2px"}, setsTxt))));
+      }
+      mount.append(el("div",{class:"divider"}),
+        el("button",{class:"btn danger",onClick:async()=>{
+          if(!confirm("Delete this workout and its logged sets? This can't be undone."))return;
+          for(const x of sets) await DB.del("sets",x.id); await DB.del("sessions",se.id);
+          close(); render(); toast("Workout deleted");
+        }},ic("x",16),"Delete workout"));
+    })();
+  });
 }
 
 /* ---------- INSIGHTS ---------- */
