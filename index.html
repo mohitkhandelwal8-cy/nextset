@@ -155,6 +155,14 @@
   .progpill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
   .progpill.up{color:var(--accent-2);background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4)}
   .progpill.down{color:var(--warn);background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35)}
+  /* in-workout exercise states */
+  .card.current{border-color:var(--accent);box-shadow:0 0 0 2px rgba(249,115,22,.22)}
+  .card.done{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.05)}
+  .nowtag{font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--on-accent);background:var(--accent);padding:2px 7px;border-radius:999px}
+  .donecheck{width:26px;height:26px;border-radius:999px;background:var(--accent-2);color:var(--on-accent-2);display:flex;align-items:center;justify-content:center;flex:none}
+  .stepper.locked{opacity:.55;background:rgba(34,197,94,.06);border-color:rgba(34,197,94,.3)}
+  .stepper.locked button{color:var(--muted)}
+  .stepper.locked input{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -244,7 +252,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v16"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v17"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -391,10 +399,11 @@ function exMinutes(ex, nSets){
   const workSec=(ex.repMax||12)*3;            // ~3s per rep tempo
   return Math.max(1, Math.round((60 + sets*workSec + Math.max(0,sets-1)*restOf(ex))/60));
 }
+const BETWEEN_REST_MIN = 3; // assume ~3 min rest walking/resting between exercises
 const planMinutes = items => items.reduce((t,it)=>{
   const ex=State.exercises.find(e=>e.id===it.exerciseId);
   return t + exMinutes(ex, it.sets?.length);
-},0);
+},0) + BETWEEN_REST_MIN*Math.max(0, items.length-1);
 
 /* ---------- app state ---------- */
 const State = {
@@ -452,7 +461,7 @@ function resolveExerciseAtGym(exerciseId, gid=State.currentGymId){
   const t=normName(ex.name);                             // same-named machine set up here
   return State.exercises.find(e=>e.gymId===gid && equipGymScoped(e.equipment) && normName(e.name)===t) || null;
 }
-const templateMinutes = plan => plan.items.reduce((t,it)=>{ const ex=State.exercises.find(e=>e.id===it.exerciseId); return t + exMinutes(ex, it.sets); },0);
+const templateMinutes = plan => plan.items.reduce((t,it)=>{ const ex=State.exercises.find(e=>e.id===it.exerciseId); return t + exMinutes(ex, it.sets); },0) + BETWEEN_REST_MIN*Math.max(0, plan.items.length-1);
 function planRegions(plan){ return [...new Set(plan.items.map(it=>{const ex=State.exercises.find(e=>e.id===it.exerciseId);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))]; }
 function suggestPlanName(items){ const regs=[...new Set(items.map(it=>{const ex=State.exercises.find(e=>e.id===it.exerciseId);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))]; return regs.length? regs.slice(0,2).join(" & ") : "My plan"; }
 const normName = s => (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
@@ -661,7 +670,8 @@ function viewToday(){
       el("button",{class:"btn",onClick:openPlanSheet},ic("plus"),"Build today's plan")
     ));
   } else {
-    s.items.forEach((it,i)=>wrap.append(loggerCard(it,i)));
+    const curIdx = s.items.findIndex(it=>!isItemDone(it));   // the exercise you're on now
+    s.items.forEach((it,i)=>wrap.append(loggerCard(it, i===curIdx)));
     wrap.append(el("button",{class:"btn ghost",style:"margin-top:4px",onClick:openPlanSheet},ic("plus"),"Add exercise"));
   }
   return wrap;
@@ -691,14 +701,39 @@ function progBadge(item){
   if(item.kind==="deload") return el("span",{class:"progpill down"},"↓ deload");
   return null;
 }
-/* set logger card for an item in the active session */
-function loggerCard(item){
+// an exercise counts as done once it's minimized, or every set is checked off
+const isItemDone = item => !!item.collapsed || (item.sets.length>0 && item.sets.every(s=>s.done));
+
+/* set logger card for an item in the active session.
+   isCurrent = the exercise you're working on now (first not-done one). */
+function loggerCard(item, isCurrent){
   const ex = State.exercises.find(e=>e.id===item.exerciseId);
+  const bw = isBW(ex);
+
+  // ----- MINIMIZED (done) view: compact summary, tap to expand/edit -----
+  if(item.collapsed){
+    const logged=item.sets.filter(s=>s.done && s.reps>0);
+    const summary=logged.length? logged.map(s=>fmtSetShort(ex,s.weight,s.reps)).join(" · ") : "No sets logged";
+    const expand=()=>{ item.collapsed=false; persistSession(); render(); };
+    const card=el("div",{class:"card done"});
+    card.append(el("div",{class:"row between",style:"gap:10px"},
+      el("div",{class:"row",style:"gap:10px;align-items:center;min-width:0",role:"button",tabindex:"0","aria-label":`Expand ${ex?.name||"exercise"}`,
+          onClick:expand, onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();expand();}}},
+        el("span",{class:"donecheck"}, ic("check",16)),
+        el("div",{style:"min-width:0"},
+          el("div",{style:"font-weight:700"}, ex?.name||"Exercise"),
+          el("div",{class:"tiny muted",style:"white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, summary))),
+      el("button",{class:"btn ghost sm",style:"flex:none",onClick:expand},ic("clipboard",15),"Edit")));
+    return card;
+  }
+
+  // ----- EXPANDED view -----
   const pb = progBadge(item);
-  const card=el("div",{class:"card"});
+  const card=el("div",{class:"card lcard"+(isCurrent?" current":"")});
   const head=el("div",{class:"row between",style:"margin-bottom:10px"},
     el("div",{style:"min-width:0"},
       el("div",{class:"row",style:"gap:8px;align-items:center;flex-wrap:wrap"},
+        ...(isCurrent?[el("span",{class:"nowtag"},"NOW")]:[]),
         el("div",{style:"font-weight:700"},ex?.name||"Exercise"), ...(pb?[pb]:[])),
       el("div",{class:"tiny muted"}, ex?`${ex.sets}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest`:"")),
     el("button",{class:"jointbtn"+(item.joint?" on":""),"aria-pressed":item.joint?"true":"false",onClick:()=>{item.joint=!item.joint;persistSession();render();}},
@@ -707,19 +742,17 @@ function loggerCard(item){
   card.append(head);
   if(item.note) card.append(el("div",{class:"suggestion"+(["deload","repeat"].includes(item.kind)?" warn":"")}, item.note));
 
-  const bw = isBW(ex);
   const wUnit = bw ? "+"+(ex?.unit||"kg") : (ex?.unit||"kg");
   item.sets.forEach((set,si)=>{
-    const row=el("div",{class:"setrow"});
+    const row=el("div",{class:"setrow"+(set.done?" locked":"")});
     row.append(el("div",{class:"idx"}, si+1));
-    const wStep=stepper(set.weight, ex?.increment||2.5, v=>{set.weight=Math.max(0,v);persistSession();}, wUnit);
-    const rStep=stepper(set.reps, 1, v=>{set.reps=Math.max(0,Math.round(v));persistSession();}, "reps");
+    const wStep=stepper(set.weight, ex?.increment||2.5, v=>{set.weight=Math.max(0,v);persistSession();}, wUnit, set.done);
+    const rStep=stepper(set.reps, 1, v=>{set.reps=Math.max(0,Math.round(v));persistSession();}, "reps", set.done);
     if(bw){ row.append(rStep, wStep); } else { row.append(wStep, rStep); }
-    const done=el("button",{class:"done"+(set.done?" on":""),"aria-label":`Complete set ${si+1}`,"aria-pressed":set.done?"true":"false",onClick:()=>{
-      set.done=!set.done; persistSession();
-      done.classList.toggle("on",set.done);
-      done.setAttribute("aria-pressed",set.done?"true":"false");
+    const done=el("button",{class:"done"+(set.done?" on":""),"aria-label":set.done?`Unlock set ${si+1}`:`Complete set ${si+1}`,"aria-pressed":set.done?"true":"false",onClick:()=>{
+      set.done=!set.done;
       if(set.done) toast(`Set ${si+1}: ${fmtSetShort(ex,set.weight,set.reps)}`);
+      persistSession(); render();   // re-render so the row locks/unlocks
     }},ic("check",18));
     row.append(done);
     card.append(row);
@@ -730,7 +763,6 @@ function loggerCard(item){
   ["easy","solid","grind"].forEach(level=>{
     rpe.append(el("button",{class:item.rpe===level?"on":"",onClick:()=>{
       item.rpe=item.rpe===level?null:level;
-      // store rpe on done sets
       item.sets.forEach(s=>{if(s.done)s.rpe=item.rpe;});
       persistSession(); render();
     }}, {easy:"Easy",solid:"Solid",grind:"Grind"}[level]));
@@ -739,7 +771,13 @@ function loggerCard(item){
 
   const ctl=el("div",{style:"margin-top:12px"});
   ctl.append(
-    el("button",{class:"btn secondary sm","aria-label":"Add set",style:"width:100%",onClick:()=>{
+    // log the exercise and minimize it
+    el("button",{class:"btn",style:"width:100%;background:var(--accent-2);color:var(--on-accent-2)","aria-label":"Mark exercise done",onClick:()=>{
+      item.sets.forEach(s=>{ if((+s.reps)>0) s.done=true; });
+      item.collapsed=true; persistSession(); render();
+      toast(`${ex?.name||"Exercise"} done`);
+    }},ic("check",16),"Done — log & minimize"),
+    el("button",{class:"btn secondary sm","aria-label":"Add set",style:"width:100%;margin-top:8px",onClick:()=>{
       const last=item.sets[item.sets.length-1];
       item.sets.push({weight:last?.weight||0,reps:last?.reps||(ex?.repMin||8),done:false});
       persistSession();render();
@@ -755,12 +793,13 @@ function loggerCard(item){
   return card;
 }
 
-/* stepper input with +/- */
-function stepper(value, step, onChange, unit){
-  const wrap=el("div",{class:"stepper"});
+/* stepper input with +/- ; pass disabled=true to lock it (e.g. a completed set) */
+function stepper(value, step, onChange, unit, disabled){
+  const wrap=el("div",{class:"stepper"+(disabled?" locked":"")});
   const input=el("input",{type:"number",inputmode:"decimal","aria-label":unit,value:value??0,step});
   const dec=el("button",{"aria-label":`Decrease ${unit}`,onClick:()=>{input.value=Math.max(0,(+input.value||0)-step);onChange(+input.value);}},ic("minus",20));
   const inc=el("button",{"aria-label":`Increase ${unit}`,onClick:()=>{input.value=(+input.value||0)+step;onChange(+input.value);}},ic("plus",20));
+  if(disabled){ input.disabled=true; input.readOnly=true; dec.disabled=true; inc.disabled=true; }
   input.addEventListener("change",()=>onChange(+input.value||0));
   input.addEventListener("focus",()=>input.select());
   wrap.append(dec,input,el("span",{class:"unit"},unit),inc);
@@ -971,7 +1010,7 @@ function gymMultiSelect(preChecked, lockedSet, onChange){
   });
   return {wrap, get:()=>[...checked]};
 }
-function openExerciseSheet(ex){
+function openExerciseSheet(ex, opts={}){
   const isNew=!ex;
   ex = ex || {id:uid(),gymId:State.currentGymId,name:"",unit:"kg",increment:2.5,sets:3,repMin:8,repMax:12,notes:""};
   openSheet(isNew?"Add exercise":"Edit exercise",(body,close)=>{
@@ -1066,7 +1105,9 @@ function openExerciseSheet(ex){
         await DB.put("exercises",ex);
       }
       State.exercises=await DB.all("exercises");
-      close(); render();
+      close();
+      if(isNew && opts.onCreate) await opts.onCreate(ex);   // e.g. drop it straight into today's workout
+      render();
       if(isNew) maybePromptSameMachine(ex);
     }},isNew?"Add exercise":"Save"));
     if(!isNew) body.append(el("button",{class:"btn danger",style:"margin-top:8px",onClick:async()=>{
@@ -1135,7 +1176,7 @@ function openPlanSheet(){
     if(items.length) body.append(el("button",{class:"btn secondary",onClick:savePlanSheet},ic("clipboard",16),"Save as a plan"));
     if(allPlans().length) body.append(el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>loadPlanSheet(reopen)},ic("download",16),"Load a saved plan"));
     body.append(
-      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>{close();openExerciseSheet(null);}},"+ Add a new exercise"),
+      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>{close();openExerciseSheet(null,{onCreate: async ex=>{ if(State.activeSession && !State.activeSession.items.some(i=>i.exerciseId===ex.id)) await addToPlan(ex); }});}},"+ Add a new exercise"),
       el("button",{class:"btn",style:"margin-top:10px",onClick:close},"Done"));
   });
 }
@@ -1205,7 +1246,7 @@ function openPlanEditor(plan){
           inRegion.forEach(ex=>chips.append(el("button",{class:"chip add",onClick:async()=>{ plan.items.push({exerciseId:ex.id, sets:ex.sets||3}); await persist(); refresh(); render(); }}, ic("plus",15), ex.name)));
           addEl.append(chips);
         });
-        addEl.append(el("button",{class:"btn secondary",style:"margin-top:6px",onClick:()=>{close();openExerciseSheet(null);}},"+ Create a new exercise"));
+        addEl.append(el("button",{class:"btn secondary",style:"margin-top:6px",onClick:()=>{close();openExerciseSheet(null,{onCreate: async ex=>{ plan.items.push({exerciseId:ex.id, sets:ex.sets||3}); plan.updatedAt=new Date().toISOString(); await DB.put("plans",plan); openPlanEditor(plan); }});}},"+ Create a new exercise"));
       } else {
         addEl.append(el("p",{class:"muted small"},"Every exercise at this gym is already in the plan."));
       }
