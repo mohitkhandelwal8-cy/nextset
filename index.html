@@ -103,9 +103,10 @@
   .rpe button{flex:1;font-size:12px;padding:6px 4px;min-height:44px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);display:inline-flex;align-items:center;justify-content:center;gap:5px}
   .rpe button.on{background:var(--surface-2);border-color:var(--accent);color:var(--accent)}
   /* modal/sheet */
-  .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+  .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;touch-action:none}
+  body.modal-open{overflow:hidden}
   .sheet{background:var(--surface);width:100%;max-width:560px;border-radius:18px 18px 0 0;
-    border-top:1px solid var(--line);padding:18px 16px calc(20px + var(--safe-b));max-height:88vh;overflow:auto;animation:up .2s ease}
+    border-top:1px solid var(--line);padding:18px 16px calc(20px + var(--safe-b));max-height:88vh;overflow:auto;overscroll-behavior:contain;touch-action:auto;animation:up .2s ease}
   @keyframes up{from{transform:translateY(30px);opacity:.6}to{transform:none;opacity:1}}
   .sheet h2{margin:0;font-size:17px}
   .grabber{width:40px;height:4px;border-radius:999px;background:var(--line);margin:2px auto 14px}
@@ -177,8 +178,8 @@
   .rowbtn:active{background:var(--surface-2)}
   .rowbtn .chev{flex:none;color:var(--muted)}
   .bodymap{margin:8px 0 2px}
-  .cal{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:3px}
-  .cal i{aspect-ratio:1;border-radius:3px;background:var(--surface-2)}
+  .cal{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:2px}
+  .cal i{aspect-ratio:1;border-radius:2px;background:var(--surface-2)}
   .cal i.l1{background:rgba(34,197,94,.3)} .cal i.l2{background:rgba(34,197,94,.6)} .cal i.l3{background:var(--accent-2)}
 </style>
 </head>
@@ -269,7 +270,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v20"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v21"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -935,7 +936,7 @@ async function addMissingToGym(list){
    ============================================================ */
 function openSheet(title, buildBody){
   const host=$("#sheetHost");
-  const close=()=>host.innerHTML="";
+  const close=()=>{ host.innerHTML=""; document.body.classList.remove("modal-open"); };
   const bg=el("div",{class:"sheet-bg",onClick:e=>{if(e.target===bg)close();}});
   const sheet=el("div",{class:"sheet"});
   sheet.append(el("div",{class:"grabber"}));
@@ -944,6 +945,7 @@ function openSheet(title, buildBody){
     el("button",{class:"sheetclose","aria-label":"Close",onClick:close}, ic("x",20))));
   buildBody(sheet, close);
   bg.append(sheet); host.innerHTML=""; host.append(bg);
+  document.body.classList.add("modal-open");   // lock background scroll while the sheet is open
 }
 
 /* gym add/switch */
@@ -1442,10 +1444,10 @@ function viewInsights(){
       statTile(daysThisYear, `workout days in ${year}`),
       statTile(streak, streak===1?"week streak":"weeks streak", "accent2"),
       statTile(setsThis, "working sets this week"),
-      statTile(ov.score==null?"—":ov.score+"/10", "overload · "+ov.label, ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""));
+      statTile(ov.score==null?"—":ov.score+"/10", "progressive overload", ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""));
     const ovCard=el("div",{class:"card"}); ovCard.append(el("h2",{},"Overview"), grid);
     if(ov.tracked) ovCard.append(el("div",{class:"tiny muted",style:"margin-top:10px"},
-      `Overload ${ov.score}/10 · ${ov.up} of ${ov.tracked} lift${ov.tracked>1?"s":""} moving up · trained ${ov.weeks} of last 4 weeks · avg ${ov.avgGainPct>=0?"+":""}${ov.avgGainPct}% per lift. Blends progress, consistency & gain size.`));
+      `Progressive overload ${ov.score}/10 · ${ov.label} — ${ov.up} of ${ov.tracked} lift${ov.tracked>1?"s":""} moving up · trained ${ov.weeks} of last 4 weeks · avg ${ov.avgGainPct>=0?"+":""}${ov.avgGainPct}% per lift. Blends progress, consistency & gain size.`));
     mount.append(ovCard);
 
     // ===== Training volume trend (range-filterable) =====
@@ -1468,7 +1470,7 @@ function viewInsights(){
     const calCard=el("div",{class:"card"});
     calCard.append(el("div",{class:"row between"}, el("h2",{style:"margin:0"},"Consistency"),
       el("span",{class:"small muted"}, `${daysThisYear} days in ${year}`)));
-    calCard.append(consistencyCard(dateCount), el("div",{class:"tiny muted",style:"margin-top:8px"},"Each square is a day · last 17 weeks · greener = more sets."));
+    calCard.append(consistencyCard(dateCount), el("div",{class:"tiny muted",style:"margin-top:8px"},"Each square is a day · last 26 weeks · greener = more sets."));
     mount.append(calCard);
 
     // ===== Muscle groups (tap for detail) =====
@@ -1676,7 +1678,7 @@ function openMuscleDetail(mk){
         statTile(setsThis%1?setsThis.toFixed(1):setsThis, "sets this week"),
         statTile(focus+"%", "of weekly volume"),
         statTile(tonThis.toLocaleString(), "kg moved this week"),
-        statTile(ov.score==null?"—":ov.score+"/10", "overload · "+ov.label, ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""));
+        statTile(ov.score==null?"—":ov.score+"/10", "progressive overload · "+ov.label, ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""));
       mount.append(grid);
 
       const deltaPct = setsLast? Math.round((setsThis-setsLast)/setsLast*100):null;
@@ -1752,6 +1754,7 @@ function openExerciseProgress(exId){
         el("div",{style:"font-weight:600;font-size:14px"}, bw?"Best reps over time":"Estimated 1RM over time"),
         el("span",{class:"small",style:pct==null?"color:var(--muted)":pct>=0?"color:var(--accent-2)":"color:var(--warn)"}, pct==null?"":`${pct>=0?"▲":"▼"} ${Math.abs(pct)}%`)));
       mount.append(lineChart(series,{labels:dates.map(fmtShortDate), fmt:v=>Math.round(v)+(bw?"":(ex.unit||"kg"))}));
+      if(!bw) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Estimated 1RM via the Epley formula — weight × (1 + reps/30). Most accurate at ≤10 reps."));
       mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Records"));
       const recs=el("div",{class:"statgrid"});
       if(bw) recs.append(statTile(pr.maxReps||0,"most reps in a set"), statTile((pr.heaviest||0)+(ex.unit||"kg"),"most added load"));
@@ -1818,7 +1821,7 @@ function bodyHeatmap(vol){
 }
 // GitHub-style activity grid: last 17 weeks × 7 days, shaded by sets that day
 function consistencyCard(dateCount){
-  const weeks=17, d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)-(weeks-1)*7);
+  const weeks=26, d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)-(weeks-1)*7);
   const grid=el("div",{class:"cal"});
   for(let c=0;c<weeks;c++) for(let r=0;r<7;r++){ const cell=new Date(d); cell.setDate(d.getDate()+c*7+r);
     const key=cell.toISOString().slice(0,10), n=dateCount[key]||0, lvl=n===0?0:n<7?1:n<13?2:3;
