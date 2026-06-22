@@ -180,6 +180,14 @@
   .histrow{width:100%;text-align:left;display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px}
   .histrow:active{background:var(--surface-2)}
   .histrow .chev{flex:none;color:var(--muted)}
+  .gdot{width:9px;height:9px;border-radius:999px;flex:none;display:inline-block}
+  .exgroup{border-top:1px solid var(--line)}
+  .exgroup:first-of-type{border-top:none}
+  .exgroup>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:13px 2px;cursor:pointer;min-height:44px}
+  .exgroup>summary::-webkit-details-marker{display:none}
+  .exgroup>summary .chev{flex:none;color:var(--muted);transition:transform .15s}
+  .exgroup[open]>summary .chev{transform:rotate(90deg)}
+  .exgroup[open]{padding-bottom:6px}
   .bodymap{margin:8px 0 2px}
   .cal{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:2px}
   .cal i{aspect-ratio:1;border-radius:2px;background:var(--surface-2)}
@@ -273,7 +281,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v23"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v24"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1401,8 +1409,9 @@ function viewHistory(){
       if(mins) meta.push(`${mins} min`); if(vol>0) meta.push(`${vol.toLocaleString()} kg`);
       mount.append(el("button",{class:"histrow",onClick:()=>openSessionDetail(se)},
         el("div",{class:"grow"},
-          el("div",{class:"row",style:"gap:8px;align-items:baseline;flex-wrap:wrap"},
+          el("div",{class:"row",style:"gap:7px;align-items:center;flex-wrap:wrap"},
             el("div",{style:"font-weight:700"}, rel||fmtDate(se.date)),
+            el("span",{class:"gdot",style:`background:${gymHue(se.gymId)}`}),
             el("span",{class:"tiny muted"}, (rel?fmtDate(se.date)+" · ":"")+(gymNameOf(se.gymId)||"")),
             ...(joint?[el("span",{style:"color:var(--warn);display:inline-flex"},ic("alert",13))]:[])),
           el("div",{class:"small muted",style:"margin-top:3px"}, meta.join(" · ")),
@@ -1554,7 +1563,7 @@ function viewInsights(){
       volEntries.forEach(([k,v])=>{
         vcard.append(el("button",{class:"vbar tappable","aria-label":`${muscleLabel(k)||k} detail`,onClick:()=>openMuscleDetail(k)},
           el("div",{class:"lbl"}, muscleLabel(k)||k),
-          el("div",{class:"track"}, el("div",{class:"fill",style:`width:${Math.round(v/vmax*100)}%`})),
+          el("div",{class:"track"}, el("div",{class:"fill",style:`width:${Math.round(v/vmax*100)}%;background:${regionHue(regionOf(k))}`})),
           el("div",{class:"val"}, v%1?v.toFixed(1):String(v)),
           el("span",{class:"chev"},ic("chevron",16))));
       });
@@ -1895,12 +1904,18 @@ function consistencyCard(dateCount){
 /* ---------- MORE (machines mgmt, export, about) ---------- */
 function viewMore(){
   const wrap=el("div",{});
-  wrap.append(el("div",{class:"card"},
-    el("h2",{},"Gym & exercises"),
-    el("button",{class:"btn secondary",onClick:openGymSheet},"Manage gyms"),
-    el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>openExerciseSheet(null)},"Add an exercise")
-  ));
-  // saved plans (routines)
+  // ----- Gyms: quick switch + manage (standalone) -----
+  const gymCard=el("div",{class:"card"}); gymCard.append(el("h2",{},"Gyms"));
+  if(State.gyms.length){
+    const chips=el("div",{class:"filterchips",style:"flex-wrap:wrap"});
+    State.gyms.forEach(g=>{ const h=gymHue(g.id), cur=g.id===State.currentGymId;
+      chips.append(el("button",{class:"fchip",style:cur?tintStyle(h,600):"","aria-pressed":cur?"true":"false",onClick:async()=>{ State.currentGymId=g.id; await setMeta("currentGymId",g.id); render(); }},
+        el("span",{class:"gdot",style:`background:${h};margin-right:7px`}), g.name)); });
+    gymCard.append(chips);
+  }
+  gymCard.append(el("button",{class:"btn secondary",style:"margin-top:8px",onClick:openGymSheet},ic("plus"),"Manage gyms"));
+  wrap.append(gymCard);
+  // ----- saved plans (routines) -----
   const plansCard=el("div",{class:"card"});
   plansCard.append(el("h2",{},"Plans"),
     el("p",{class:"small muted",style:"margin:-6px 0 10px"},"Reusable workouts you can start in one tap. Tap to edit."));
@@ -1916,11 +1931,24 @@ function viewMore(){
   if(!plans.length) plansCard.append(el("p",{class:"muted small",style:"margin:0 0 10px"},"No plans yet. Build one here, or save a workout as a plan while you train."));
   plansCard.append(el("button",{class:"btn secondary",onClick:newPlan},ic("plus"),"New plan"));
   wrap.append(plansCard);
-  const gx=gymExercises();
-  if(gx.length){
-    const c=el("div",{class:"card"}); c.append(el("h2",{},`Exercises at ${curGym()?.name||""}`));
-    gx.forEach(ex=>c.append(exerciseCard(ex))); wrap.append(c);
-  }
+  // ----- Exercises, grouped by gym (collapsed) + add -----
+  const exCard=el("div",{class:"card"}); exCard.append(el("h2",{},"Exercises"));
+  const groups=State.gyms.map(g=>({name:g.name, hue:gymHue(g.id), list:State.exercises.filter(e=>e.gymId===g.id)}));
+  const globals=State.exercises.filter(e=>e.gymId==null);
+  if(globals.length||!State.gyms.length) groups.push({name:"Free weights & bodyweight", hue:"#9FB0C3", list:globals, global:true});
+  groups.forEach(grp=>{
+    const det=el("details",{class:"exgroup"});
+    det.append(el("summary",{},
+      el("span",{class:"gdot",style:`background:${grp.hue}`}),
+      el("span",{class:"grow",style:"font-weight:600"}, grp.name),
+      el("span",{class:"tiny muted"}, String(grp.list.length)),
+      el("span",{class:"chev"},ic("chevron",16))));
+    if(grp.list.length) grp.list.forEach(ex=>det.append(exerciseCard(ex)));
+    else det.append(el("p",{class:"muted small",style:"margin:6px 2px 10px"}, grp.global?"No free-weight exercises yet.":"No machines added at this gym yet."));
+    exCard.append(det);
+  });
+  exCard.append(el("button",{class:"btn secondary",style:"margin-top:12px",onClick:()=>openExerciseSheet(null)},ic("plus"),"Add an exercise"));
+  wrap.append(exCard);
   wrap.append(el("div",{class:"card"},
     el("h2",{},"Your data"),
     el("p",{class:"small muted",style:"margin-top:-4px"},"It's all yours and lives on this device. Export anytime — no account, no lock-in."),
