@@ -273,7 +273,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v22"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v23"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -313,6 +313,20 @@ const REGION_ORDER=["Legs","Back","Chest","Shoulders","Arms","Core","Other"];
 const muscleLabel=k=>MUSCLES[k]?.label||null;
 const regionOf=k=>MUSCLES[k]?.region||"Other";
 const exRegion=ex=>ex.primary?regionOf(ex.primary):"Other";
+// distinct hue per muscle region — color-codes body-part tags so they read at a glance
+const REGION_HUE={Legs:"#60A5FA",Back:"#2DD4BF",Chest:"#FB7185",Shoulders:"#EAB308",Arms:"#A78BFA",Core:"#A3E635",Other:"#9FB0C3"};
+const regionHue=r=>REGION_HUE[r]||"#9FB0C3";
+// a colored muscle/region pill; primary = filled tint, secondary = outline only
+function muscleTag(label, region, primary){
+  const h=regionHue(region);
+  const style = primary ? `color:${h};border:1px solid ${h}66;background:${h}1f`
+                        : `color:${h};border:1px solid ${h}40;background:transparent`;
+  return el("span",{class:"mtag",style}, label);
+}
+// deterministic per-gym color (so each gym is identifiable across the app)
+const GYM_HUES=["#60A5FA","#34D399","#FB7185","#A78BFA","#22D3EE","#F59E0B","#F472B6","#4ADE80"];
+function gymHue(id){ let h=0; for(let i=0;i<(id||"").length;i++) h=(h*31+id.charCodeAt(i))>>>0; return GYM_HUES[h%GYM_HUES.length]; }
+function tintStyle(h, weight){ return `color:${h};border:1px solid ${h}59;background:${h}1f`+(weight?`;font-weight:${weight}`:""); }
 // ordered rules — first phrase match wins (specific → general)
 const MUSCLE_RULES=[
   [["rowing machine","row erg","row-erg","erg","treadmill","elliptical","stair","stationary bike","spin bike","jump rope","sprint","cardio"],"cardio",null],
@@ -615,6 +629,7 @@ function render(){
   document.querySelector(".tabbar").style.display = noGyms ? "none" : "";
   $("#gymPick").style.display = noGyms ? "none" : "";
   $("#gymPick").textContent = curGym()? curGym().name : "Set up gym";
+  { const gp=$("#gymPick"), g=curGym(); if(g){ const h=gymHue(g.id); gp.style.color=h; gp.style.background=h+"1f"; gp.style.borderColor=h+"59"; } else { gp.style.color=gp.style.background=gp.style.borderColor=""; } }
   if(noGyms){ return v.append(viewOnboard()); }
   if(currentTab==="today") v.append(viewToday());
   else if(currentTab==="history") v.append(viewHistory());
@@ -645,7 +660,7 @@ function viewToday(){
       el("div",{class:"card"},
         el("div",{class:"row between"},
           el("h2",{style:"margin:0"},"Ready to train?"),
-          el("span",{class:"pill"}, curGym()?curGym().name:"—")
+          el("span",{class:"pill",style:curGym()?tintStyle(gymHue(curGym().id)):""}, curGym()?curGym().name:"—")
         ),
         el("p",{class:"muted small",style:"margin:8px 0 14px"},
           gx.length? `${gx.length} exercise${gx.length>1?"s":""} available here.`
@@ -700,8 +715,8 @@ function viewToday(){
 
 function muscleTags(ex){
   const tags=[];
-  if(ex.primary&&muscleLabel(ex.primary)) tags.push(el("span",{class:"mtag primary"},muscleLabel(ex.primary)));
-  if(ex.secondary&&muscleLabel(ex.secondary)) tags.push(el("span",{class:"mtag"},muscleLabel(ex.secondary)));
+  if(ex.primary&&muscleLabel(ex.primary)) tags.push(muscleTag(muscleLabel(ex.primary), regionOf(ex.primary), true));
+  if(ex.secondary&&muscleLabel(ex.secondary)) tags.push(muscleTag(muscleLabel(ex.secondary), regionOf(ex.secondary), false));
   return tags.length?el("div",{class:"mtags"},...tags):null;
 }
 function exerciseCard(ex){
@@ -1391,7 +1406,7 @@ function viewHistory(){
             el("span",{class:"tiny muted"}, (rel?fmtDate(se.date)+" · ":"")+(gymNameOf(se.gymId)||"")),
             ...(joint?[el("span",{style:"color:var(--warn);display:inline-flex"},ic("alert",13))]:[])),
           el("div",{class:"small muted",style:"margin-top:3px"}, meta.join(" · ")),
-          ...(regions.length?[el("div",{class:"mtags",style:"margin-top:7px"}, ...regions.slice(0,4).map(r=>el("span",{class:"mtag"},r)))]:[])),
+          ...(regions.length?[el("div",{class:"mtags",style:"margin-top:7px"}, ...regions.slice(0,4).map(r=>muscleTag(r, r, true)))]:[])),
         el("span",{class:"chev"},ic("chevron",18))));
     }
   })();
