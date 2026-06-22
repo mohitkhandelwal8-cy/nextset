@@ -262,7 +262,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v18"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v19"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1380,20 +1380,31 @@ function mondayOf(iso){ const d=new Date(iso+"T12:00:00"); d.setDate(d.getDate()
 function lastNWeeks(n){ const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); const out=[]; for(let i=n-1;i>=0;i--){ const w=new Date(d); w.setDate(d.getDate()-i*7); out.push(w.toISOString().slice(0,10)); } return out; }
 function weekStreak(weekSet){ const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); let cur=new Date(d); if(!weekSet.has(cur.toISOString().slice(0,10))) cur.setDate(cur.getDate()-7); let s=0; while(weekSet.has(cur.toISOString().slice(0,10))){ s++; cur.setDate(cur.getDate()-7); } return s; }
 function fmtWeekLbl(iso){ const d=new Date(iso+"T12:00:00"); return (d.getMonth()+1)+"/"+d.getDate(); }
-// progressive-overload score: share of tracked lifts (pooled by linkId) moving up over the last 28 days
+// Progressive-overload score (1–10) over the last 28 days. Blends three things, like composite
+// indices in other apps (e.g. Jefit's NSPI): how much of your training is moving up (quality),
+// how consistently you trained (weeks active), and how big the gains are (magnitude).
+// Lifts are pooled by linkId and need ≥2 sessions in the window to count.
 function overloadScore(sessions, sets){
-  const sesById=Object.fromEntries(sessions.map(s=>[s.id,s])); const unit={};
+  const sesById=Object.fromEntries(sessions.map(s=>[s.id,s])); const unit={}; const weeks=new Set();
   for(const x of sets){ const ex=State.exercises.find(e=>e.id===x.exerciseId); if(!ex)continue;
     const se=sesById[x.sessionId]; if(!se||daysAgo(se.date)>28)continue;
+    weeks.add(mondayOf(se.date));
     const key=ex.linkId||ex.id, m=isBW(ex)?x.reps:epley(x.weight,x.reps);
     (unit[key]=unit[key]||{})[se.date]=Math.max(unit[key][se.date]||0, m); }
-  let up=0,hold=0,down=0;
+  let up=0,hold=0,down=0; const gains=[];
   for(const k in unit){ const ks=Object.keys(unit[k]).sort(); if(ks.length<2)continue;
     const f=unit[k][ks[0]], l=unit[k][ks[ks.length-1]], dd=f>0?(l-f)/f:0;
-    if(dd>0.01)up++; else if(dd<-0.01)down++; else hold++; }
-  const total=up+hold+down, ratio=total?(up+0.5*hold)/total:0;
-  return { score: total?Math.round(100*ratio):null, up, hold, down, total,
-    label: !total?"Keep logging": ratio>=0.75?"Progressing": ratio>=0.5?"Holding":"Stalling" };
+    if(dd>0.01)up++; else if(dd<-0.01)down++; else hold++; gains.push(dd); }
+  const tracked=up+hold+down;
+  if(!tracked) return { score:null, label:"Keep logging", up:0, hold:0, down:0, tracked:0, weeks:Math.min(weeks.size,4), avgGainPct:0 };
+  const quality=(up+0.5*hold)/tracked;                    // share moving up (0–1)
+  const consistency=Math.min(weeks.size,4)/4;             // weeks trained of last 4 (0–1)
+  const avgGain=gains.reduce((a,b)=>a+b,0)/gains.length;  // mean fractional change
+  const magnitude=Math.max(0, Math.min(1, avgGain/0.08)); // ~8% over 4 wks = full marks
+  const raw=0.5*quality + 0.3*consistency + 0.2*magnitude;
+  const score=Math.max(1, Math.min(10, Math.round(raw*10)));
+  return { score, up, hold, down, tracked, weeks:Math.min(weeks.size,4), avgGainPct:Math.round(avgGain*100),
+    label: score>=8?"Excellent": score>=6?"Progressing": score>=4?"Holding":"Stalling" };
 }
 function statTile(num,label,tone){ return el("div",{class:"stat"+(tone?" "+tone:"")}, el("div",{class:"num"},String(num)), el("div",{class:"lbl"},label)); }
 
@@ -1424,10 +1435,10 @@ function viewInsights(){
       statTile(daysThisYear, `workout days in ${year}`),
       statTile(streak, streak===1?"week streak":"weeks streak", "accent2"),
       statTile(setsThis, "working sets this week"),
-      statTile(ov.score==null?"—":ov.score, "overload · "+ov.label, ov.score==null?"":ov.score>=75?"accent2":ov.score<50?"warn":""));
+      statTile(ov.score==null?"—":ov.score+"/10", "overload · "+ov.label, ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""));
     const ovCard=el("div",{class:"card"}); ovCard.append(el("h2",{},"Overview"), grid);
-    if(ov.total) ovCard.append(el("div",{class:"tiny muted",style:"margin-top:10px"},
-      `Overload score = share of your lifts moving up over 4 weeks · ${ov.up} up · ${ov.hold} holding · ${ov.down} down.`));
+    if(ov.tracked) ovCard.append(el("div",{class:"tiny muted",style:"margin-top:10px"},
+      `Overload ${ov.score}/10 · ${ov.up} of ${ov.tracked} lift${ov.tracked>1?"s":""} moving up · trained ${ov.weeks} of last 4 weeks · avg ${ov.avgGainPct>=0?"+":""}${ov.avgGainPct}% per lift. Blends progress, consistency & gain size.`));
     mount.append(ovCard);
 
     // ===== Training volume trend (weekly working sets) =====
@@ -1622,7 +1633,7 @@ function openMuscleDetail(mk){
         statTile(setsThis%1?setsThis.toFixed(1):setsThis, "sets this week"),
         statTile(focus+"%", "of weekly volume"),
         statTile(tonThis.toLocaleString(), "kg moved this week"),
-        statTile(ov.score==null?"—":ov.score, "overload · "+ov.label, ov.score==null?"":ov.score>=75?"accent2":ov.score<50?"warn":""));
+        statTile(ov.score==null?"—":ov.score+"/10", "overload · "+ov.label, ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""));
       mount.append(grid);
 
       const deltaPct = setsLast? Math.round((setsThis-setsLast)/setsLast*100):null;
@@ -1646,8 +1657,8 @@ function openMuscleDetail(mk){
       else if(setsThis<6) tips.push(["warn","Low volume","Most lifters grow on ~10–20 hard sets per muscle per week — this is below maintenance."]);
       else if(setsThis<=20) tips.push(["good","In the growth range","~10–20 sets per week is the sweet spot for most people."]);
       else tips.push(["warn","Very high volume","Above ~20 sets/week — make sure you're recovering, not just accumulating."]);
-      if(ov.total>=1){ if(ov.score>=75) tips.push(["good","Progressing","Loads and reps here are trending up."]);
-        else if(ov.score<50) tips.push(["warn","Stalling","Little upward movement lately — try a deload or a new rep range."]); }
+      if(ov.tracked>=1){ if(ov.score>=7) tips.push(["good","Progressing","Loads and reps here are trending up."]);
+        else if(ov.score<=3) tips.push(["warn","Stalling","Little upward movement lately — try a deload or a new rep range."]); }
       mount.append(el("div",{class:"divider"}));
       tips.forEach(([tone,t,d])=> mount.append(el("div",{class:"insight"+(tone==="good"?" good":tone==="warn"?" warn":"")}, el("div",{class:"t"},t), el("div",{class:"d"},d))));
     })();
