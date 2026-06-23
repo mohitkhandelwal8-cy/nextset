@@ -160,6 +160,12 @@
   .card.current{border-color:var(--accent);box-shadow:0 0 0 2px rgba(249,115,22,.22)}
   .card.done{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.05)}
   .nowtag{font-size:10px;font-weight:700;letter-spacing:.6px;color:var(--on-accent);background:var(--accent);padding:2px 7px;border-radius:999px}
+  .ssgroup{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:14px;padding:10px;margin-bottom:12px;background:rgba(249,115,22,.04)}
+  .ssgroup .card{margin-bottom:10px} .ssgroup .card:last-child{margin-bottom:0}
+  .sshead{display:flex;align-items:center;gap:8px;margin:2px 2px 10px}
+  .ssbadge{font-size:11px;font-weight:700;color:var(--accent);background:rgba(249,115,22,.14);border:1px solid rgba(249,115,22,.4);padding:2px 8px;border-radius:999px;white-space:nowrap}
+  .setrow.drop{margin-left:20px}
+  .setrow.drop .idx{color:var(--warn);font-weight:700}
   .donecheck{width:26px;height:26px;border-radius:999px;background:var(--accent-2);color:var(--on-accent-2);display:flex;align-items:center;justify-content:center;flex:none}
   .stepper.locked{opacity:.55;background:rgba(34,197,94,.06);border-color:rgba(34,197,94,.3)}
   .stepper.locked button{color:var(--muted)}
@@ -281,7 +287,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v25"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v26"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -299,6 +305,8 @@ const ICONS = {
   dumbbell:'<path d="M14.4 14.4 9.6 9.6"/><path d="M18.657 21.485a2 2 0 1 1-2.829-2.828l-1.767 1.768a2 2 0 1 1-2.829-2.829l6.364-6.364a2 2 0 1 1 2.829 2.829l-1.768 1.767a2 2 0 1 1 2.828 2.829z"/><path d="m21.5 21.5-1.4-1.4"/><path d="M3.9 3.9 2.5 2.5"/><path d="M6.404 12.768a2 2 0 1 1-2.829-2.829l1.768-1.767a2 2 0 1 1-2.828-2.829l2.828-2.828a2 2 0 1 1 2.829 2.828l1.767-1.768a2 2 0 1 1 2.829 2.829z"/>',
   inbox:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   bulb:'<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
+  arrowdown:'<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+  link:'<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/>',
 };
 function ic(name, size=18){
   const s=document.createElement("span");
@@ -406,9 +414,11 @@ function guessEquipment(name){
   return "other";
 }
 const isBW = ex => !!(ex && ex.equipment==="bodyweight");
-// short display of a logged set — for bodyweight, `weight` means ADDED load (0 = just bodyweight)
+const isPlate = ex => !!(ex && ex.equipment==="plate");
+// short display of a logged set — bodyweight: `weight` = ADDED load (0 = bodyweight); plate: 0 = sled only
 function fmtSetShort(ex,w,r){
   if(isBW(ex)) return (+w>0) ? `+${w}${ex.unit||"kg"}×${r}` : `${r} reps`;
+  if(isPlate(ex) && +w===0) return `${r} reps · sled only`;
   return `${w}${ex.unit||"kg"}×${r}`;
 }
 /* ---------- rest between sets (evidence-based) + time estimate ---------- */
@@ -445,10 +455,12 @@ function exMinutes(ex, nSets){
   return Math.max(1, Math.round((60 + sets*workSec + Math.max(0,sets-1)*restOf(ex))/60));
 }
 const BETWEEN_REST_MIN = 3; // assume ~3 min rest walking/resting between exercises
+// rest gaps between exercises — supersetted (same ssGroup) neighbours don't rest, so count only group transitions
+const betweenRests = items => { let n=0; for(let i=0;i<items.length-1;i++){ const a=items[i].ssGroup,b=items[i+1].ssGroup; if(!(a&&b&&a===b)) n++; } return n; };
 const planMinutes = items => items.reduce((t,it)=>{
   const ex=State.exercises.find(e=>e.id===it.exerciseId);
   return t + exMinutes(ex, it.sets?.length);
-},0) + BETWEEN_REST_MIN*Math.max(0, items.length-1);
+},0) + BETWEEN_REST_MIN*betweenRests(items);
 
 /* ---------- app state ---------- */
 const State = {
@@ -569,7 +581,8 @@ async function suggestNext(ex){
   const anyGrind = rpe.some(r=>r==="grind");
 
   const bw = isBW(ex);
-  const loadStr = w => bw ? ((+w)>0 ? `+${fmtW(w,ex)}` : "bodyweight") : fmtW(w,ex);
+  const loadStr = w => bw ? ((+w)>0 ? `+${fmtW(w,ex)}` : "bodyweight")
+    : (isPlate(ex)&&(+w)===0 ? "sled only" : fmtW(w,ex));
   let plan, note, kind="rep";
   if(allTop || (allEasy && minReps>=Math.floor((repMin+repMax)/2))){
     const w = round(workW+inc, inc);
@@ -579,13 +592,13 @@ async function suggestNext(ex){
   } else if(minReps>=repMin){
     const tgt = Math.min(maxReps+1, repMax);
     plan = Array.from({length:sets},()=>({weight:workW,reps:tgt,target:tgt}));
-    note = `${bw? (workW>0?loadStr(workW):"Bodyweight") : `Same weight ${fmtW(workW,ex)}`} → push for ${tgt} reps.${anyGrind?" (last set was a grind — only if it moves.)":""}`;
+    note = `${bw? (workW>0?loadStr(workW):"Bodyweight") : (isPlate(ex)&&workW===0?"Sled only":`Same weight ${fmtW(workW,ex)}`)} → push for ${tgt} reps.${anyGrind?" (last set was a grind — only if it moves.)":""}`;
   } else {
     plan = Array.from({length:sets},()=>({weight:workW,reps:repMin,target:repMin}));
     note = `${bw?`Repeat ${loadStr(workW)} for ${repMin} reps`:`Repeat ${fmtW(workW,ex)} × ${repMin}`} — you missed the bottom of the range last time.`;
     kind="repeat";
     const stalls = await stallCount(ex.id);
-    if(stalls>=2 && !(bw && workW===0)){
+    if(stalls>=2 && !((bw||isPlate(ex)) && workW===0)){
       const dw = round(workW*0.9, inc);
       note = `${bw?`Stalled ${stalls+1} sessions at ${loadStr(workW)}. Drop to ${loadStr(dw)}`:`Stalled ${stalls+1} sessions at ${fmtW(workW,ex)}. Consider a deload to ${fmtW(dw,ex)}`} and rebuild.`;
       kind="deload";
@@ -716,8 +729,20 @@ function viewToday(){
       el("button",{class:"btn",onClick:openPlanSheet},ic("plus"),"Build today's plan")
     ));
   } else {
-    const curIdx = s.items.findIndex(it=>!isItemDone(it));   // the exercise you're on now
-    s.items.forEach((it,i)=>wrap.append(loggerCard(it, i===curIdx)));
+    const items=s.items, curIdx = items.findIndex(it=>!isItemDone(it));   // the exercise you're on now
+    let i=0, gi=0;
+    while(i<items.length){
+      const g=items[i].ssGroup;
+      let j=i+1; if(g){ while(j<items.length && items[j].ssGroup===g) j++; }
+      if(g && j-i>=2){           // a real superset run of 2+ adjacent exercises
+        gi++; const letter=String.fromCharCode(64+gi);
+        const box=el("div",{class:"ssgroup"});
+        box.append(el("div",{class:"sshead"}, el("span",{class:"ssbadge"},"Superset "+letter),
+          el("span",{class:"tiny muted"},"alternate · rest after the group")));
+        for(let k=i;k<j;k++) box.append(loggerCard(items[k], k===curIdx, {letter, n:k-i+1}));
+        wrap.append(box); i=j;
+      } else { wrap.append(loggerCard(items[i], i===curIdx)); i++; }
+    }
     wrap.append(el("button",{class:"btn ghost",style:"margin-top:4px",onClick:openPlanSheet},ic("plus"),"Add exercise"));
   }
   return wrap;
@@ -752,7 +777,7 @@ const isItemDone = item => !!item.collapsed || (item.sets.length>0 && item.sets.
 
 /* set logger card for an item in the active session.
    isCurrent = the exercise you're working on now (first not-done one). */
-function loggerCard(item, isCurrent){
+function loggerCard(item, isCurrent, ss){
   const ex = State.exercises.find(e=>e.id===item.exerciseId);
   const bw = isBW(ex);
 
@@ -779,6 +804,7 @@ function loggerCard(item, isCurrent){
   const head=el("div",{class:"row between",style:"margin-bottom:10px"},
     el("div",{style:"min-width:0"},
       el("div",{class:"row",style:"gap:8px;align-items:center;flex-wrap:wrap"},
+        ...(ss?[el("span",{class:"ssbadge"}, ss.letter+ss.n)]:[]),
         ...(isCurrent?[el("span",{class:"nowtag"},"NOW")]:[]),
         el("div",{style:"font-weight:700"},ex?.name||"Exercise"), ...(pb?[pb]:[])),
       el("div",{class:"tiny muted"}, ex?`${ex.sets}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest`:"")),
@@ -789,18 +815,20 @@ function loggerCard(item, isCurrent){
   if(item.note) card.append(el("div",{class:"suggestion"+(["deload","repeat"].includes(item.kind)?" warn":"")}, item.note));
 
   const wUnit = bw ? "+"+(ex?.unit||"kg") : (ex?.unit||"kg");
+  let setNo=0;
   item.sets.forEach((set,si)=>{
-    const row=el("div",{class:"setrow"+(set.done?" locked":"")});
-    row.append(el("div",{class:"idx"}, si+1));
+    const drop=!!set.drop; if(!drop) setNo++;
+    const row=el("div",{class:"setrow"+(set.done?" locked":"")+(drop?" drop":"")});
+    row.append(drop ? el("div",{class:"idx","aria-label":"drop set"},"▾") : el("div",{class:"idx"}, setNo));
     const wStep=stepper(set.weight, ex?.increment||2.5, v=>{set.weight=Math.max(0,v);persistSession();}, wUnit, set.done);
     const rStep=stepper(set.reps, 1, v=>{set.reps=Math.max(0,Math.round(v));persistSession();}, "reps", set.done);
     if(bw){ row.append(rStep, wStep); } else { row.append(wStep, rStep); }
-    const done=el("button",{class:"done"+(set.done?" on":""),"aria-label":set.done?`Unlock set ${si+1}`:`Complete set ${si+1}`,"aria-pressed":set.done?"true":"false",onClick:async()=>{
+    const done=el("button",{class:"done"+(set.done?" on":""),"aria-label":set.done?"Unlock set":"Complete set","aria-pressed":set.done?"true":"false",onClick:async()=>{
       set.done=!set.done;
       if(set.done){
-        const pr=await prCheck(ex,+set.weight,+set.reps); toast(pr || `Set ${si+1}: ${fmtSetShort(ex,set.weight,set.reps)}`);
-        const nxt=item.sets[si+1];   // carry this set's weight/reps onto the next un-logged set
-        if(nxt && !nxt.done){ nxt.weight=set.weight; nxt.reps=set.reps; }
+        const pr=await prCheck(ex,+set.weight,+set.reps); toast(pr || `${drop?"Drop":"Set "+setNo}: ${fmtSetShort(ex,set.weight,set.reps)}`);
+        const nxt=item.sets[si+1];   // carry weight/reps onto the next un-logged straight set (not a drop)
+        if(nxt && !nxt.done && !nxt.drop){ nxt.weight=set.weight; nxt.reps=set.reps; }
       }
       persistSession(); render();   // re-render so the row locks/unlocks
     }},ic("check",18));
@@ -819,28 +847,53 @@ function loggerCard(item, isCurrent){
   });
   card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"How hard did this feel?"), rpe);
 
+  // superset state for the control row
+  const sitems=State.activeSession.items, idx=sitems.indexOf(item);
+  const grouped = item.ssGroup && ((sitems[idx-1]&&sitems[idx-1].ssGroup===item.ssGroup)||(sitems[idx+1]&&sitems[idx+1].ssGroup===item.ssGroup));
   const ctl=el("div",{style:"margin-top:12px"});
   ctl.append(
-    // log the exercise and minimize it
     el("button",{class:"btn",style:"width:100%;background:var(--accent-2);color:var(--on-accent-2)","aria-label":"Mark exercise done",onClick:()=>{
       item.sets.forEach(s=>{ if((+s.reps)>0) s.done=true; });
       item.collapsed=true; persistSession(); render();
       toast(`${ex?.name||"Exercise"} done`);
     }},ic("check",16),"Done — log & minimize"),
-    el("button",{class:"btn secondary sm","aria-label":"Add set",style:"width:100%;margin-top:8px",onClick:()=>{
-      const last=item.sets[item.sets.length-1];
-      item.sets.push({weight:last?.weight||0,reps:last?.reps||(ex?.repMin||8),done:false});
-      persistSession();render();
-    }},ic("plus",16),"Add set"),
     el("div",{class:"row",style:"gap:8px;margin-top:8px"},
-      el("button",{class:"btn ghost sm","aria-label":"Remove last set",style:"flex:1",onClick:()=>{ if(item.sets.length>1){item.sets.pop();persistSession();render();} }},ic("minus",16),"Drop set"),
+      el("button",{class:"btn secondary sm",style:"flex:1","aria-label":"Add set",onClick:()=>{
+        const last=item.sets[item.sets.length-1];
+        item.sets.push({weight:last?.weight||0,reps:last?.reps||(ex?.repMin||8),done:false});
+        persistSession();render();
+      }},ic("plus",16),"Add set"),
+      el("button",{class:"btn secondary sm",style:"flex:1","aria-label":"Add drop set",onClick:()=>{
+        const last=item.sets[item.sets.length-1];
+        item.sets.push({weight:round((last?.weight||0)*0.8, ex?.increment||2.5),reps:last?.reps||(ex?.repMin||8),done:false,drop:true});
+        persistSession();render();
+      }},ic("arrowdown",16),"Drop set")
+    ),
+    el("div",{class:"row",style:"gap:8px;margin-top:8px"},
+      el("button",{class:"btn ghost sm","aria-label":"Remove last set",style:"flex:1",onClick:()=>{ if(item.sets.length>1){item.sets.pop();persistSession();render();} }},ic("minus",16),"Remove set"),
       el("button",{class:"btn ghost sm","aria-label":"Remove exercise",style:"flex:1",onClick:()=>{
         State.activeSession.items=State.activeSession.items.filter(x=>x!==item);persistSession();render();
       }},ic("x",16),"Remove")
-    )
+    ),
+    ...(grouped
+      ? [el("button",{class:"btn ghost sm",style:"width:100%;margin-top:8px",onClick:()=>ungroupSS(item)},ic("x",15),"Ungroup superset")]
+      : idx<sitems.length-1
+        ? [el("button",{class:"btn ghost sm",style:"width:100%;margin-top:8px",onClick:()=>groupWithNext(item)},ic("link",15),"Superset with next")]
+        : [])
   );
   card.append(ctl);
   return card;
+}
+function groupWithNext(item){
+  const items=State.activeSession.items, i=items.indexOf(item), nxt=items[i+1]; if(!nxt) return;
+  const gid=item.ssGroup||nxt.ssGroup||("ss-"+uid());
+  item.ssGroup=gid; nxt.ssGroup=gid;
+  persistSession(); render(); toast("Grouped as a superset");
+}
+function ungroupSS(item){
+  const g=item.ssGroup; if(!g) return;
+  State.activeSession.items.forEach(it=>{ if(it.ssGroup===g) delete it.ssGroup; });
+  persistSession(); render(); toast("Superset ungrouped");
 }
 
 /* stepper input with +/- ; pass disabled=true to lock it (e.g. a completed set) */
