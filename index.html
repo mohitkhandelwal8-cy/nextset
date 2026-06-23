@@ -281,7 +281,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v24"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v25"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -378,14 +378,15 @@ function guessMuscles(name){
 
 /* ---------- equipment taxonomy + auto-detect ---------- */
 const EQUIP={
-  machine:{label:"Machine",gymScoped:true,inc:5},
+  machine:{label:"Machine (selectorized)",gymScoped:true,inc:5},
+  plate:{label:"Plate-loaded",gymScoped:true,inc:2.5},
   cable:{label:"Cable",gymScoped:true,inc:5},
   barbell:{label:"Barbell",gymScoped:false,inc:2.5},
   dumbbell:{label:"Dumbbell",gymScoped:false,inc:2.5},
   bodyweight:{label:"Bodyweight",gymScoped:false,inc:2.5},
   other:{label:"Other",gymScoped:false,inc:2.5},
 };
-const EQUIP_ORDER=["barbell","dumbbell","machine","cable","bodyweight","other"];
+const EQUIP_ORDER=["barbell","dumbbell","machine","plate","cable","bodyweight","other"];
 const equipLabel=k=>EQUIP[k]?.label||null;
 const equipGymScoped=k=>!!(EQUIP[k]?.gymScoped);
 function guessEquipment(name){
@@ -396,7 +397,8 @@ function guessEquipment(name){
   if(has("kettlebell"," kb ")) return "other";
   if(has("cable","crossover","pushdown","push down","face pull","rope ")) return "cable";
   if(has("smith")) return "machine";
-  if(has("machine","pec deck","pec fly","leg press","leg extension","leg curl","hamstring curl","hack squat","pulldown","lat pull","chest press","seated row","row machine","calf raise machine","abductor","adductor")) return "machine";
+  if(has("hack squat","hack-squat","t-bar","t bar","tbar","landmine","pendulum squat","plate loaded","plate-loaded","hammer strength","viking press")) return "plate";
+  if(has("machine","pec deck","pec fly","leg press","leg extension","leg curl","hamstring curl","pulldown","lat pull","chest press","seated row","row machine","calf raise machine","abductor","adductor")) return "machine";
   if(has("pull up","pull-up","pullup","chin up","chin-up","chinup","push up","push-up","pushup","dip","plank","crunch","sit up","sit-up","situp","hanging","muscle up","pistol","burpee","mountain climber","bodyweight","ab wheel")) return "bodyweight";
   if(has("treadmill","elliptical","stationary bike","spin bike","rowing machine","row erg","stair climber","stairmaster")) return "machine";
   if(has("bench press","incline bench","decline bench","squat","deadlift","romanian","rdl","overhead press","ohp","military","clean","snatch","good morning","lunge","barbell row","bent over row","bent-over","shrug","hip thrust","press")) return "barbell";
@@ -795,7 +797,11 @@ function loggerCard(item, isCurrent){
     if(bw){ row.append(rStep, wStep); } else { row.append(wStep, rStep); }
     const done=el("button",{class:"done"+(set.done?" on":""),"aria-label":set.done?`Unlock set ${si+1}`:`Complete set ${si+1}`,"aria-pressed":set.done?"true":"false",onClick:async()=>{
       set.done=!set.done;
-      if(set.done){ const pr=await prCheck(ex,+set.weight,+set.reps); toast(pr || `Set ${si+1}: ${fmtSetShort(ex,set.weight,set.reps)}`); }
+      if(set.done){
+        const pr=await prCheck(ex,+set.weight,+set.reps); toast(pr || `Set ${si+1}: ${fmtSetShort(ex,set.weight,set.reps)}`);
+        const nxt=item.sets[si+1];   // carry this set's weight/reps onto the next un-logged set
+        if(nxt && !nxt.done){ nxt.weight=set.weight; nxt.reps=set.reps; }
+      }
       persistSession(); render();   // re-render so the row locks/unlocks
     }},ic("check",18));
     row.append(done);
