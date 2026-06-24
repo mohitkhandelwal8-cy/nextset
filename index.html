@@ -202,6 +202,9 @@
   /* favorite toggle in the exercise detail */
   .starbtn{flex:none;background:none;border:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;cursor:pointer;border-radius:10px}
   .starbtn.on{color:#F59E0B}
+  /* prominent workout-status card (ready-to-start / in-progress) — stands off the page */
+  .statuscard{background:var(--surface);border:2px solid var(--accent);border-radius:16px;padding:16px;margin-bottom:14px;box-shadow:0 10px 26px -12px rgba(0,0,0,.32)}
+  .statuscard-eyebrow{font-size:11px;font-weight:800;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;margin-bottom:3px}
   .updatebar{position:fixed;left:12px;right:12px;bottom:calc(82px + var(--safe-b));max-width:536px;margin:0 auto;z-index:45;
     background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;
     display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
@@ -363,7 +366,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v43"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v44"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -786,25 +789,37 @@ function viewToday(){
   }
   // active session
   const s=State.activeSession;
-  wrap.append(
-    el("div",{class:"card",style:"border-color:var(--accent)"},
-      el("div",{class:"row between"},
-        el("div",{}, el("div",{style:"font-weight:700"},"Workout in progress"),
-          el("div",{class:"small muted"}, `${fmtDate(s.date)} · ${curGym()?.name||""}`),
-          ...(s.items.length?[el("div",{class:"tiny muted",style:"margin-top:2px"}, `~${planMinutes(s.items)} min · ${s.items.length} exercise${s.items.length>1?"s":""}`)]:[])),
-        el("button",{class:"btn sm",style:"background:var(--accent-2);color:var(--on-accent-2)",onClick:finishSession},ic("check"),"Finish")
-      )
-    ),
-    el("div",{class:"row",style:"gap:8px;margin-bottom:12px"},
-      el("button",{class:"btn secondary sm",style:"flex:1",onClick:openPlanSheet},ic("clipboard"),"Edit plan"),
-      el("button",{class:"btn secondary sm",style:"flex:1",onClick:openQuickAdd},ic("zap"),"Quick add")
-    )
-  );
+  if(s.started===false){
+    // ----- READY TO START: build/preview, not logging yet -----
+    const sum = s.items.length ? `~${planMinutes(s.items)} min · ${s.items.length} exercise${s.items.length>1?"s":""}` : "No exercises yet";
+    wrap.append(el("div",{class:"statuscard"},
+      el("div",{class:"statuscard-eyebrow"},"Ready to start"),
+      el("div",{style:"font-weight:700;font-size:18px"},"Today's workout"),
+      el("div",{class:"small muted",style:"margin-top:2px"}, `${curGym()?.name||""} · ${sum}`),
+      el("button",{class:"btn",style:"width:100%;margin-top:14px;font-size:16px",onClick:startWorkout}, ic("play"), "Start workout"),
+      el("div",{class:"row",style:"gap:8px;margin-top:8px"},
+        el("button",{class:"btn secondary sm",style:"flex:1",onClick:openPlanSheet}, ic("clipboard"), s.items.length?"Edit plan":"Add exercises"),
+        el("button",{class:"btn ghost sm",style:"flex:1",onClick:discardSession}, ic("x"), "Discard"))
+    ));
+    if(s.items.length) s.items.forEach(it=>wrap.append(previewRow(it)));
+    else wrap.append(el("p",{class:"muted small",style:"text-align:center;margin-top:10px"},"Add exercises, then start your workout."));
+    return wrap;
+  }
+  // ----- IN PROGRESS: logging -----
+  wrap.append(el("div",{class:"statuscard"},
+    el("div",{class:"row between",style:"align-items:flex-start;gap:10px"},
+      el("div",{style:"min-width:0"},
+        el("div",{class:"statuscard-eyebrow"},"Workout in progress"),
+        el("div",{style:"font-weight:700;font-size:17px"}, fmtDate(s.date)),
+        el("div",{class:"small muted",style:"margin-top:2px"}, `${curGym()?.name||""}${s.items.length?` · ~${planMinutes(s.items)} min · ${s.items.length} ex`:""}`)),
+      el("button",{class:"btn",style:"flex:none;background:var(--accent-2);color:var(--on-accent-2)",onClick:finishSession},ic("check"),"Finish")),
+    el("button",{class:"btn secondary sm",style:"width:100%;margin-top:10px",onClick:openPlanSheet}, ic("clipboard"), "Edit plan")
+  ));
   if(!s.items.length){
     wrap.append(el("div",{class:"empty"},
       el("div",{class:"big"},ic("clipboard",42)),
-      el("p",{class:"muted"},"No exercises in today's plan yet."),
-      el("button",{class:"btn",onClick:openPlanSheet},ic("plus"),"Build today's plan")
+      el("p",{class:"muted"},"No exercises yet."),
+      el("button",{class:"btn",onClick:openPlanSheet},ic("plus"),"Add exercises")
     ));
   } else {
     const items=s.items, curIdx = items.findIndex(it=>!isItemDone(it));   // the exercise you're on now
@@ -1055,11 +1070,28 @@ function stepper(value, step, onChange, unit, disabled){
 async function startSession(){
   if(!curGym()){ openGymSheet(); return; }
   State.activeSession={ id:uid(), gymId:State.currentGymId, date:todayISO(),
-    startedAt:new Date().toISOString(), items:[] };
+    started:false, startedAt:null, items:[] };   // build/preview first; don't auto-start logging
   await persistSession();
-  // auto-suggest building a plan from machines done recently at this gym
-  await autofillPlanFromHistory();
   render();
+}
+// move a built session into the active (logging) state
+async function startWorkout(){
+  const s=State.activeSession; if(!s) return;
+  s.started=true; s.startedAt=new Date().toISOString();
+  await persistSession(); render();
+  toast("Workout started — let's go");
+}
+async function discardSession(){
+  if(!confirm("Discard this workout? Nothing will be saved.")) return;
+  State.activeSession=null; await setMeta("activeSession",null); render();
+}
+// compact, read-only exercise row for the pre-start preview
+function previewRow(item){
+  const ex=State.exercises.find(e=>e.id===item.exerciseId); if(!ex) return el("span");
+  const grow=el("div",{class:"grow"}, exDetailName(ex),
+    el("div",{class:"small muted"}, `${item.sets.length}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest`));
+  const t=muscleTags(ex); if(t) grow.append(t);
+  return el("div",{class:"listitem",style:"cursor:default"}, grow);
 }
 async function persistSession(){ await setMeta("activeSession",State.activeSession); }
 async function finishSession(){
@@ -1136,7 +1168,7 @@ async function applyPlanToSession(plan){
 }
 async function startSessionFromPlan(plan){
   if(!curGym()){ openGymSheet(); return; }
-  State.activeSession={ id:uid(), gymId:State.currentGymId, date:todayISO(), startedAt:new Date().toISOString(), items:[] };
+  State.activeSession={ id:uid(), gymId:State.currentGymId, date:todayISO(), started:false, startedAt:null, items:[] };
   const {heavier,unresolved}=await applyPlanToSession(plan);
   await persistSession(); render();
   let msg=`Loaded "${plan.name}"`;
