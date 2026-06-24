@@ -193,6 +193,15 @@
   /* demoted "tweaked a joint?" toggle */
   .jointtoggle{margin-top:10px;font-size:12px;color:var(--muted);background:none;border:none;display:inline-flex;align-items:center;gap:6px;padding:4px 0;min-height:36px;cursor:pointer}
   .jointtoggle.on{color:var(--warn);font-weight:600}
+  /* status tags on add-to-plan cards */
+  .stag{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:3px;text-transform:uppercase;letter-spacing:.4px}
+  .stag.new{color:var(--muted);background:var(--surface-2);border:1px solid var(--line)}
+  .stag.prog{color:var(--accent-2);background:rgba(21,128,61,.12);border:1px solid rgba(21,128,61,.32)}
+  .stag.fav{color:#B7791F;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.36)}
+  .addtags{margin-top:6px}
+  /* favorite toggle in the exercise detail */
+  .starbtn{flex:none;background:none;border:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;cursor:pointer;border-radius:10px}
+  .starbtn.on{color:#F59E0B}
   .updatebar{position:fixed;left:12px;right:12px;bottom:calc(82px + var(--safe-b));max-width:536px;margin:0 auto;z-index:45;
     background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;
     display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
@@ -354,7 +363,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v40"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v41"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -377,6 +386,8 @@ const ICONS = {
   search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   expand:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/>',
   info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  star:'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
+  starfill:'<polygon fill="currentColor" points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
 };
 function ic(name, size=18){
   const s=document.createElement("span");
@@ -835,6 +846,54 @@ function exDetailName(ex, bold){
     onClick:open, onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}}},
     el("span",{class:"exlink-t"}, ex?.name||"Exercise"), ic("info",13));
 }
+// per-exercise training status (cached; invalidated when a workout is logged): tried + progressing
+let _exStatus=null;
+async function getExStatus(){
+  if(_exStatus) return _exStatus;
+  const [allSets, sessions]=await Promise.all([DB.all("sets"), DB.all("sessions")]);
+  const sesKey={}; sessions.forEach(s=>{ sesKey[s.id]=(s.date||"")+(s.startedAt||""); });
+  const byEx={}; allSets.forEach(x=>{ if(x.reps>0)(byEx[x.exerciseId]=byEx[x.exerciseId]||[]).push(x); });
+  const map={};
+  for(const ex of State.exercises){
+    let sets=[]; for(const id of linkedIds(ex.id)) sets=sets.concat(byEx[id]||[]);
+    if(!sets.length){ map[ex.id]={tried:false,progressing:false}; continue; }
+    const bw=isBW(ex), bySes={};
+    sets.forEach(x=>{ const m=bw?x.reps:(+x.weight||0); bySes[x.sessionId]=Math.max(bySes[x.sessionId]||0,m); });
+    const ord=Object.keys(bySes).sort((a,b)=>(sesKey[b]||"").localeCompare(sesKey[a]||""));
+    map[ex.id]={tried:true, progressing: ord.length>=2 && bySes[ord[0]]>bySes[ord[1]]};
+  }
+  _exStatus=map; return map;
+}
+// horizontal exercise card for the add-to-plan lists: preview photo + muscle/status tags + Add; tap → detail
+function addExerciseCard(ex, onAdd){
+  const open=()=>openExerciseProgress(ex.id);
+  const thumb=el("div",{class:"exthumb"}, ic("dumbbell",16));
+  exerciseImageId(ex).then(id=>{ if(id){ const im=document.createElement("img"); im.src=libImageUrl(id,0); im.loading="lazy"; im.alt=""; im.onerror=()=>im.remove(); thumb.append(im); } });
+  const tags=el("div",{class:"mtags addtags","data-exid":ex.id});
+  if(ex.fav) tags.append(el("span",{class:"stag fav"}, ic("starfill",10),"Favorite"));
+  if(ex.primary&&muscleLabel(ex.primary)) tags.append(muscleTag(muscleLabel(ex.primary),regionOf(ex.primary),true));
+  const grow=el("div",{class:"grow"},
+    el("div",{class:"name"},ex.name),
+    el("div",{class:"small muted"}, equipLabel(ex.equipment)||"Other"),
+    tags);
+  const addBtn=el("button",{class:"chip add",style:"flex:none;align-self:center;min-height:40px","aria-label":`Add ${ex.name}`,
+    onClick:async e=>{ e.stopPropagation(); await onAdd(); }}, ic("plus",15),"Add");
+  return el("div",{class:"listitem addcard",role:"button",tabindex:"0","aria-label":`${ex.name} details`,style:"cursor:pointer;gap:10px",
+    onClick:open, onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}}}, thumb, grow, addBtn);
+}
+// fill in New / Progressing tags on the add-cards now in the DOM (needs a DB read)
+function decorateAddStatus(){
+  getExStatus().then(map=>{
+    document.querySelectorAll(".addtags[data-exid]").forEach(slot=>{
+      if(slot.dataset.done) return; const st=map[slot.getAttribute("data-exid")]; if(!st) return;
+      slot.dataset.done="1";
+      if(st.progressing) slot.append(el("span",{class:"stag prog"},"↑ Progressing"));
+      else if(!st.tried) slot.append(el("span",{class:"stag new"},"New"));
+    });
+  }).catch(()=>{});
+}
+// favorites first, then alphabetical — for the add lists
+function sortForAdd(list){ return list.slice().sort((a,b)=> (b.fav?1:0)-(a.fav?1:0) || a.name.localeCompare(b.name)); }
 
 // glanceable progression cue vs last time (the note below carries the detail)
 function progBadge(item){
@@ -1010,6 +1069,7 @@ async function finishSession(){
   }
   await DB.put("sessions",{id:s.id,gymId:s.gymId,date:s.date,startedAt:s.startedAt,finishedAt:new Date().toISOString()});
   for(const st of done) await DB.put("sets",st);
+  _exStatus=null;   // training status changed
   State.activeSession=null; await setMeta("activeSession",null);
   toast(`Saved ${done.length} sets`);
   setTab("history");
@@ -1369,17 +1429,12 @@ function openPlanSheet(){
     if(gx.length){
       if(items.length) body.append(el("div",{class:"sectionhead"},"Add more"));
       REGION_ORDER.forEach(region=>{
-        const inRegion=gx.filter(e=>exRegion(e)===region);
+        const inRegion=sortForAdd(gx.filter(e=>exRegion(e)===region));
         if(!inRegion.length)return;
         body.append(el("div",{class:"regionhead"},region));
-        const chips=el("div",{style:"margin:0 0 4px"});
-        inRegion.forEach(ex=>{
-          chips.append(el("button",{class:"chip add",onClick:async()=>{
-            await addToPlan(ex); reopen();
-          }}, ic("plus",15), ex.name));
-        });
-        body.append(chips);
+        inRegion.forEach(ex=> body.append(addExerciseCard(ex, async()=>{ await addToPlan(ex); reopen(); })));
       });
+      decorateAddStatus();
     } else if(items.length){
       body.append(el("p",{class:"muted small"},"Every exercise here is already in your plan."));
     } else {
@@ -1452,14 +1507,13 @@ function openPlanEditor(plan){
       addEl.append(el("div",{class:"sectionhead",style:"margin-top:0"},"Add an exercise"));
       if(gx.length){
         REGION_ORDER.forEach(region=>{
-          const inRegion=gx.filter(e=>exRegion(e)===region);
+          const inRegion=sortForAdd(gx.filter(e=>exRegion(e)===region));
           if(!inRegion.length)return;
           addEl.append(el("div",{class:"regionhead"},region));
-          const chips=el("div",{style:"margin:0 0 4px"});
-          inRegion.forEach(ex=>chips.append(el("button",{class:"chip add",onClick:async()=>{ plan.items.push({exerciseId:ex.id, sets:ex.sets||3}); await persist(); refresh(); render(); }}, ic("plus",15), ex.name)));
-          addEl.append(chips);
+          inRegion.forEach(ex=> addEl.append(addExerciseCard(ex, async()=>{ plan.items.push({exerciseId:ex.id, sets:ex.sets||3}); await persist(); refresh(); render(); })));
         });
         addEl.append(el("button",{class:"btn secondary",style:"margin-top:6px",onClick:()=>{close();openExerciseSheet(null,{onCreate: async ex=>{ plan.items.push({exerciseId:ex.id, sets:ex.sets||3}); plan.updatedAt=new Date().toISOString(); await DB.put("plans",plan); openPlanEditor(plan); }});}},"+ Create a new exercise"));
+        decorateAddStatus();
       } else {
         addEl.append(el("p",{class:"muted small"},"Every exercise at this gym is already in the plan."));
       }
@@ -2010,7 +2064,13 @@ function openExerciseProgress(exId){
       // about: equipment · category + muscle tags
       const cat=(lib&&lib.raw.category) ? lib.raw.category.replace(/(^|\s)\w/g,c=>c.toUpperCase()) : "";
       const metaTxt=[equipLabel(ex.equipment), cat].filter(Boolean).join(" · ");
-      if(metaTxt) mount.append(el("div",{class:"small muted",style:"margin:-6px 0 8px"}, metaTxt));
+      const starBtn=el("button",{class:"starbtn"+(ex.fav?" on":""),"aria-pressed":ex.fav?"true":"false","aria-label":ex.fav?"Remove from favorites":"Mark as favorite",
+        onClick:async()=>{ ex.fav=!ex.fav; await DB.put("exercises",ex); State.exercises=await DB.all("exercises");
+          starBtn.classList.toggle("on",ex.fav); starBtn.setAttribute("aria-pressed",ex.fav?"true":"false"); starBtn.innerHTML=""; starBtn.append(ic(ex.fav?"starfill":"star",20));
+          document.querySelectorAll(`.addtags[data-exid="${ex.id}"]`).forEach(slot=>{ const f=slot.querySelector(".stag.fav"); if(ex.fav&&!f) slot.insertBefore(el("span",{class:"stag fav"}, ic("starfill",10),"Favorite"), slot.firstChild); else if(!ex.fav&&f) f.remove(); });
+          toast(ex.fav?"Added to favorites":"Removed from favorites"); }}, ic(ex.fav?"starfill":"star",20));
+      mount.append(el("div",{class:"row between",style:"margin:-6px 0 8px;align-items:center;gap:8px"},
+        el("div",{class:"small muted"}, metaTxt||""), starBtn));
       const tg=muscleTags(ex); if(tg){ tg.style.marginBottom="6px"; mount.append(tg); }
       if(!lib) mount.append(libLinkCta(ex, close));   // offer to link → photos + how-to
       // how to do it (collapsible guide, from the library)
@@ -2048,7 +2108,7 @@ function openExerciseProgress(exId){
       mount.append(el("div",{class:"divider"}),
         el("button",{class:"btn secondary",style:"width:100%",onClick:()=>{ close(); openExerciseSheet(ex); }},ic("clipboard",16),"Edit exercise"));
     })();
-  });
+  }, {stacked: !!document.querySelector("#sheetHost .sheet")});  // layer over an open sheet (plan editor, add list…) so closing returns there
 }
 // ranged training-volume series (weekly for 12w, monthly for longer)
 function lastNMonths(n){ const d=new Date(); d.setDate(15); const out=[]; for(let i=n-1;i>=0;i--){ const m=new Date(d); m.setMonth(d.getMonth()-i); out.push(m.toISOString().slice(0,7)); } return out; }
