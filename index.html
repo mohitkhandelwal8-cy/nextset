@@ -332,7 +332,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v34"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v35"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2256,6 +2256,7 @@ function viewMore(){
     el("h2",{},"About"),
     el("p",{class:"small muted",style:"margin:-4px 0 0"},
       "NextSet · local-first workout tracker. Suggestions use double progression on your own history. Add to Home Screen to use it like an app."),
+    el("button",{class:"btn secondary",style:"margin-top:10px",onClick:checkForUpdates},ic("download"),"Check for updates"),
     el("p",{class:"tiny muted",style:"margin:8px 0 0"}, `Version ${APP_VERSION}`)
   ));
   return wrap;
@@ -2298,6 +2299,18 @@ function showUpdateBanner(reg){
     el("button",{onClick:()=>{ swUpdateTriggered=true; const w=reg.waiting||reg.installing; if(w) w.postMessage("SKIP_WAITING"); bar.remove(); }},"Update"));
   document.body.append(bar);
 }
+// manual escape hatch — forces a fresh network check for sw.js and applies any new version
+async function checkForUpdates(){
+  if(!("serviceWorker" in navigator) || !location.protocol.startsWith("http")){ toast("Updates aren't available here"); return; }
+  const reg = await navigator.serviceWorker.getRegistration();
+  if(!reg){ toast("Reopen the app to enable updates"); return; }
+  toast("Checking for updates…");
+  try{ await reg.update(); }catch(e){}
+  const apply=()=>{ if(reg.waiting){ swUpdateTriggered=true; reg.waiting.postMessage("SKIP_WAITING"); toast("Updating…"); return true; } return false; };
+  if(apply()) return;
+  if(reg.installing){ toast("Downloading new version…"); reg.installing.addEventListener("statechange",()=>apply()); return; }
+  toast(`You're on the latest (${APP_VERSION})`);
+}
 
 (async function boot(){
   applyTheme();
@@ -2305,7 +2318,10 @@ function showUpdateBanner(reg){
   try{ await DB.open(); await loadState(); render(); }
   catch(e){ $("#view").innerHTML="<div class='empty'><div class='big'><svg viewBox='0 0 24 24' width='42' height='42' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'/><path d='M12 9v4'/><path d='M12 17h.01'/></svg></div><p>Couldn't open local storage.</p><p class='muted small'>"+esc(e.message||e)+"</p></div>"; }
   if("serviceWorker" in navigator && location.protocol.startsWith("http")){
-    navigator.serviceWorker.register("sw.js").then(reg=>{
+    // updateViaCache:"none" → the sw.js script is never served from the HTTP cache on update
+    // checks, so a new deploy is detected immediately (iOS caches it for 10 min otherwise).
+    navigator.serviceWorker.register("sw.js", {updateViaCache:"none"}).then(reg=>{
+      reg.update().catch(()=>{});   // force a check on every launch (iOS often skips the automatic one)
       if(reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg);
       reg.addEventListener("updatefound",()=>{
         const nw=reg.installing; if(!nw) return;
@@ -2317,6 +2333,11 @@ function showUpdateBanner(reg){
     let refreshing=false;
     navigator.serviceWorker.addEventListener("controllerchange",()=>{
       if(swUpdateTriggered && !refreshing){ refreshing=true; location.reload(); }
+    });
+    // re-check whenever the app is brought back to the foreground — a home-screen PWA resumed
+    // from memory never re-navigates, so this is often the only time iOS will see a new version.
+    document.addEventListener("visibilitychange",()=>{
+      if(document.visibilityState==="visible") navigator.serviceWorker.getRegistration().then(r=>r&&r.update()).catch(()=>{});
     });
   }
 })();
