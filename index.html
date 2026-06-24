@@ -19,7 +19,14 @@
     --bg:#111827; --surface:#1F2937; --surface-2:#2D3A4D; --line:#3A4658;
     --text:#F8FAFC; --muted:#9FB0C3; --accent:#F97316; --on-accent:#0F172A;
     --accent-2:#22C55E; --on-accent-2:#06231A; --warn:#FBBF24; --danger:#F87171;
+    --bar-bg:rgba(11,14,20,.86); --tab-bg:rgba(20,25,37,.95);
     --radius:14px; --safe-b:env(safe-area-inset-bottom,0px);
+  }
+  :root[data-theme="light"]{
+    --bg:#F4F6F9; --surface:#FFFFFF; --surface-2:#EAEEF3; --line:#D6DCE5;
+    --text:#0F172A; --muted:#5B6878; --accent:#E2620C; --on-accent:#FFFFFF;
+    --accent-2:#15803D; --on-accent-2:#FFFFFF; --warn:#B45309; --danger:#DC2626;
+    --bar-bg:rgba(244,246,249,.85); --tab-bg:rgba(255,255,255,.95);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
@@ -36,7 +43,7 @@
   .ic{display:inline-flex;align-items:center;justify-content:center;flex:none}
   .ic svg{display:block}
   .app{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
-  header.topbar{position:sticky;top:0;z-index:20;background:rgba(11,14,20,.86);
+  header.topbar{position:sticky;top:0;z-index:20;background:var(--bar-bg);
     backdrop-filter:saturate(160%) blur(12px);border-bottom:1px solid var(--line);
     padding:14px 16px calc(12px);display:flex;align-items:center;gap:10px;padding-top:max(14px,env(safe-area-inset-top))}
   .topbar h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.2px;flex:1}
@@ -45,7 +52,7 @@
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   main{flex:1;padding:14px 16px calc(96px + var(--safe-b))}
   .tabbar{position:fixed;bottom:0;left:0;right:0;z-index:30;display:flex;
-    background:rgba(20,25,37,.95);backdrop-filter:blur(12px);border-top:1px solid var(--line);
+    background:var(--tab-bg);backdrop-filter:blur(12px);border-top:1px solid var(--line);
     padding-bottom:var(--safe-b);max-width:560px;margin:0 auto}
   .tabbar button{flex:1;padding:10px 4px 8px;color:var(--muted);font-size:11px;
     display:flex;flex-direction:column;align-items:center;gap:3px}
@@ -188,6 +195,9 @@
   .histrow:active{background:var(--surface-2)}
   .histrow .chev{flex:none;color:var(--muted)}
   .gdot{width:9px;height:9px;border-radius:999px;flex:none;display:inline-block}
+  .seg{display:flex;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .seg button{flex:1;padding:11px 4px;font-size:14px;color:var(--muted);background:none;min-height:44px}
+  .seg button.on{background:var(--accent);color:var(--on-accent);font-weight:700}
   .exgroup{border-top:1px solid var(--line)}
   .exgroup:first-of-type{border-top:none}
   .exgroup>summary{list-style:none;display:flex;align-items:center;gap:10px;padding:13px 2px;cursor:pointer;min-height:44px}
@@ -220,6 +230,18 @@
 
 <script>
 "use strict";
+/* ---------- theme (System / Light / Dark) ---------- */
+const prefersLight = () => { try{ return window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches; }catch(e){ return false; } };
+const getTheme = () => { try{ return localStorage.getItem("nextset-theme") || "dark"; }catch(e){ return "dark"; } };
+let resolvedTheme = (getTheme()==="light" || (getTheme()==="system" && prefersLight())) ? "light" : "dark";
+function applyTheme(){
+  const pref=getTheme();
+  resolvedTheme = (pref==="light" || (pref==="system" && prefersLight())) ? "light" : "dark";
+  try{ document.documentElement && document.documentElement.setAttribute("data-theme", resolvedTheme); }catch(e){}
+  try{ const m=document.querySelector('meta[name=theme-color]'); if(m&&m.setAttribute) m.setAttribute("content", resolvedTheme==="light"?"#F4F6F9":"#111827"); }catch(e){}
+}
+function setTheme(pref){ try{ localStorage.setItem("nextset-theme", pref); }catch(e){} applyTheme(); render(); }
+try{ document.documentElement && document.documentElement.setAttribute("data-theme", resolvedTheme); }catch(e){}   // set before first paint to avoid a flash
 /* ============================================================
    NextSet — local-first gym tracker (single-file PWA)
    Data: IndexedDB. No network required.
@@ -288,7 +310,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v28"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v29"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -332,7 +354,8 @@ const regionOf=k=>MUSCLES[k]?.region||"Other";
 const exRegion=ex=>ex.primary?regionOf(ex.primary):"Other";
 // distinct hue per muscle region — color-codes body-part tags so they read at a glance
 const REGION_HUE={Legs:"#60A5FA",Back:"#2DD4BF",Chest:"#FB7185",Shoulders:"#EAB308",Arms:"#A78BFA",Core:"#A3E635",Other:"#9FB0C3"};
-const regionHue=r=>REGION_HUE[r]||"#9FB0C3";
+const REGION_HUE_LIGHT={Legs:"#2563EB",Back:"#0D9488",Chest:"#E11D48",Shoulders:"#B45309",Arms:"#7C3AED",Core:"#4D7C0F",Other:"#5B6878"};
+const regionHue=r=>(resolvedTheme==="light"?REGION_HUE_LIGHT:REGION_HUE)[r] || (resolvedTheme==="light"?"#5B6878":"#9FB0C3");
 // a colored muscle/region pill; primary = filled tint, secondary = outline only
 function muscleTag(label, region, primary){
   const h=regionHue(region);
@@ -342,7 +365,8 @@ function muscleTag(label, region, primary){
 }
 // deterministic per-gym color (so each gym is identifiable across the app)
 const GYM_HUES=["#60A5FA","#34D399","#FB7185","#A78BFA","#22D3EE","#F59E0B","#F472B6","#4ADE80"];
-function gymHue(id){ let h=0; for(let i=0;i<(id||"").length;i++) h=(h*31+id.charCodeAt(i))>>>0; return GYM_HUES[h%GYM_HUES.length]; }
+const GYM_HUES_LIGHT=["#2563EB","#059669","#E11D48","#7C3AED","#0891B2","#B45309","#DB2777","#15803D"];
+function gymHue(id){ let h=0; for(let i=0;i<(id||"").length;i++) h=(h*31+id.charCodeAt(i))>>>0; const pal=resolvedTheme==="light"?GYM_HUES_LIGHT:GYM_HUES; return pal[h%pal.length]; }
 function tintStyle(h, weight){ return `color:${h};border:1px solid ${h}59;background:${h}1f`+(weight?`;font-weight:${weight}`:""); }
 // ordered rules — first phrase match wins (specific → general)
 const MUSCLE_RULES=[
@@ -2032,6 +2056,13 @@ function viewMore(){
   });
   exCard.append(el("button",{class:"btn secondary",style:"margin-top:12px",onClick:()=>openExerciseSheet(null)},ic("plus"),"Add an exercise"));
   wrap.append(exCard);
+  // ----- Appearance: theme toggle -----
+  const themeCard=el("div",{class:"card"}); themeCard.append(el("h2",{},"Appearance"));
+  const cur=getTheme(), seg=el("div",{class:"seg"});
+  [["system","System"],["light","Light"],["dark","Dark"]].forEach(([k,lbl])=>
+    seg.append(el("button",{class:"segbtn"+(cur===k?" on":""),"aria-pressed":cur===k?"true":"false",onClick:()=>setTheme(k)}, lbl)));
+  themeCard.append(seg, el("div",{class:"tiny muted",style:"margin-top:8px"},"Dark by default · System follows your phone."));
+  wrap.append(themeCard);
   wrap.append(el("div",{class:"card"},
     el("h2",{},"Your data"),
     el("p",{class:"small muted",style:"margin-top:-4px"},"It's all yours and lives on this device. Export anytime — no account, no lock-in."),
@@ -2086,6 +2117,8 @@ function showUpdateBanner(reg){
 }
 
 (async function boot(){
+  applyTheme();
+  try{ if(window.matchMedia) matchMedia("(prefers-color-scheme: light)").addEventListener("change",()=>{ if(getTheme()==="system"){ applyTheme(); render(); } }); }catch(e){}
   try{ await DB.open(); await loadState(); render(); }
   catch(e){ $("#view").innerHTML="<div class='empty'><div class='big'><svg viewBox='0 0 24 24' width='42' height='42' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'/><path d='M12 9v4'/><path d='M12 17h.01'/></svg></div><p>Couldn't open local storage.</p><p class='muted small'>"+esc(e.message||e)+"</p></div>"; }
   if("serviceWorker" in navigator && location.protocol.startsWith("http")){
