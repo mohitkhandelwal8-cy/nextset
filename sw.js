@@ -1,5 +1,5 @@
 /* NextSet service worker — offline-first cache of the app shell */
-const CACHE = "nextset-v32";
+const CACHE = "nextset-v33";
 const ASSETS = ["./", "./index.html", "./exercise-library.json", "./manifest.webmanifest", "./icon.svg", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
@@ -15,6 +15,10 @@ self.addEventListener("activate", e => {
 });
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+  // Only manage our own app shell. Cross-origin requests (e.g. exercise demo photos on
+  // jsdelivr) go straight to the network — never let the SW cache an opaque response or
+  // hand an <img> the index.html fallback. This keeps images reliable across browsers (iOS).
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request).then(hit =>
       hit || fetch(e.request).then(res => {
