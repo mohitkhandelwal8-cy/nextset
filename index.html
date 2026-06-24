@@ -335,7 +335,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v36"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v37"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1089,6 +1089,22 @@ function openSheet(title, buildBody, opts={}){
   bg.append(sheet);
   if(stacked){ document.body.append(bg); }       // keep the sheet underneath (e.g. library detail over the picker)
   else { host.innerHTML=""; host.append(bg); document.body.classList.add("modal-open"); }
+  adjustOpenSheets();
+}
+// Keep an open bottom sheet above the iOS software keyboard. Focusing an input shrinks the
+// visual viewport; a position:fixed sheet can't be scrolled by iOS to clear the keyboard, so
+// without this the keyboard (and its ^ v Done bar) covers the field and the layout looks broken.
+function adjustOpenSheets(){
+  const vv=(typeof window!=="undefined") && window.visualViewport; if(!vv) return;
+  const overlap=Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)); // keyboard height (0 when hidden)
+  document.querySelectorAll(".sheet-bg .sheet").forEach(sheet=>{
+    sheet.style.marginBottom = overlap>0 ? overlap+"px" : "";          // float above the keyboard
+    sheet.style.maxHeight    = overlap>0 ? (Math.round(vv.height)-8)+"px" : ""; // shrink to fit; else CSS 88vh
+  });
+}
+if(typeof window!=="undefined" && window.visualViewport){
+  visualViewport.addEventListener("resize", adjustOpenSheets);
+  visualViewport.addEventListener("scroll", adjustOpenSheets);
 }
 
 /* gym add/switch */
