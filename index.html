@@ -188,8 +188,8 @@
   .howto[open]>summary .chev{transform:rotate(90deg)}
   .howto .steps{margin:0;padding:0 16px 12px 34px}
   /* "last time" recall line in the logger */
-  .lasttime{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin:8px 2px 2px;font-size:13px;color:var(--muted)}
-  .lasttime .lbl{font-weight:700;color:var(--text);font-size:10px;text-transform:uppercase;letter-spacing:.6px;flex:none}
+  .lasttime{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0 2px;padding:8px 12px;background:var(--surface-2);border-radius:10px;font-size:13px;color:var(--text);font-weight:600}
+  .lasttime .lbl{font-weight:700;color:var(--accent);font-size:10px;text-transform:uppercase;letter-spacing:.6px;flex:none}
   /* demoted "tweaked a joint?" toggle */
   .jointtoggle{margin-top:10px;font-size:12px;color:var(--muted);background:none;border:none;display:inline-flex;align-items:center;gap:6px;padding:4px 0;min-height:36px;cursor:pointer}
   .jointtoggle.on{color:var(--warn);font-weight:600}
@@ -363,7 +363,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v41"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v42"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -474,10 +474,11 @@ const EQUIP={
   cable:{label:"Cable",gymScoped:true,inc:5},
   barbell:{label:"Barbell",gymScoped:false,inc:2.5},
   dumbbell:{label:"Dumbbell",gymScoped:false,inc:2.5},
+  kettlebell:{label:"Kettlebell",gymScoped:false,inc:4},
   bodyweight:{label:"Bodyweight",gymScoped:false,inc:2.5},
   other:{label:"Other",gymScoped:false,inc:2.5},
 };
-const EQUIP_ORDER=["barbell","dumbbell","machine","plate","cable","bodyweight","other"];
+const EQUIP_ORDER=["barbell","dumbbell","kettlebell","machine","plate","cable","bodyweight","other"];
 const equipLabel=k=>EQUIP[k]?.label||null;
 const equipGymScoped=k=>!!(EQUIP[k]?.gymScoped);
 function guessEquipment(name){
@@ -485,7 +486,7 @@ function guessEquipment(name){
   const has=(...ks)=>ks.some(k=>n.includes(k));
   if(has("dumbbell","dumbell"," db ")) return "dumbbell";
   if(has("barbell"," bb ","ez bar","ez-bar","ez curl")) return "barbell";
-  if(has("kettlebell"," kb ")) return "other";
+  if(has("kettlebell"," kb ")) return "kettlebell";
   if(has("cable","crossover","pushdown","push down","face pull","rope ")) return "cable";
   if(has("smith")) return "machine";
   if(has("hack squat","hack-squat","t-bar","t bar","tbar","landmine","pendulum squat","plate loaded","plate-loaded","hammer strength","viking press")) return "plate";
@@ -1001,8 +1002,10 @@ function loggerCard(item, isCurrent, ss){
         persistSession();render();
       }},ic("plus",16),"Add set"),
       el("button",{class:"btn secondary sm",style:"flex:1","aria-label":"Add drop set",onClick:()=>{
-        const last=item.sets[item.sets.length-1];
-        item.sets.push({weight:round((last?.weight||0)*0.8, ex?.increment||2.5),reps:last?.reps||(ex?.repMin||8),done:false,drop:true});
+        let ai=-1; for(let i=0;i<item.sets.length;i++){ if(item.sets[i].done) ai=i; }   // after the set you just finished
+        if(ai===-1) ai=Math.max(0, item.sets.findIndex(s=>!s.done));                     // none done yet → after the first set
+        const base=item.sets[ai];
+        item.sets.splice(ai+1, 0, {weight:round((base?.weight||0)*0.8, ex?.increment||2.5), reps:base?.reps||(ex?.repMin||8), done:false, drop:true});
         persistSession();render();
       }},ic("arrowdown",16),"Drop set")
     ),
@@ -2179,7 +2182,7 @@ const LIB_MUSCLE={                 // free-exercise-db muscle -> NextSet muscle 
 };
 const LIB_EQUIP={                  // free-exercise-db equipment -> NextSet equipment key
   "body only":"bodyweight", machine:"machine", barbell:"barbell", dumbbell:"dumbbell", cable:"cable",
-  kettlebells:"dumbbell", bands:"other", "medicine ball":"other", "exercise ball":"bodyweight",
+  kettlebells:"kettlebell", bands:"other", "medicine ball":"other", "exercise ball":"bodyweight",
   "foam roll":"other", "e-z curl bar":"barbell",
 };
 const mapLibMuscle = m => LIB_MUSCLE[m] || null;
