@@ -363,7 +363,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v42"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v43"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -470,7 +470,8 @@ function guessMuscles(name){
 /* ---------- equipment taxonomy + auto-detect ---------- */
 const EQUIP={
   machine:{label:"Machine (selectorized)",gymScoped:true,inc:5},
-  plate:{label:"Plate-loaded",gymScoped:true,inc:2.5},
+  plate:{label:"Plate machine (sled)",gymScoped:true,inc:2.5},
+  freeplate:{label:"Free plates",gymScoped:false,inc:2.5},
   cable:{label:"Cable",gymScoped:true,inc:5},
   barbell:{label:"Barbell",gymScoped:false,inc:2.5},
   dumbbell:{label:"Dumbbell",gymScoped:false,inc:2.5},
@@ -478,7 +479,7 @@ const EQUIP={
   bodyweight:{label:"Bodyweight",gymScoped:false,inc:2.5},
   other:{label:"Other",gymScoped:false,inc:2.5},
 };
-const EQUIP_ORDER=["barbell","dumbbell","kettlebell","machine","plate","cable","bodyweight","other"];
+const EQUIP_ORDER=["barbell","dumbbell","kettlebell","machine","plate","freeplate","cable","bodyweight","other"];
 const equipLabel=k=>EQUIP[k]?.label||null;
 const equipGymScoped=k=>!!(EQUIP[k]?.gymScoped);
 function guessEquipment(name){
@@ -489,6 +490,7 @@ function guessEquipment(name){
   if(has("kettlebell"," kb ")) return "kettlebell";
   if(has("cable","crossover","pushdown","push down","face pull","rope ")) return "cable";
   if(has("smith")) return "machine";
+  if(has("plate raise","plate front raise","plate ground","plate halo","plate pinch","plate squeeze","plate twist")) return "freeplate";
   if(has("hack squat","hack-squat","t-bar","t bar","tbar","landmine","pendulum squat","plate loaded","plate-loaded","hammer strength","viking press")) return "plate";
   if(has("machine","pec deck","pec fly","leg press","leg extension","leg curl","hamstring curl","pulldown","lat pull","chest press","seated row","row machine","calf raise machine","abductor","adductor")) return "machine";
   if(has("pull up","pull-up","pullup","chin up","chin-up","chinup","push up","push-up","pushup","dip","plank","crunch","sit up","sit-up","situp","hanging","muscle up","pistol","burpee","mountain climber","bodyweight","ab wheel")) return "bodyweight";
@@ -2084,18 +2086,19 @@ function openExerciseProgress(exId){
         const bySession={}; hist.forEach(s=>{ if(s.reps>0){ const m=bw?s.reps:epley(s.weight,s.reps); bySession[s.date]=Math.max(bySession[s.date]||0,m);} });
         const dates=Object.keys(bySession).sort(), series=dates.map(d=>bySession[d]);
         const pct = series.length>=2&&series[0]>0? Math.round((series[series.length-1]-series[0])/series[0]*100):null;
+        const pl=isPlate(ex);   // plate machine → 1RM is "added load" only (excludes the sled)
         mount.append(el("div",{class:"sectionhead"},"Your progress"));
         mount.append(el("div",{class:"row between",style:"margin:-2px 0 2px"},
-          el("div",{style:"font-weight:600;font-size:14px"}, bw?"Best reps over time":"Estimated 1RM over time"),
+          el("div",{style:"font-weight:600;font-size:14px"}, bw?"Best reps over time":(pl?"Estimated 1RM · added load":"Estimated 1RM over time")),
           el("span",{class:"small",style:pct==null?"color:var(--muted)":pct>=0?"color:var(--accent-2)":"color:var(--warn)"}, pct==null?"":`${pct>=0?"▲":"▼"} ${Math.abs(pct)}%`)));
         mount.append(lineChart(series,{labels:dates.map(fmtShortDate), fmt:v=>Math.round(v)+(bw?"":(ex.unit||"kg"))}));
-        if(!bw) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Estimated 1RM via the Epley formula — weight × (1 + reps/30). Most accurate at ≤10 reps."));
+        if(!bw) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Estimated 1RM via the Epley formula — weight × (1 + reps/30). Most accurate at ≤10 reps."+(pl?" Plate machine: added load only — excludes the sled/base, so it reads lower than the total moved.":"")));
         mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Records"));
         const recs=el("div",{class:"statgrid"});
         if(bw) recs.append(statTile(pr.maxReps||0,"most reps in a set"), statTile((pr.heaviest||0)+(ex.unit||"kg"),"most added load"));
         else recs.append(
           statTile(pr.heaviest+(ex.unit||"kg"),"heaviest weight"),
-          statTile(pr.best1rm+(ex.unit||"kg"),"best est. 1RM"),
+          statTile(pr.best1rm+(ex.unit||"kg"),pl?"best est. 1RM (added)":"best est. 1RM"),
           statTile(pr.bestSetVol.toLocaleString(),"best set volume (kg)"),
           statTile(pr.bestSessionVol.toLocaleString(),"best session volume (kg)"));
         mount.append(recs);
