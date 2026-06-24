@@ -174,6 +174,11 @@
   .steps{margin:8px 0 4px;padding-left:22px}
   .steps li{margin-bottom:9px;font-size:14px;line-height:1.55;color:var(--text)}
   .steps li::marker{color:var(--accent);font-weight:700}
+  /* tappable exercise name (opens the detail sheet) — used wherever an exercise is listed */
+  .exlink{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-weight:600;min-width:0;max-width:100%}
+  .exlink .exlink-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .exlink .ic{color:var(--muted);flex:none}
+  .exlink:active{opacity:.6}
   .updatebar{position:fixed;left:12px;right:12px;bottom:calc(82px + var(--safe-b));max-width:536px;margin:0 auto;z-index:45;
     background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;
     display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
@@ -335,7 +340,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v37"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v38"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -357,6 +362,7 @@ const ICONS = {
   link:'<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/>',
   search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   expand:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
 };
 function ic(name, size=18){
   const s=document.createElement("span");
@@ -799,14 +805,21 @@ function muscleTags(ex){
   return tags.length?el("div",{class:"mtags"},...tags):null;
 }
 function exerciseCard(ex){
-  const open=()=>openExerciseSheet(ex);
+  const open=()=>openExerciseProgress(ex.id);
   const grow=el("div",{class:"grow"},
     el("div",{class:"name"},ex.name),
     el("div",{class:"small muted"}, `${equipLabel(ex.equipment)?equipLabel(ex.equipment)+" · ":""}${ex.sets}×${ex.repMin}–${ex.repMax} · +${ex.increment}${ex.unit}`));
   const tags=muscleTags(ex); if(tags) grow.append(tags);
-  return el("div",{class:"listitem",role:"button",tabindex:"0","aria-label":`Edit ${ex.name}`,
+  return el("div",{class:"listitem",role:"button",tabindex:"0","aria-label":`View ${ex.name}`,
       onClick:open, onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}}},
     grow, el("span",{class:"chev"},ic("chevron",18)));
+}
+// a tappable exercise name (with an info cue) that opens the detail sheet — used wherever an exercise is listed
+function exDetailName(ex, bold){
+  const open=e=>{ if(e) e.stopPropagation(); if(ex) openExerciseProgress(ex.id); };
+  return el("div",{class:"exlink", style: bold?"font-weight:700":"", role:"button",tabindex:"0","aria-label":`View ${ex?.name||"exercise"} details`,
+    onClick:open, onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}}},
+    el("span",{class:"exlink-t"}, ex?.name||"Exercise"), ic("info",13));
 }
 
 // glanceable progression cue vs last time (the note below carries the detail)
@@ -850,7 +863,7 @@ function loggerCard(item, isCurrent, ss){
       el("div",{class:"row",style:"gap:8px;align-items:center;flex-wrap:wrap"},
         ...(ss?[el("span",{class:"ssbadge"}, ss.letter+ss.n)]:[]),
         ...(isCurrent?[el("span",{class:"nowtag"},"NOW")]:[]),
-        el("div",{style:"font-weight:700"},ex?.name||"Exercise"), ...(pb?[pb]:[])),
+        exDetailName(ex,true), ...(pb?[pb]:[])),
       el("div",{class:"tiny muted"}, ex?`${ex.sets}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest`:"")),
     el("button",{class:"jointbtn"+(item.joint?" on":""),"aria-pressed":item.joint?"true":"false",onClick:()=>{item.joint=!item.joint;persistSession();render();}},
       ic("alert",15), item.joint?"joint flagged":"flag joint")
@@ -1311,7 +1324,7 @@ function openPlanSheet(){
         const ex=State.exercises.find(e=>e.id===it.exerciseId);
         if(!ex) return;
         const grow=el("div",{class:"grow"},
-          el("div",{class:"name"},ex.name),
+          exDetailName(ex),
           el("div",{class:"small muted"}, `${it.sets.length}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest · ~${exMinutes(ex,it.sets.length)} min`));
         const tags=muscleTags(ex); if(tags) grow.append(tags);
         body.append(el("div",{class:"listitem",style:"cursor:default"},
@@ -1401,7 +1414,7 @@ function openPlanEditor(plan){
           el("button",{class:"miniarrow",disabled:i===0,"aria-label":"Move up",onClick:async()=>{ [plan.items[i-1],plan.items[i]]=[plan.items[i],plan.items[i-1]]; await persist(); refresh(); }},"▲"),
           el("button",{class:"miniarrow",disabled:i===plan.items.length-1,"aria-label":"Move down",onClick:async()=>{ [plan.items[i+1],plan.items[i]]=[plan.items[i],plan.items[i+1]]; await persist(); refresh(); }},"▼"));
         const grow=el("div",{class:"grow"},
-          el("div",{class:"name"},ex.name),
+          exDetailName(ex),
           el("div",{class:"small muted"}, `${fmtRest(restOf(ex))} rest · ~${exMinutes(ex,it.sets)} min`));
         const tags=muscleTags(ex); if(tags) grow.append(tags);
         const setCtl=el("div",{class:"setstep"},
@@ -1959,35 +1972,54 @@ function fmtShortDate(iso){ const t=new Date(iso+"T12:00:00"); return (t.getMont
 // full progress page for one exercise: 1RM trend, records, recent history
 function openExerciseProgress(exId){
   const ex=State.exercises.find(e=>e.id===exId); if(!ex)return;
-  openSheet(ex.name,(body)=>{ const mount=el("div",{}); body.append(mount);
+  openSheet(ex.name,(body,close)=>{ const mount=el("div",{}); body.append(mount);
     (async()=>{
       const hist=await exerciseHistory(exId), bw=isBW(ex);
-      const imgId=await exerciseImageId(ex); if(imgId) mount.append(exerciseShots(imgId, ex.name));
-      if(!hist.length){ mount.append(el("p",{class:"muted small"}, imgId?"No sets logged yet — here's the movement.":"No sets logged yet.")); return; }
-      const pr=computePRs(hist,ex);
-      const bySession={}; hist.forEach(s=>{ if(s.reps>0){ const m=bw?s.reps:epley(s.weight,s.reps); bySession[s.date]=Math.max(bySession[s.date]||0,m);} });
-      const dates=Object.keys(bySession).sort(), series=dates.map(d=>bySession[d]);
-      const pct = series.length>=2&&series[0]>0? Math.round((series[series.length-1]-series[0])/series[0]*100):null;
-      mount.append(el("div",{class:"row between",style:"margin:-2px 0 2px"},
-        el("div",{style:"font-weight:600;font-size:14px"}, bw?"Best reps over time":"Estimated 1RM over time"),
-        el("span",{class:"small",style:pct==null?"color:var(--muted)":pct>=0?"color:var(--accent-2)":"color:var(--warn)"}, pct==null?"":`${pct>=0?"▲":"▼"} ${Math.abs(pct)}%`)));
-      mount.append(lineChart(series,{labels:dates.map(fmtShortDate), fmt:v=>Math.round(v)+(bw?"":(ex.unit||"kg"))}));
-      if(!bw) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Estimated 1RM via the Epley formula — weight × (1 + reps/30). Most accurate at ≤10 reps."));
-      mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Records"));
-      const recs=el("div",{class:"statgrid"});
-      if(bw) recs.append(statTile(pr.maxReps||0,"most reps in a set"), statTile((pr.heaviest||0)+(ex.unit||"kg"),"most added load"));
-      else recs.append(
-        statTile(pr.heaviest+(ex.unit||"kg"),"heaviest weight"),
-        statTile(pr.best1rm+(ex.unit||"kg"),"best est. 1RM"),
-        statTile(pr.bestSetVol.toLocaleString(),"best set volume (kg)"),
-        statTile(pr.bestSessionVol.toLocaleString(),"best session volume (kg)"));
-      mount.append(recs);
-      if(!bw){ const reps=Object.keys(pr.repMax).map(Number).sort((a,b)=>a-b).slice(0,8);
-        if(reps.length) mount.append(el("div",{class:"tiny muted",style:"margin-top:10px"}, "Best by reps · "+reps.map(r=>`${pr.repMax[r]}${ex.unit||"kg"}×${r}`).join("  ·  "))); }
-      mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Recent sessions"));
-      dates.slice(-5).reverse().forEach(d=>{ const ss=hist.filter(s=>s.date===d&&s.reps>0).sort((a,b)=>a.order-b.order);
-        mount.append(el("div",{style:"margin-bottom:7px"}, el("div",{class:"small",style:"font-weight:600"},fmtDate(d)),
-          el("div",{class:"small muted"}, ss.map(s=>fmtSetShort(ex,s.weight,s.reps)).join("  ")))); });
+      const lib=await exerciseLibEntry(ex);
+      const imgId=ex.libId || (lib&&lib.raw.id) || null;
+      if(imgId) mount.append(exerciseShots(imgId, ex.name));
+      // about: equipment · category + muscle tags
+      const cat=(lib&&lib.raw.category) ? lib.raw.category.replace(/(^|\s)\w/g,c=>c.toUpperCase()) : "";
+      const metaTxt=[equipLabel(ex.equipment), cat].filter(Boolean).join(" · ");
+      if(metaTxt) mount.append(el("div",{class:"small muted",style:"margin:-6px 0 8px"}, metaTxt));
+      const tg=muscleTags(ex); if(tg){ tg.style.marginBottom="6px"; mount.append(tg); }
+      // how to do it (instructions from the library)
+      if(lib && lib.raw.instructions && lib.raw.instructions.length){
+        mount.append(el("div",{class:"sectionhead"},"How to do it"));
+        const ol=el("ol",{class:"steps"}); lib.raw.instructions.forEach(s=>ol.append(el("li",{},s))); mount.append(ol);
+      }
+      // your progress (only once there's logged history)
+      if(hist.length){
+        const pr=computePRs(hist,ex);
+        const bySession={}; hist.forEach(s=>{ if(s.reps>0){ const m=bw?s.reps:epley(s.weight,s.reps); bySession[s.date]=Math.max(bySession[s.date]||0,m);} });
+        const dates=Object.keys(bySession).sort(), series=dates.map(d=>bySession[d]);
+        const pct = series.length>=2&&series[0]>0? Math.round((series[series.length-1]-series[0])/series[0]*100):null;
+        mount.append(el("div",{class:"sectionhead"},"Your progress"));
+        mount.append(el("div",{class:"row between",style:"margin:-2px 0 2px"},
+          el("div",{style:"font-weight:600;font-size:14px"}, bw?"Best reps over time":"Estimated 1RM over time"),
+          el("span",{class:"small",style:pct==null?"color:var(--muted)":pct>=0?"color:var(--accent-2)":"color:var(--warn)"}, pct==null?"":`${pct>=0?"▲":"▼"} ${Math.abs(pct)}%`)));
+        mount.append(lineChart(series,{labels:dates.map(fmtShortDate), fmt:v=>Math.round(v)+(bw?"":(ex.unit||"kg"))}));
+        if(!bw) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Estimated 1RM via the Epley formula — weight × (1 + reps/30). Most accurate at ≤10 reps."));
+        mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Records"));
+        const recs=el("div",{class:"statgrid"});
+        if(bw) recs.append(statTile(pr.maxReps||0,"most reps in a set"), statTile((pr.heaviest||0)+(ex.unit||"kg"),"most added load"));
+        else recs.append(
+          statTile(pr.heaviest+(ex.unit||"kg"),"heaviest weight"),
+          statTile(pr.best1rm+(ex.unit||"kg"),"best est. 1RM"),
+          statTile(pr.bestSetVol.toLocaleString(),"best set volume (kg)"),
+          statTile(pr.bestSessionVol.toLocaleString(),"best session volume (kg)"));
+        mount.append(recs);
+        if(!bw){ const reps=Object.keys(pr.repMax).map(Number).sort((a,b)=>a-b).slice(0,8);
+          if(reps.length) mount.append(el("div",{class:"tiny muted",style:"margin-top:10px"}, "Best by reps · "+reps.map(r=>`${pr.repMax[r]}${ex.unit||"kg"}×${r}`).join("  ·  "))); }
+        mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Recent sessions"));
+        dates.slice(-5).reverse().forEach(d=>{ const ss=hist.filter(s=>s.date===d&&s.reps>0).sort((a,b)=>a.order-b.order);
+          mount.append(el("div",{style:"margin-bottom:7px"}, el("div",{class:"small",style:"font-weight:600"},fmtDate(d)),
+            el("div",{class:"small muted"}, ss.map(s=>fmtSetShort(ex,s.weight,s.reps)).join("  ")))); });
+      } else {
+        mount.append(el("p",{class:"muted small",style:"margin:2px 0 0"}, "No sets logged yet — your progress will show up here."));
+      }
+      mount.append(el("div",{class:"divider"}),
+        el("button",{class:"btn secondary",style:"width:100%",onClick:()=>{ close(); openExerciseSheet(ex); }},ic("clipboard",16),"Edit exercise"));
     })();
   });
 }
@@ -2113,12 +2145,19 @@ async function loadLibrary(){
 // demonstration photos (free-exercise-db ships exactly 2 per exercise: start + end position)
 const FEDB_IMG = "https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@main/exercises/";
 const libImageUrl = (id, n=0) => id ? FEDB_IMG + id + "/" + n + ".jpg" : null;
+// resolve an added exercise to its library entry (for photos + instructions): by stored libId, else by name
+async function exerciseLibEntry(ex){
+  if(!ex) return null;
+  try{ const lib=await loadLibrary();
+    if(ex.libId){ const m=lib.find(e=>e.raw.id===ex.libId); if(m) return m; }
+    const t=normName(ex.name); return lib.find(e=>normName(e.name)===t) || null;
+  }catch(e){ return null; }
+}
 // which library id (if any) backs this exercise — stored on add, else matched by name
 async function exerciseImageId(ex){
   if(!ex) return null;
   if(ex.libId) return ex.libId;
-  try{ const lib=await loadLibrary(); const t=normName(ex.name); const hit=lib.find(e=>normName(e.name)===t); return hit?hit.raw.id:null; }
-  catch(e){ return null; }
+  const m=await exerciseLibEntry(ex); return m?m.raw.id:null;
 }
 // two start/end photos side by side; tap either to open the full-screen viewer; each hides itself if the image 404s
 function exerciseShots(id, name){
