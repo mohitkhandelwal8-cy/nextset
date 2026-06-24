@@ -140,6 +140,9 @@
   .mtag.primary{color:var(--accent);border-color:rgba(249,115,22,.45)}
   .regionhead{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.7px;margin:16px 4px 8px}
   .regionhead:first-child{margin-top:4px}
+  /* top-level section title — one step above .regionhead sub-labels */
+  .sectionhead{font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.01em;margin:20px 2px 10px}
+  .sectionhead:first-child{margin-top:2px}
   .vbar{display:flex;align-items:center;gap:10px;margin-bottom:9px}
   .vbar .lbl{width:90px;font-size:13px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .vbar .track{flex:1;height:8px;background:var(--surface-2);border-radius:999px;overflow:hidden}
@@ -310,7 +313,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v29"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v30"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -717,18 +720,10 @@ function viewToday(){
       )
     );
     if(plans.length){
-      wrap.append(el("div",{class:"regionhead",style:"margin-top:4px"},"Your plans"));
+      wrap.append(el("div",{class:"sectionhead"},"Your plans"));
       plans.forEach(p=>wrap.append(planCard(p)));
     }
-    if(gx.length){
-      if(plans.length) wrap.append(el("div",{class:"regionhead",style:"margin-top:18px"},"All exercises"));
-      REGION_ORDER.forEach(region=>{
-        const inRegion=gx.filter(e=>exRegion(e)===region);
-        if(!inRegion.length)return;
-        wrap.append(el("div",{class:"regionhead"},region));
-        inRegion.forEach(ex=>wrap.append(exerciseCard(ex)));
-      });
-    }
+    // the full exercise catalog lives in More → Exercises; Today stays action-only
     return wrap;
   }
   // active session
@@ -1268,7 +1263,7 @@ function openPlanSheet(){
       body.append(el("div",{class:"row between",style:"margin:-6px 0 10px"},
         el("div",{class:"small muted"}, `${items.length} exercise${items.length>1?"s":""}`),
         el("div",{class:"pill",style:"color:var(--accent);border-color:rgba(249,115,22,.45);font-weight:600"}, `~${planMinutes(items)} min total`)));
-      body.append(el("div",{class:"regionhead",style:"margin-top:0"},"In your plan"));
+      body.append(el("div",{class:"sectionhead",style:"margin-top:0"},"In your plan"));
       items.forEach((it,idx)=>{
         const ex=State.exercises.find(e=>e.id===it.exerciseId);
         if(!ex) return;
@@ -1294,7 +1289,7 @@ function openPlanSheet(){
     const inPlan=new Set(items.map(i=>i.exerciseId));
     const gx=gymExercises().filter(e=>!inPlan.has(e.id));
     if(gx.length){
-      if(items.length) body.append(el("div",{class:"regionhead"},"Add more"));
+      if(items.length) body.append(el("div",{class:"sectionhead"},"Add more"));
       REGION_ORDER.forEach(region=>{
         const inRegion=gx.filter(e=>exRegion(e)===region);
         if(!inRegion.length)return;
@@ -1376,7 +1371,7 @@ function openPlanEditor(plan){
       addEl.innerHTML="";
       const inPlan=new Set(plan.items.map(it=>it.exerciseId));
       const gx=gymExercises().filter(e=>!inPlan.has(e.id));
-      addEl.append(el("div",{class:"regionhead",style:"margin-top:0"},"Add an exercise"));
+      addEl.append(el("div",{class:"sectionhead",style:"margin-top:0"},"Add an exercise"));
       if(gx.length){
         REGION_ORDER.forEach(region=>{
           const inRegion=gx.filter(e=>exRegion(e)===region);
