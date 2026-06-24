@@ -179,6 +179,20 @@
   .exlink .exlink-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .exlink .ic{color:var(--muted);flex:none}
   .exlink:active{opacity:.6}
+  /* collapsible "How to do it" guide */
+  .howto{border:1px solid var(--line);border-radius:12px;margin:8px 0 4px;overflow:hidden}
+  .howto>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:12px 14px;font-weight:700;font-size:14px;min-height:44px}
+  .howto>summary::-webkit-details-marker{display:none}
+  .howto>summary .grow{flex:1}
+  .howto>summary .chev{flex:none;color:var(--muted);transition:transform .15s}
+  .howto[open]>summary .chev{transform:rotate(90deg)}
+  .howto .steps{margin:0;padding:0 16px 12px 34px}
+  /* "last time" recall line in the logger */
+  .lasttime{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin:8px 2px 2px;font-size:13px;color:var(--muted)}
+  .lasttime .lbl{font-weight:700;color:var(--text);font-size:10px;text-transform:uppercase;letter-spacing:.6px;flex:none}
+  /* demoted "tweaked a joint?" toggle */
+  .jointtoggle{margin-top:10px;font-size:12px;color:var(--muted);background:none;border:none;display:inline-flex;align-items:center;gap:6px;padding:4px 0;min-height:36px;cursor:pointer}
+  .jointtoggle.on{color:var(--warn);font-weight:600}
   .updatebar{position:fixed;left:12px;right:12px;bottom:calc(82px + var(--safe-b));max-width:536px;margin:0 auto;z-index:45;
     background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;
     display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
@@ -340,7 +354,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v39"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v40"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -858,18 +872,23 @@ function loggerCard(item, isCurrent, ss){
   // ----- EXPANDED view -----
   const pb = progBadge(item);
   const card=el("div",{class:"card lcard"+(isCurrent?" current":"")});
-  const head=el("div",{class:"row between",style:"margin-bottom:10px"},
+  const thumb=el("div",{class:"exthumb",role:"button",tabindex:"0","aria-label":`View ${ex?.name||"exercise"} details`,
+    onClick:()=>ex&&openExerciseProgress(ex.id), onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();ex&&openExerciseProgress(ex.id);}}}, ic("dumbbell",16));
+  if(ex) exerciseImageId(ex).then(id=>{ if(id){ const im=document.createElement("img"); im.src=libImageUrl(id,0); im.loading="lazy"; im.alt=""; im.onerror=()=>im.remove(); thumb.append(im); } });
+  const head=el("div",{class:"row between",style:"margin-bottom:10px;gap:10px"},
     el("div",{style:"min-width:0"},
       el("div",{class:"row",style:"gap:8px;align-items:center;flex-wrap:wrap"},
         ...(ss?[el("span",{class:"ssbadge"}, ss.letter+ss.n)]:[]),
         ...(isCurrent?[el("span",{class:"nowtag"},"NOW")]:[]),
-        exDetailName(ex,true), ...(pb?[pb]:[])),
+        el("div",{style:"font-weight:700"},ex?.name||"Exercise"), ...(pb?[pb]:[])),
       el("div",{class:"tiny muted"}, ex?`${ex.sets}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest`:"")),
-    el("button",{class:"jointbtn"+(item.joint?" on":""),"aria-pressed":item.joint?"true":"false",onClick:()=>{item.joint=!item.joint;persistSession();render();}},
-      ic("alert",15), item.joint?"joint flagged":"flag joint")
+    thumb
   );
   card.append(head);
   if(item.note) card.append(el("div",{class:"suggestion"+(["deload","repeat"].includes(item.kind)?" warn":"")}, item.note));
+  if(item.last && item.last.sets.length) card.append(el("div",{class:"lasttime"},
+    el("span",{class:"lbl"},"Last time"),
+    el("span",{}, item.last.sets.map(s=>fmtSetShort(ex,s.weight,s.reps)).join("  ·  "))));
 
   const wUnit = bw ? "+"+(ex?.unit||"kg") : (ex?.unit||"kg");
   let setNo=0;
@@ -902,7 +921,9 @@ function loggerCard(item, isCurrent, ss){
       persistSession(); render();
     }}, {easy:"Easy",solid:"Solid",grind:"Grind"}[level]));
   });
-  card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"How hard did this feel?"), rpe);
+  card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"How hard did this feel?"), rpe,
+    el("button",{class:"jointtoggle"+(item.joint?" on":""),"aria-pressed":item.joint?"true":"false",onClick:()=>{item.joint=!item.joint;persistSession();render();}},
+      ic("alert",13), item.joint?"Joint flagged — tap to clear":"Tweaked a joint?"));
 
   // superset state for the control row
   const sitems=State.activeSession.items, idx=sitems.indexOf(item);
@@ -1002,6 +1023,7 @@ async function addToPlan(ex, setCount){
   const n=Math.max(1, setCount||base.length);
   State.activeSession.items.push({
     exerciseId:ex.id, kind:sug.kind, note:sug.note, joint:false, rpe:null,
+    last: sug.prev ? {date:sug.prev.session.date, sets:sug.prev.sets.map(s=>({weight:s.weight,reps:s.reps}))} : null,
     sets:Array.from({length:n},(_,i)=>{const p=base[Math.min(i,base.length-1)]||{weight:0,reps:ex.repMin||8};return {weight:p.weight,reps:p.reps,done:false};})
   });
   await persistSession();
@@ -1970,6 +1992,13 @@ async function prCheck(ex,weight,reps){
 }
 function fmtShortDate(iso){ const t=new Date(iso+"T12:00:00"); return (t.getMonth()+1)+"/"+t.getDate(); }
 // full progress page for one exercise: 1RM trend, records, recent history
+// collapsible step-by-step instructions (closed by default so it doesn't dominate the detail)
+function howTo(instructions){
+  const d=el("details",{class:"howto"});
+  d.append(el("summary",{}, el("span",{class:"grow"},"How to do it"), el("span",{class:"chev"},ic("chevron",16))));
+  const ol=el("ol",{class:"steps"}); instructions.forEach(s=>ol.append(el("li",{},s))); d.append(ol);
+  return d;
+}
 function openExerciseProgress(exId){
   const ex=State.exercises.find(e=>e.id===exId); if(!ex)return;
   openSheet(ex.name,(body,close)=>{ const mount=el("div",{}); body.append(mount);
@@ -1984,11 +2013,8 @@ function openExerciseProgress(exId){
       if(metaTxt) mount.append(el("div",{class:"small muted",style:"margin:-6px 0 8px"}, metaTxt));
       const tg=muscleTags(ex); if(tg){ tg.style.marginBottom="6px"; mount.append(tg); }
       if(!lib) mount.append(libLinkCta(ex, close));   // offer to link → photos + how-to
-      // how to do it (instructions from the library)
-      if(lib && lib.raw.instructions && lib.raw.instructions.length){
-        mount.append(el("div",{class:"sectionhead"},"How to do it"));
-        const ol=el("ol",{class:"steps"}); lib.raw.instructions.forEach(s=>ol.append(el("li",{},s))); mount.append(ol);
-      }
+      // how to do it (collapsible guide, from the library)
+      if(lib && lib.raw.instructions && lib.raw.instructions.length) mount.append(howTo(lib.raw.instructions));
       // your progress (only once there's logged history)
       if(hist.length){
         const pr=computePRs(hist,ex);
@@ -2201,10 +2227,7 @@ function openLibraryDetail(e){
     if(e.primary&&muscleLabel(e.primary)) tags.push(muscleTag(muscleLabel(e.primary),regionOf(e.primary),true));
     if(e.secondary&&muscleLabel(e.secondary)) tags.push(muscleTag(muscleLabel(e.secondary),regionOf(e.secondary),false));
     if(tags.length) body.append(el("div",{class:"mtags",style:"margin-bottom:4px"},...tags));
-    if(e.raw.instructions && e.raw.instructions.length){
-      body.append(el("div",{class:"sectionhead"},"How to do it"));
-      const ol=el("ol",{class:"steps"}); e.raw.instructions.forEach(s=>ol.append(el("li",{},s))); body.append(ol);
-    }
+    if(e.raw.instructions && e.raw.instructions.length) body.append(howTo(e.raw.instructions));
     body.append(el("div",{class:"divider"}));
     const slot=el("div",{});
     const paint=()=>{ slot.innerHTML="";
