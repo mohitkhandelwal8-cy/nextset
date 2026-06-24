@@ -152,6 +152,12 @@
   .fchip{flex:none;font-size:13px;padding:7px 13px;min-height:40px;border-radius:999px;background:var(--surface-2);
     border:1px solid var(--line);color:var(--muted);display:inline-flex;align-items:center}
   .fchip.on{color:var(--on-accent);background:var(--accent);border-color:var(--accent);font-weight:600}
+  /* exercise demo photos (free-exercise-db) */
+  .exthumb{position:relative;width:46px;height:46px;flex:none;border-radius:8px;overflow:hidden;background:var(--surface-2);display:flex;align-items:center;justify-content:center}
+  .exthumb .ic{position:absolute;color:var(--muted);opacity:.45}
+  .exthumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--surface-2)}
+  .exshots{display:flex;gap:8px;margin:0 0 14px}
+  .exshots img{flex:1;min-width:0;aspect-ratio:1/1;object-fit:contain;background:var(--surface-2);border:1px solid var(--line);border-radius:12px}
   .updatebar{position:fixed;left:12px;right:12px;bottom:calc(82px + var(--safe-b));max-width:536px;margin:0 auto;z-index:45;
     background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;
     display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
@@ -313,7 +319,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v31"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v32"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1920,7 +1926,8 @@ function openExerciseProgress(exId){
   openSheet(ex.name,(body)=>{ const mount=el("div",{}); body.append(mount);
     (async()=>{
       const hist=await exerciseHistory(exId), bw=isBW(ex);
-      if(!hist.length){ mount.append(el("p",{class:"muted small"},"No sets logged yet.")); return; }
+      const imgId=await exerciseImageId(ex); if(imgId) mount.append(exerciseShots(imgId));
+      if(!hist.length){ mount.append(el("p",{class:"muted small"}, imgId?"No sets logged yet — here's the movement.":"No sets logged yet.")); return; }
       const pr=computePRs(hist,ex);
       const bySession={}; hist.forEach(s=>{ if(s.reps>0){ const m=bw?s.reps:epley(s.weight,s.reps); bySession[s.date]=Math.max(bySession[s.date]||0,m);} });
       const dates=Object.keys(bySession).sort(), series=dates.map(d=>bySession[d]);
@@ -2046,7 +2053,7 @@ function libAlreadyAdded(le){
 // create + persist a NextSet exercise from a library record
 async function addLibraryExercise(le){
   const m=libToExercise(le), equipment=m.equipment;
-  const rec={ id:uid(), gymId: equipGymScoped(equipment)?State.currentGymId:null, name:m.name,
+  const rec={ id:uid(), gymId: equipGymScoped(equipment)?State.currentGymId:null, name:m.name, libId:le.id,
     unit:"kg", increment:EQUIP[equipment].inc, sets:3, repMin:8, repMax:12,
     primary:m.primary, secondary:m.secondary, equipment,
     restSec:suggestRest({name:m.name, repMax:12, primary:m.primary}), notes:"" };
@@ -2066,6 +2073,23 @@ async function loadLibrary(){
              region: m.primary? regionOf(m.primary) : "Other" }; })
     .sort((a,b)=> a.name.localeCompare(b.name));
   return LIB;
+}
+// demonstration photos (free-exercise-db ships exactly 2 per exercise: start + end position)
+const FEDB_IMG = "https://cdn.jsdelivr.net/gh/yuhonas/free-exercise-db@main/exercises/";
+const libImageUrl = (id, n=0) => id ? FEDB_IMG + id + "/" + n + ".jpg" : null;
+// which library id (if any) backs this exercise — stored on add, else matched by name
+async function exerciseImageId(ex){
+  if(!ex) return null;
+  if(ex.libId) return ex.libId;
+  try{ const lib=await loadLibrary(); const t=normName(ex.name); const hit=lib.find(e=>normName(e.name)===t); return hit?hit.raw.id:null; }
+  catch(e){ return null; }
+}
+// two start/end photos side by side; each hides itself if the image 404s
+function exerciseShots(id){
+  const wrap=el("div",{class:"exshots"});
+  [0,1].forEach(n=>{ const img=document.createElement("img"); img.src=libImageUrl(id,n); img.loading="lazy"; img.alt="";
+    img.onerror=()=>img.remove(); wrap.append(img); });
+  return wrap;
 }
 function openLibrarySheet(){
   openSheet("Exercise library",(body,close)=>{
@@ -2087,6 +2111,9 @@ function openLibrarySheet(){
     }
     const CAP=60;
     function libRow(e){
+      const thumb=el("div",{class:"exthumb"}, ic("dumbbell",18));
+      const timg=document.createElement("img"); timg.src=libImageUrl(e.raw.id,0); timg.loading="lazy"; timg.alt="";
+      timg.onerror=()=>timg.remove(); thumb.append(timg);
       const grow=el("div",{class:"grow"},
         el("div",{class:"name"},e.name),
         el("div",{class:"small muted"}, equipLabel(e.equipment)||"Other"));
@@ -2100,7 +2127,7 @@ function openLibrarySheet(){
         else slot.append(el("button",{class:"chip add",style:"min-height:40px",onClick:async()=>{ await addLibraryExercise(e.raw); toast(`Added ${e.name}`); paint(); render(); }}, ic("plus",15),"Add"));
       };
       paint();
-      return el("div",{class:"listitem",style:"cursor:default;gap:10px"}, grow, slot);
+      return el("div",{class:"listitem",style:"cursor:default;gap:10px"}, thumb, grow, slot);
     }
     function renderResults(){
       results.innerHTML="";
