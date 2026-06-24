@@ -69,7 +69,8 @@
   .btn:active{transform:scale(.98)}
   .btn.sm{padding:9px 12px;width:auto;font-size:14px;border-radius:10px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
   input[type=text],input[type=number],select,textarea{width:100%;background:var(--surface-2);
-    border:1px solid var(--line);border-radius:10px;padding:11px 12px;color:var(--text);outline:none}
+    border:1px solid var(--line);border-radius:10px;padding:11px 12px;color:var(--text);outline:none;line-height:normal}
+  input[type=text],input[type=number]{height:46px;-webkit-appearance:none;appearance:none}
   input:focus,select:focus,textarea:focus{border-color:var(--accent)}
   label.field{display:block;margin-bottom:10px}
   label.field span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
@@ -287,7 +288,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v27"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v28"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
