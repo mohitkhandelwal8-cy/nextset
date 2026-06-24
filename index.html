@@ -340,7 +340,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v38"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v39"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1983,6 +1983,7 @@ function openExerciseProgress(exId){
       const metaTxt=[equipLabel(ex.equipment), cat].filter(Boolean).join(" · ");
       if(metaTxt) mount.append(el("div",{class:"small muted",style:"margin:-6px 0 8px"}, metaTxt));
       const tg=muscleTags(ex); if(tg){ tg.style.marginBottom="6px"; mount.append(tg); }
+      if(!lib) mount.append(libLinkCta(ex, close));   // offer to link → photos + how-to
       // how to do it (instructions from the library)
       if(lib && lib.raw.instructions && lib.raw.instructions.length){
         mount.append(el("div",{class:"sectionhead"},"How to do it"));
@@ -2216,6 +2217,81 @@ function openLibraryDetail(e){
     };
     paint(); body.append(slot);
   }, {stacked:true});
+}
+// best-guess library match for an unlinked exercise (token overlap + equipment), as a SUGGESTION the user confirms
+function guessLibMatch(ex){
+  if(!LIB || !ex) return null;
+  const t=normName(ex.name); if(!t) return null;
+  const toks=t.split(" ").filter(w=>w.length>2); if(!toks.length) return null;
+  let best=null, bestScore=-1;
+  for(const e of LIB){
+    const nt=new Set(normName(e.name).split(" "));
+    const overlap=toks.filter(w=>nt.has(w)).length; if(!overlap) continue;
+    let score = overlap/toks.length;                       // fraction of the user's words found
+    if(e.equipment===ex.equipment) score += 0.15;          // prefer the same equipment family
+    score -= normName(e.name).split(" ").length*0.01;      // mild nudge toward the simpler name
+    if(score>bestScore){ bestScore=score; best=e; }
+  }
+  return bestScore>=0.6 ? best : null;                      // only suggest a reasonably strong match
+}
+// link one of the user's exercises to a library entry (so it gets photos + how-to), then reopen its detail
+async function linkExerciseToLib(ex, libId){
+  ex.libId=libId; await DB.put("exercises",ex); State.exercises=await DB.all("exercises");
+  toast("Photos & how-to added");
+}
+// search the library to pick a match for an existing exercise (stacked over its detail)
+function openLibraryLink(ex){
+  openSheet("Find in library",(body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin:-6px 0 10px"}, "Pick the matching exercise — its photos & how-to get linked to ", el("b",{},ex.name), "."));
+    const search=el("input",{type:"text",value:ex.name,"aria-label":"Search library"});
+    body.append(el("div",{style:"margin-bottom:8px"}, search));
+    const results=el("div",{}), note=el("div",{class:"tiny muted",style:"margin:8px 2px"}); body.append(results, note);
+    const CAP=40;
+    function row(e){
+      const open=async()=>{ await linkExerciseToLib(ex, e.raw.id); close(); openExerciseProgress(ex.id); };
+      const thumb=el("div",{class:"exthumb"}, ic("dumbbell",18));
+      const img=document.createElement("img"); img.src=libImageUrl(e.raw.id,0); img.loading="lazy"; img.alt=""; img.onerror=()=>img.remove(); thumb.append(img);
+      const grow=el("div",{class:"grow"}, el("div",{class:"name"},e.name), el("div",{class:"small muted"}, equipLabel(e.equipment)||"Other"));
+      const tags=[]; if(e.primary&&muscleLabel(e.primary))tags.push(muscleTag(muscleLabel(e.primary),regionOf(e.primary),true)); if(e.secondary&&muscleLabel(e.secondary))tags.push(muscleTag(muscleLabel(e.secondary),regionOf(e.secondary),false));
+      if(tags.length) grow.append(el("div",{class:"mtags"},...tags));
+      return el("div",{class:"listitem",role:"button",tabindex:"0","aria-label":`Link ${e.name}`,style:"cursor:pointer;gap:10px",
+        onClick:open, onKeydown:ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();open();}}}, thumb, grow, el("span",{class:"chev"},ic("chevron",18)));
+    }
+    function render(){
+      results.innerHTML="";
+      if(!LIB){ results.append(el("p",{class:"muted small"},"Loading…")); note.textContent=""; return; }
+      const q=normName(search.value);
+      let list;
+      if(!q){ list=LIB; }
+      else {
+        const STOP=new Set(["machine","cable","barbell","dumbbell","kettlebell","bodyweight","weighted","selectorized","smith","band","bands","with"]);
+        const all=q.split(" ").filter(w=>w.length>1), sig=all.filter(w=>!STOP.has(w)), use=sig.length?sig:all;
+        list=LIB.map(e=>{ const nt=normName(e.name).split(" ");
+            const s=use.filter(w=> nt.some(x=> x===w || x.startsWith(w))).length;   // word match, incl. fly→flyes
+            return {e,s}; })
+          .filter(x=>x.s>0).sort((a,b)=> b.s-a.s || a.e.name.length-b.e.name.length).map(x=>x.e);
+      }
+      if(!list.length){ results.append(el("p",{class:"muted small"},"No matches — try a different term.")); note.textContent=""; return; }
+      list.slice(0,CAP).forEach(e=>results.append(row(e)));
+      note.textContent = list.length>CAP ? `Showing ${CAP} of ${list.length} — keep typing to narrow.` : `${list.length} match${list.length===1?"":"es"}`;
+    }
+    search.addEventListener("input",render); render();
+    loadLibrary().then(render).catch(()=>{ results.innerHTML=""; results.append(el("p",{class:"muted small"},"Couldn't load the library — reconnect and try again.")); });
+  }, {stacked:true});
+}
+// CTA shown in the detail when an exercise isn't linked to the library yet
+function libLinkCta(ex, closeDetail){
+  const guess=guessLibMatch(ex);
+  const card=el("div",{class:"card",style:"background:var(--surface-2);margin:6px 0 0"});
+  card.append(el("div",{class:"row",style:"gap:8px;align-items:center;font-weight:600"}, ic("info",16), "No photos or how-to yet"));
+  card.append(el("p",{class:"small muted",style:"margin:6px 0 10px"}, "Match this to a library exercise to add demo photos and step-by-step instructions."));
+  if(guess){
+    card.append(el("button",{class:"btn",style:"width:100%",onClick:async()=>{ await linkExerciseToLib(ex, guess.raw.id); closeDetail(); openExerciseProgress(ex.id); }}, ic("check",16), `Use “${guess.name}”`));
+    card.append(el("button",{class:"btn secondary",style:"width:100%;margin-top:8px",onClick:()=>openLibraryLink(ex)}, ic("search",16), "Pick a different one"));
+  } else {
+    card.append(el("button",{class:"btn",style:"width:100%",onClick:()=>openLibraryLink(ex)}, ic("search",16), "Find in library"));
+  }
+  return card;
 }
 function openLibrarySheet(){
   openSheet("Exercise library",(body,close)=>{
