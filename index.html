@@ -171,6 +171,9 @@
   .lightbox figcaption{color:rgba(255,255,255,.65);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin:0 2px 6px}
   .lightbox img{width:100%;border-radius:14px;background:var(--surface-2);display:block}
   @keyframes fade{from{opacity:0}to{opacity:1}}
+  .steps{margin:8px 0 4px;padding-left:22px}
+  .steps li{margin-bottom:9px;font-size:14px;line-height:1.55;color:var(--text)}
+  .steps li::marker{color:var(--accent);font-weight:700}
   .updatebar{position:fixed;left:12px;right:12px;bottom:calc(82px + var(--safe-b));max-width:536px;margin:0 auto;z-index:45;
     background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;
     display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
@@ -332,7 +335,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v35"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v36"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1071,18 +1074,21 @@ async function addMissingToGym(list){
 /* ============================================================
    SHEETS (modals)
    ============================================================ */
-function openSheet(title, buildBody){
+function openSheet(title, buildBody, opts={}){
+  const stacked=!!opts.stacked;                 // stacked: layer over the current sheet instead of replacing it
   const host=$("#sheetHost");
-  const close=()=>{ host.innerHTML=""; document.body.classList.remove("modal-open"); };
-  const bg=el("div",{class:"sheet-bg",onClick:e=>{if(e.target===bg)close();}});
+  const bg=el("div",{class:"sheet-bg"}); if(stacked) bg.style.zIndex="55";
+  const close=()=>{ if(stacked){ bg.remove(); } else { host.innerHTML=""; document.body.classList.remove("modal-open"); } };
+  bg.addEventListener("click",e=>{ if(e.target===bg) close(); });
   const sheet=el("div",{class:"sheet"});
   sheet.append(el("div",{class:"grabber"}));
   sheet.append(el("div",{class:"sheethead"},
     el("h2",{},title),
     el("button",{class:"sheetclose","aria-label":"Close",onClick:close}, ic("x",20))));
   buildBody(sheet, close);
-  bg.append(sheet); host.innerHTML=""; host.append(bg);
-  document.body.classList.add("modal-open");   // lock background scroll while the sheet is open
+  bg.append(sheet);
+  if(stacked){ document.body.append(bg); }       // keep the sheet underneath (e.g. library detail over the picker)
+  else { host.innerHTML=""; host.append(bg); document.body.classList.add("modal-open"); }
 }
 
 /* gym add/switch */
@@ -2129,6 +2135,33 @@ function openImageViewer(id, name){
   });
   document.body.append(box);
 }
+// library exercise detail — big photos (tap to zoom), muscles/equipment, how-to steps, and Add
+function openLibraryDetail(e){
+  openSheet(e.name,(body)=>{
+    body.append(exerciseShots(e.raw.id, e.name));
+    const cat = e.raw.category ? e.raw.category.replace(/(^|\s)\w/g,c=>c.toUpperCase()) : "";
+    body.append(el("div",{class:"small muted",style:"margin:-6px 0 8px"}, [equipLabel(e.equipment)||"Other", cat].filter(Boolean).join(" · ")));
+    const tags=[];
+    if(e.primary&&muscleLabel(e.primary)) tags.push(muscleTag(muscleLabel(e.primary),regionOf(e.primary),true));
+    if(e.secondary&&muscleLabel(e.secondary)) tags.push(muscleTag(muscleLabel(e.secondary),regionOf(e.secondary),false));
+    if(tags.length) body.append(el("div",{class:"mtags",style:"margin-bottom:4px"},...tags));
+    if(e.raw.instructions && e.raw.instructions.length){
+      body.append(el("div",{class:"sectionhead"},"How to do it"));
+      const ol=el("ol",{class:"steps"}); e.raw.instructions.forEach(s=>ol.append(el("li",{},s))); body.append(ol);
+    }
+    body.append(el("div",{class:"divider"}));
+    const slot=el("div",{});
+    const paint=()=>{ slot.innerHTML="";
+      if(libAlreadyAdded(e.raw)){
+        slot.append(el("div",{class:"row",style:"gap:8px;justify-content:center;color:var(--muted);padding:6px"}, ic("check",18), "Already in your exercises"));
+      } else {
+        const lbl = equipGymScoped(e.equipment) ? `Add to ${curGym()?curGym().name:"this gym"}` : "Add exercise";
+        slot.append(el("button",{class:"btn",style:"width:100%",onClick:async()=>{ await addLibraryExercise(e.raw); toast(`Added ${e.name}`); paint(); render(); }}, ic("plus",16), lbl));
+      }
+    };
+    paint(); body.append(slot);
+  }, {stacked:true});
+}
 function openLibrarySheet(){
   openSheet("Exercise library",(body,close)=>{
     const gymName = curGym()?curGym().name:"your collection";
@@ -2149,8 +2182,8 @@ function openLibrarySheet(){
     }
     const CAP=60;
     function libRow(e){
-      const thumb=el("div",{class:"exthumb",role:"button",tabindex:"0","aria-label":`Preview ${e.name}`,
-        onClick:()=>openImageViewer(e.raw.id, e.name), onKeydown:ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();openImageViewer(e.raw.id, e.name);}}}, ic("dumbbell",18));
+      const open=()=>openLibraryDetail(e);
+      const thumb=el("div",{class:"exthumb"}, ic("dumbbell",18));
       const timg=document.createElement("img"); timg.src=libImageUrl(e.raw.id,0); timg.loading="lazy"; timg.alt="";
       timg.onerror=()=>timg.remove(); thumb.append(timg);
       const grow=el("div",{class:"grow"},
@@ -2163,10 +2196,11 @@ function openLibrarySheet(){
       const slot=el("div",{style:"flex:none"});
       const paint=()=>{ slot.innerHTML="";
         if(libAlreadyAdded(e.raw)) slot.append(el("span",{class:"tiny muted",style:"display:inline-flex;align-items:center;gap:4px;white-space:nowrap"}, ic("check",15),"Added"));
-        else slot.append(el("button",{class:"chip add",style:"min-height:40px",onClick:async()=>{ await addLibraryExercise(e.raw); toast(`Added ${e.name}`); paint(); render(); }}, ic("plus",15),"Add"));
+        else slot.append(el("button",{class:"chip add",style:"min-height:40px","aria-label":`Add ${e.name}`,onClick:async(ev)=>{ ev.stopPropagation(); await addLibraryExercise(e.raw); toast(`Added ${e.name}`); paint(); render(); }}, ic("plus",15),"Add"));
       };
       paint();
-      return el("div",{class:"listitem",style:"cursor:default;gap:10px"}, thumb, grow, slot);
+      return el("div",{class:"listitem",role:"button",tabindex:"0","aria-label":`View ${e.name}`,style:"cursor:pointer;gap:10px",
+        onClick:open, onKeydown:ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();open();}}}, thumb, grow, slot);
     }
     function renderResults(){
       results.innerHTML="";
