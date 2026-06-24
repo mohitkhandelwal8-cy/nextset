@@ -287,7 +287,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v26"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v27"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -957,10 +957,21 @@ async function autofillPlanFromHistory(){
 // a plan stores the MOVEMENTS (exerciseId + set count), not frozen weights — so repeating it
 // re-suggests progressed targets from your latest history.
 async function savePlan(name){
-  const items=State.activeSession.items.map(it=>({exerciseId:it.exerciseId, sets:it.sets.length}));
-  const plan={ id:uid(), gymId:State.currentGymId, name:(name||"").trim()||suggestPlanName(State.activeSession.items),
+  return savePlanFromItems(name, State.currentGymId, State.activeSession.items.map(it=>({exerciseId:it.exerciseId, sets:it.sets.length})));
+}
+async function savePlanFromItems(name, gymId, items){
+  const plan={ id:uid(), gymId: gymId||State.currentGymId, name:(name||"").trim()||suggestPlanName(items),
     items, createdAt:new Date().toISOString() };
   await DB.put("plans",plan); State.plans.push(plan); return plan;
+}
+// turn a past session's logged sets into plan items, preserving exercise order, dropping deleted exercises
+function planItemsFromSets(sets){
+  const seen=new Set(), counts={}, items=[];
+  sets.forEach(x=>{ counts[x.exerciseId]=(counts[x.exerciseId]||0)+1; });
+  sets.slice().sort((a,b)=>(a.createdAt||"").localeCompare(b.createdAt||"")||(a.order-b.order)).forEach(x=>{
+    if(!seen.has(x.exerciseId)){ seen.add(x.exerciseId); if(State.exercises.find(e=>e.id===x.exerciseId)) items.push({exerciseId:x.exerciseId, sets:counts[x.exerciseId]}); }
+  });
+  return items;
 }
 async function deletePlan(id){ await DB.del("plans",id); State.plans=State.plans.filter(p=>p.id!==id); }
 async function renamePlan(plan,name){ const n=(name||"").trim(); if(!n)return; plan.name=n; await DB.put("plans",plan); State.plans=await DB.all("plans"); }
@@ -1504,13 +1515,25 @@ function openSessionDetail(se){
         mount.append(el(ex?"button":"div", ex?{class:"rowbtn",style:"margin-bottom:10px",onClick:()=>openExerciseProgress(ex.id)}:{style:"margin-bottom:10px"},
           el("div",{style:"width:100%"}, head, el("div",{class:"small muted",style:"margin-top:2px"}, setsTxt))));
       }
-      mount.append(el("div",{class:"divider"}),
-        el("button",{class:"btn danger",onClick:async()=>{
+      const planItems=planItemsFromSets(sets);
+      mount.append(el("div",{class:"divider"}));
+      if(planItems.length) mount.append(el("button",{class:"btn secondary",onClick:()=>saveSessionAsPlan(se, planItems)},ic("clipboard",16),"Save as a plan"));
+      mount.append(el("button",{class:"btn danger",style:planItems.length?"margin-top:8px":"",onClick:async()=>{
           if(!confirm("Delete this workout and its logged sets? This can't be undone."))return;
           for(const x of sets) await DB.del("sets",x.id); await DB.del("sessions",se.id);
           close(); render(); toast("Workout deleted");
         }},ic("x",16),"Delete workout"));
     })();
+  });
+}
+// name + save a past workout as a reusable plan
+function saveSessionAsPlan(se, items){
+  openSheet("Save as a plan",(body,close)=>{
+    const name=el("input",{type:"text",value:suggestPlanName(items),placeholder:"e.g. Push day, Leg day"});
+    body.append(
+      el("p",{class:"small muted",style:"margin-top:-6px"},`Turns this workout's ${items.length} exercise${items.length>1?"s":""} into a reusable plan. Next time you run it, weights are re-suggested from your latest history.`),
+      el("label",{class:"field"},el("span",{},"Plan name"),name),
+      el("button",{class:"btn",onClick:async()=>{ const p=await savePlanFromItems(name.value, se.gymId, items); close(); render(); toast(`Saved plan "${p.name}"`); }},ic("check"),"Save plan"));
   });
 }
 
