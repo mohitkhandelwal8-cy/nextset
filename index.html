@@ -156,8 +156,21 @@
   .exthumb{position:relative;width:46px;height:46px;flex:none;border-radius:8px;overflow:hidden;background:var(--surface-2);display:flex;align-items:center;justify-content:center}
   .exthumb .ic{position:absolute;color:var(--muted);opacity:.45}
   .exthumb img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:var(--surface-2)}
+  .exthumb[role=button]{cursor:zoom-in}
   .exshots{display:flex;gap:8px;margin:0 0 14px}
-  .exshots img{flex:1;min-width:0;aspect-ratio:1/1;object-fit:contain;background:var(--surface-2);border:1px solid var(--line);border-radius:12px}
+  .exshot{flex:1;min-width:0;position:relative;aspect-ratio:1/1;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface-2);cursor:zoom-in}
+  .exshot img{width:100%;height:100%;object-fit:contain;display:block}
+  .exshot-zoom{position:absolute;right:6px;bottom:6px;width:26px;height:26px;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center}
+  /* full-screen photo viewer */
+  .lightbox{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.97);overflow-y:auto;overscroll-behavior:contain;
+    padding:max(12px,env(safe-area-inset-top)) 14px calc(16px + var(--safe-b));animation:fade .15s ease}
+  .lightbox .lbhead{position:sticky;top:0;z-index:1;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:space-between;gap:10px;color:#fff;padding:6px 0 12px}
+  .lightbox .lbhead .name{font-weight:700;font-size:16px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lightbox .lbclose{flex:none;width:40px;height:40px;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;display:flex;align-items:center;justify-content:center}
+  .lightbox figure{margin:0 0 16px}
+  .lightbox figcaption{color:rgba(255,255,255,.65);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin:0 2px 6px}
+  .lightbox img{width:100%;border-radius:14px;background:var(--surface-2);display:block}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
   .updatebar{position:fixed;left:12px;right:12px;bottom:calc(82px + var(--safe-b));max-width:536px;margin:0 auto;z-index:45;
     background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:10px 12px;
     display:flex;align-items:center;gap:10px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
@@ -319,7 +332,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v33"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v34"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -340,6 +353,7 @@ const ICONS = {
   arrowdown:'<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
   link:'<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/>',
   search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+  expand:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/>',
 };
 function ic(name, size=18){
   const s=document.createElement("span");
@@ -1926,7 +1940,7 @@ function openExerciseProgress(exId){
   openSheet(ex.name,(body)=>{ const mount=el("div",{}); body.append(mount);
     (async()=>{
       const hist=await exerciseHistory(exId), bw=isBW(ex);
-      const imgId=await exerciseImageId(ex); if(imgId) mount.append(exerciseShots(imgId));
+      const imgId=await exerciseImageId(ex); if(imgId) mount.append(exerciseShots(imgId, ex.name));
       if(!hist.length){ mount.append(el("p",{class:"muted small"}, imgId?"No sets logged yet — here's the movement.":"No sets logged yet.")); return; }
       const pr=computePRs(hist,ex);
       const bySession={}; hist.forEach(s=>{ if(s.reps>0){ const m=bw?s.reps:epley(s.weight,s.reps); bySession[s.date]=Math.max(bySession[s.date]||0,m);} });
@@ -2084,12 +2098,36 @@ async function exerciseImageId(ex){
   try{ const lib=await loadLibrary(); const t=normName(ex.name); const hit=lib.find(e=>normName(e.name)===t); return hit?hit.raw.id:null; }
   catch(e){ return null; }
 }
-// two start/end photos side by side; each hides itself if the image 404s
-function exerciseShots(id){
+// two start/end photos side by side; tap either to open the full-screen viewer; each hides itself if the image 404s
+function exerciseShots(id, name){
   const wrap=el("div",{class:"exshots"});
-  [0,1].forEach(n=>{ const img=document.createElement("img"); img.src=libImageUrl(id,n); img.loading="lazy"; img.alt="";
-    img.onerror=()=>img.remove(); wrap.append(img); });
+  [["Start",0],["Finish",1]].forEach(([label,n])=>{
+    const cell=el("div",{class:"exshot",role:"button",tabindex:"0","aria-label":`View ${name||"exercise"} photo (${label.toLowerCase()})`,
+      onClick:()=>openImageViewer(id,name), onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openImageViewer(id,name);}}});
+    const img=document.createElement("img"); img.src=libImageUrl(id,n); img.loading="lazy"; img.alt="";
+    img.onerror=()=>cell.remove();
+    cell.append(img, el("span",{class:"exshot-zoom"}, ic("expand",14)));
+    wrap.append(cell);
+  });
   return wrap;
+}
+// full-screen photo viewer — both start/finish positions, large; tap anywhere or ✕ to close
+function openImageViewer(id, name){
+  if(!id) return;
+  const box=el("div",{class:"lightbox"});
+  const close=()=>box.remove();
+  box.addEventListener("click", close);
+  box.append(el("div",{class:"lbhead"},
+    el("div",{class:"name"}, name||"Exercise"),
+    el("button",{class:"lbclose","aria-label":"Close", onClick:close}, ic("x",20))));
+  [["Start",0],["Finish",1]].forEach(([label,n])=>{
+    const fig=el("figure",{});
+    const img=document.createElement("img"); img.src=libImageUrl(id,n); img.alt=name?`${name} — ${label}`:label;
+    img.onerror=()=>fig.remove();
+    fig.append(el("figcaption",{},label), img);
+    box.append(fig);
+  });
+  document.body.append(box);
 }
 function openLibrarySheet(){
   openSheet("Exercise library",(body,close)=>{
@@ -2111,7 +2149,8 @@ function openLibrarySheet(){
     }
     const CAP=60;
     function libRow(e){
-      const thumb=el("div",{class:"exthumb"}, ic("dumbbell",18));
+      const thumb=el("div",{class:"exthumb",role:"button",tabindex:"0","aria-label":`Preview ${e.name}`,
+        onClick:()=>openImageViewer(e.raw.id, e.name), onKeydown:ev=>{if(ev.key==="Enter"||ev.key===" "){ev.preventDefault();openImageViewer(e.raw.id, e.name);}}}, ic("dumbbell",18));
       const timg=document.createElement("img"); timg.src=libImageUrl(e.raw.id,0); timg.loading="lazy"; timg.alt="";
       timg.onerror=()=>timg.remove(); thumb.append(timg);
       const grow=el("div",{class:"grow"},
