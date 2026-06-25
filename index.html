@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v54"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v55"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1416,7 +1416,7 @@ function openExerciseSheet(ex, opts={}){
   const isNew=!ex;
   ex = ex || {id:uid(),gymId:State.currentGymId,name:"",unit:"kg",increment:2.5,sets:3,repMin:8,repMax:12,notes:""};
   openSheet(isNew?"Add exercise":"Edit exercise",(body,close)=>{
-    const name=el("input",{type:"text",placeholder:"e.g. Barbell Bench Press, Dumbbell Curl, Leg Press",value:ex.name});
+    const name=el("input",{type:"text",placeholder:"e.g. Barbell Bench Press, Dumbbell Curl, Leg Press",value:ex.name||opts.prefillName||""});
     const unit=el("select",{},el("option",{value:"kg"},"kg"),el("option",{value:"lb"},"lb"));
     unit.value=ex.unit;
     const initEquip = ex.equipment!==undefined ? ex.equipment : guessEquipment(ex.name);
@@ -1526,12 +1526,26 @@ function openPlanSheet(){
     const items=State.activeSession.items;
     const reopen=()=>{ close(); openPlanSheet(); render(); };
 
-    // ---- what's already in the plan: larger cells + estimated total time ----
+    // ---- summary + actions FIRST, so they're never buried ----
     if(items.length){
       body.append(el("div",{class:"row between",style:"margin:-6px 0 10px"},
         el("div",{class:"small muted"}, `${items.length} exercise${items.length>1?"s":""}`),
         el("div",{class:"pill",style:"color:var(--accent);border-color:rgba(249,115,22,.45);font-weight:600"}, `~${planMinutes(items)} min total`)));
-      body.append(el("div",{class:"sectionhead",style:"margin-top:0"},"In your plan"));
+    } else {
+      body.append(el("p",{class:"small muted",style:"margin:-6px 0 10px"},
+        "Build today's workout — weights & reps get pre-filled from your history and stay fully editable."));
+    }
+    // primary action: add (opens the searchable, body-part-grouped picker)
+    body.append(el("button",{class:"btn",onClick:()=>{ close(); openAddExerciseSheet(()=>{ openPlanSheet(); render(); }); }}, ic("plus",16), "Add exercise"));
+    const actions=el("div",{class:"row",style:"gap:8px;margin-top:8px"});
+    if(items.length) actions.append(el("button",{class:"btn secondary sm",style:"flex:1",onClick:savePlanSheet},ic("clipboard",15),"Save as plan"));
+    if(allPlans().length) actions.append(el("button",{class:"btn secondary sm",style:"flex:1",onClick:()=>loadPlanSheet(reopen)},ic("download",15),"Load a plan"));
+    if(actions.children.length) body.append(actions);
+    body.append(el("button",{class:"btn"+(items.length?"":" secondary"),style:"margin-top:8px",onClick:close}, ic("check",16), "Done"));
+
+    // ---- the plan itself (short list, below the actions) ----
+    if(items.length){
+      body.append(el("div",{class:"divider"}), el("div",{class:"sectionhead",style:"margin-top:0"},"In your plan"));
       items.forEach((it,idx)=>{
         const ex=State.exercises.find(e=>e.id===it.exerciseId);
         if(!ex) return;
@@ -1547,36 +1561,98 @@ function openPlanSheet(){
             await persistSession(); reopen();
           }}, ic("x",18))));
       });
-      body.append(el("div",{class:"divider"}));
-    } else {
-      body.append(el("p",{class:"small muted",style:"margin-top:-6px"},
-        "Tap an exercise to add it — suggested weights/reps are pre-filled and fully editable in the workout."));
     }
-
-    // ---- add more: region-grouped chips, hiding what's already in the plan ----
-    const inPlan=new Set(items.map(i=>i.exerciseId));
-    const gx=gymExercises().filter(e=>!inPlan.has(e.id));
-    if(gx.length){
-      if(items.length) body.append(el("div",{class:"sectionhead"},"Add more"));
-      REGION_ORDER.forEach(region=>{
-        const inRegion=sortForAdd(gx.filter(e=>exRegion(e)===region));
-        if(!inRegion.length)return;
-        body.append(el("div",{class:"regionhead"},region));
-        inRegion.forEach(ex=> body.append(addExerciseCard(ex, async()=>{ await addToPlan(ex); reopen(); })));
-      });
-      decorateAddStatus();
-    } else if(items.length){
-      body.append(el("p",{class:"muted small"},"Every exercise here is already in your plan."));
-    } else {
-      body.append(el("p",{class:"muted small"},"No exercises here yet."));
-    }
-    body.append(el("div",{class:"divider"}));
-    if(items.length) body.append(el("button",{class:"btn secondary",onClick:savePlanSheet},ic("clipboard",16),"Save as a plan"));
-    if(allPlans().length) body.append(el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>loadPlanSheet(reopen)},ic("download",16),"Load a saved plan"));
-    body.append(
-      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>{close();openExerciseSheet(null,{onCreate: async ex=>{ if(State.activeSession && !State.activeSession.items.some(i=>i.exerciseId===ex.id)) await addToPlan(ex); }});}},"+ Add a new exercise"),
-      el("button",{class:"btn",style:"margin-top:10px",onClick:close},"Done"));
   });
+}
+// unified "Add exercise" picker: search across your collection + the full library, browse by body
+// part (collapsible), add with one tap; fall back to creating a custom exercise if it's not there.
+function openAddExerciseSheet(afterClose){
+  openSheet("Add exercise",(body,close)=>{
+    const done=()=>{ close(); afterClose&&afterClose(); };
+    body.append(el("p",{class:"small muted",style:"margin:-6px 0 8px"},
+      "Search or browse by body part. Machines & cables save to ", el("b",{}, curGym()?curGym().name:"this gym"),
+      "; free-weight moves are shared across your gyms."));
+    const search=el("input",{type:"text",placeholder:"Search all exercises…","aria-label":"Search exercises"});
+    body.append(el("div",{style:"margin-bottom:6px"}, search));
+    const results=el("div",{}), foot=el("div",{});
+    body.append(results, foot, el("div",{class:"divider"}),
+      el("button",{class:"btn",style:"margin-top:2px",onClick:done}, ic("check",16), "Done"));
+
+    const planned = ()=> new Set(State.activeSession.items.map(i=>i.exerciseId));
+    const own = ()=> gymExercises();
+    const ownNames = ()=> new Set(own().map(e=>normName(e.name)));
+    const CAP=60;
+
+    // a tap-to-add row (whole row adds; the chip is just an affordance that flips to "Added")
+    function pickRow({name, sub, tags, imgId, imgPromise, isPlanned, onAdd}){
+      const thumb=el("div",{class:"exthumb"}, ic("dumbbell",18));
+      const setImg=id=>{ if(!id)return; const im=document.createElement("img"); im.src=libImageUrl(id,0); im.loading="lazy"; im.alt=""; im.onerror=()=>im.remove(); thumb.append(im); };
+      if(imgId) setImg(imgId); else if(imgPromise) imgPromise.then(setImg);
+      const grow=el("div",{class:"grow"}, el("div",{class:"name"},name), el("div",{class:"small muted"},sub));
+      if(tags) grow.append(tags);
+      const slot=el("div",{style:"flex:none"});
+      const added=()=> slot.replaceChildren(el("span",{class:"tiny muted",style:"display:inline-flex;align-items:center;gap:4px;white-space:nowrap"}, ic("check",15),"Added"));
+      slot.append(el("span",{class:"chip add",style:"min-height:40px;pointer-events:none"}, ic("plus",15),"Add"));
+      const row=el("div",{class:"listitem",role:"button",tabindex:"0",style:"cursor:pointer;gap:10px"});
+      if(isPlanned){ added(); row.dataset.done="1"; }
+      const act=async()=>{ if(row.dataset.done) return; row.dataset.done="1"; added(); await onAdd(); };
+      row.addEventListener("click", act);
+      row.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); act(); } });
+      row.append(thumb, grow, slot);
+      return row;
+    }
+    const ownRow = ex => pickRow({ name:ex.name, sub:(equipLabel(ex.equipment)||"Other")+" · in your collection",
+      tags:muscleTags(ex), imgPromise:exerciseImageId(ex), isPlanned:planned().has(ex.id),
+      onAdd:async()=>{ await addToPlan(ex); toast(`Added ${ex.name}`); } });
+    const libTags = le => { const t=[]; if(le.primary&&muscleLabel(le.primary)) t.push(muscleTag(muscleLabel(le.primary),regionOf(le.primary),true)); if(le.secondary&&muscleLabel(le.secondary)) t.push(muscleTag(muscleLabel(le.secondary),regionOf(le.secondary),false)); return t.length?el("div",{class:"mtags"},...t):null; };
+    const libRow = le => pickRow({ name:le.name, sub:equipLabel(le.equipment)||"Other", tags:libTags(le), imgId:le.raw.id,
+      onAdd:async()=>{ const ex=await addLibraryExercise(le.raw); await addToPlan(ex); toast(`Added ${le.name}`); } });
+
+    function customBtn(){
+      const q=search.value.trim();
+      return el("button",{class:"btn secondary",style:"margin-top:10px",onClick:()=>{
+        close(); openExerciseSheet(null,{prefillName:q, onCreate: async ex=>{ if(!State.activeSession.items.some(i=>i.exerciseId===ex.id)) await addToPlan(ex); afterClose&&afterClose(); }});
+      }}, ic("plus",16), q? `Create “${q}” as a custom exercise` : "Create a custom exercise");
+    }
+    function renderSearch(q){
+      results.replaceChildren(); foot.replaceChildren();
+      const taken=ownNames();
+      const mine=own().filter(e=>normName(e.name).includes(q));
+      const libs=(LIB||[]).filter(e=>!taken.has(normName(e.name)) && normName(e.name).includes(q));
+      if(!mine.length && !libs.length){
+        results.append(el("p",{class:"muted small",style:"margin:8px 2px"}, LIB?"Nothing matches — create it as a custom exercise below.":"Loading the library…"));
+        if(LIB) foot.append(customBtn());
+        return;
+      }
+      if(mine.length){ results.append(el("div",{class:"regionhead"},"Your exercises")); mine.slice(0,CAP).forEach(e=>results.append(ownRow(e))); }
+      if(libs.length){ results.append(el("div",{class:"regionhead"},"From the library")); libs.slice(0,CAP).forEach(e=>results.append(libRow(e))); }
+      foot.append(el("div",{class:"tiny muted",style:"margin:10px 2px 0"},"Not the one you want?"), customBtn());
+    }
+    function renderGroups(){
+      results.replaceChildren(); foot.replaceChildren();
+      const taken=ownNames();
+      REGION_ORDER.forEach(region=>{
+        const mine=sortForAdd(own().filter(e=>exRegion(e)===region));
+        const libs=(LIB||[]).filter(e=>e.region===region && !taken.has(normName(e.name)));
+        if(!mine.length && !libs.length) return;
+        const det=el("details",{class:"exgroup"});
+        det.append(el("summary",{}, el("span",{class:"grow",style:"font-weight:600"},region),
+          el("span",{class:"tiny muted"}, String(mine.length+libs.length)), el("span",{class:"chev"},ic("chevron",16))));
+        let built=false;
+        det.addEventListener("toggle",()=>{ if(det.open && !built){ built=true;
+          mine.forEach(e=>det.append(ownRow(e)));
+          libs.slice(0,CAP).forEach(e=>det.append(libRow(e)));
+          if(libs.length>CAP) det.append(el("div",{class:"tiny muted",style:"margin:6px 2px"}, `+${libs.length-CAP} more — type to search them`));
+        }});
+        results.append(det);
+      });
+      foot.append(el("div",{class:"tiny muted",style:"margin:12px 2px 0"},"Can't find it?"), customBtn());
+    }
+    const rerender=()=>{ const q=normName(search.value); q?renderSearch(q):renderGroups(); };
+    search.addEventListener("input", rerender);
+    rerender();
+    loadLibrary().then(rerender).catch(()=>rerender());   // library is a bonus; your collection works regardless
+  }, {stacked:true});
 }
 
 /* a saved plan, shown on the start screen */
