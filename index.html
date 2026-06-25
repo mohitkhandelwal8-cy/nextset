@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v51"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v52"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2675,9 +2675,10 @@ function viewMore(){
   wrap.append(progCard);
   wrap.append(el("div",{class:"card"},
     el("h2",{},"Your data"),
-    el("p",{class:"small muted",style:"margin-top:-4px"},"It's all yours and lives on this device. Export anytime — no account, no lock-in."),
-    el("button",{class:"btn secondary",onClick:()=>exportData("csv")},ic("download"),"Export sets (CSV)"),
-    el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>exportData("json")},ic("download"),"Export everything (JSON)")
+    el("p",{class:"small muted",style:"margin-top:-4px"},"It lives on this device — no account, no cloud. Export a backup anytime, then restore it after a reset or on a new phone."),
+    el("button",{class:"btn secondary",onClick:()=>exportData("json")},ic("download"),"Export everything (backup)"),
+    el("button",{class:"btn secondary",style:"margin-top:8px",onClick:importDataFromFile},ic("inbox"),"Restore from a backup"),
+    el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>exportData("csv")},ic("download"),"Export sets (CSV)")
   ));
   wrap.append(el("div",{class:"card"},
     el("h2",{},"About"),
@@ -2690,11 +2691,12 @@ function viewMore(){
 }
 
 async function exportData(kind){
-  const [gyms,exercises,sessions,sets]=await Promise.all(
-    ["gyms","exercises","sessions","sets"].map(s=>DB.all(s)));
+  const [gyms,exercises,sessions,sets,meta]=await Promise.all(
+    ["gyms","exercises","sessions","sets","meta"].map(s=>DB.all(s)));
   let blob,fname;
   if(kind==="json"){
-    blob=new Blob([JSON.stringify({gyms,exercises,sessions,sets},null,2)],{type:"application/json"});
+    const metaOut=meta.filter(m=>m.k!=="activeSession");   // settings & progression streaks, minus the transient session
+    blob=new Blob([JSON.stringify({app:"nextset",version:APP_VERSION,gyms,exercises,sessions,sets,meta:metaOut},null,2)],{type:"application/json"});
     fname="nextset-export.json";
   } else {
     const exName=id=>exercises.find(e=>e.id===id)?.name||"";
@@ -2712,6 +2714,59 @@ async function exportData(kind){
   const a=el("a",{href:url,download:fname}); document.body.append(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
   toast("Exported "+fname);
+}
+
+/* ---------- import / restore from a backup ---------- */
+const IMPORT_STORES=["gyms","exercises","sessions","sets"];
+function isValidBackup(d){ return !!d && typeof d==="object" && IMPORT_STORES.every(s=>Array.isArray(d[s])); }
+// write a backup into the DB. "replace" wipes the core stores first; "merge" upserts by id.
+async function applyImport(data, mode){
+  if(mode==="replace"){
+    for(const s of IMPORT_STORES){ for(const r of await DB.all(s)){ if(r&&r.id!=null) await DB.del(s, r.id); } }
+  }
+  const counts={};
+  for(const s of IMPORT_STORES){
+    let n=0; for(const r of (data[s]||[])){ if(r&&r.id!=null){ await DB.put(s, r); n++; } }
+    counts[s]=n;
+  }
+  if(Array.isArray(data.meta)){ for(const m of data.meta){ if(m&&m.k&&m.k!=="activeSession") await DB.put("meta", m); } }
+  return counts;
+}
+async function runImport(data, mode){
+  await applyImport(data, mode);
+  State.activeSession=null; await setMeta("activeSession", null);          // never resume a session across a restore
+  _exStatus=null;
+  await loadState();
+  if(!State.gyms.find(g=>g.id===State.currentGymId)){ State.currentGymId=State.gyms[0]?.id||null; await setMeta("currentGymId", State.currentGymId); }
+  render();
+  toast(`Restored ${data.sessions.length} workout${data.sessions.length!==1?"s":""}`);
+}
+function openImportConfirm(data){
+  const f=(n,one)=>`${n} ${n===1?one:one+"s"}`;
+  const summary=`${f(data.gyms.length,"gym")}, ${f(data.exercises.length,"exercise")}, ${f(data.sessions.length,"workout")}, ${data.sets.length} sets`;
+  openSheet("Restore backup",(body,close)=>{
+    body.append(
+      el("p",{class:"small",style:"margin:-2px 0 4px;font-weight:600"},`This backup holds ${summary}.`),
+      el("p",{class:"small muted"},"Merge keeps what's on this device and adds anything new (matching entries get updated — nothing is deleted). Replace erases everything here first, then loads the backup — use that when restoring onto a fresh install."),
+      el("button",{class:"btn",style:"margin-top:10px",onClick:async()=>{ close(); try{ await runImport(data,"merge"); }catch(e){ alert("Import failed: "+(e.message||e)); } }},ic("inbox",16),"Merge with my data"),
+      el("button",{class:"btn danger",style:"margin-top:10px",onClick:async()=>{ if(!confirm("Replace ALL data on this device with the backup? Anything currently here will be erased.")) return; close(); try{ await runImport(data,"replace"); }catch(e){ alert("Import failed: "+(e.message||e)); } }},ic("alert",16),"Replace everything"),
+      el("button",{class:"btn secondary",style:"margin-top:10px",onClick:close},"Cancel")
+    );
+  });
+}
+function importDataFromFile(){
+  const inp=el("input",{type:"file",accept:"application/json,.json",style:"position:fixed;left:-9999px"});
+  document.body.append(inp);
+  inp.addEventListener("change", async ()=>{
+    const file=inp.files&&inp.files[0]; inp.remove();
+    if(!file) return;
+    let data;
+    try{ data=JSON.parse(await file.text()); }
+    catch(e){ alert("Couldn't read that file. Pick a NextSet backup — the .json from Export everything."); return; }
+    if(!isValidBackup(data)){ alert("That doesn't look like a NextSet backup. Use a file from More → Your data → Export everything."); return; }
+    openImportConfirm(data);
+  });
+  inp.click();
 }
 
 /* ---------- wire up + boot ---------- */
