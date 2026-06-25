@@ -222,6 +222,7 @@
   .progpill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
   .progpill.up{color:var(--accent-2);background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4)}
   .progpill.down{color:var(--warn);background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35)}
+  .progpill.hold{color:var(--muted);background:var(--surface-2);border:1px solid var(--line)}
   /* in-workout exercise states */
   .card.current{border-color:var(--accent);box-shadow:0 0 0 2px rgba(249,115,22,.22)}
   .card.done{border-color:rgba(34,197,94,.4);background:rgba(34,197,94,.05)}
@@ -368,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v47"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v48"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -593,6 +594,8 @@ async function loadState(){
   }
 }
 const setMeta = (k,v)=>DB.put("meta",{k,v});
+const getMeta = async (k)=>{ const r=await DB.get("meta",k); return r?r.v:null; };
+const progKey = ex => "prog:"+((ex&&ex.linkId)||(ex&&ex.id));   // per-exercise volume miss-streak (pooled across linked machines)
 const curGym = ()=>State.gyms.find(g=>g.id===State.currentGymId)||null;
 // a gym's exercises = its gym-scoped machines/cables + all global (free-weight/bodyweight) exercises
 const gymExercises = (gid=State.currentGymId)=>State.exercises.filter(e=>e.gymId===gid || e.gymId==null);
@@ -669,17 +672,31 @@ async function suggestNext(ex){
   // pure bodyweight / sled-only (no working load → can't compute volume) keeps classic double progression
   const base = Math.max(0, ...prev.sets.map(s=>+s.weight||0));
   if(base<=0) return classicNext(ex, prev, {sets,repMin,repMax,inc});
-  // weighted → target a small VOLUME increase each session, rolling weight up one set at a time
-  const pct = volTarget();
-  const r = volumeProgress(prev.sets, {sets,repMin,repMax,inc,pct});
-  const kind = r.weightAdded ? "weight" : (r.repAdded ? "rep" : "repeat");
-  const gain = r.Vlast>0 ? Math.round((r.Vnew-r.Vlast)/r.Vlast*100) : 0;
-  const top = Math.max(...r.plan.map(s=>s.weight)), pl=isPlate(ex);
+  // weighted → volume model. If you fell short of the target last time, HOLD (no progression);
+  // two short sessions running → ease back ~10% to rebuild. Otherwise climb by your target %.
+  const pct = volTarget(), pl = isPlate(ex);
   const fmtVol = n => Math.round(n).toLocaleString(undefined);
-  let note = `Target +${pct}% volume — ~${fmtVol(r.Vnew)} vs ${fmtVol(r.Vlast)} last time (+${gain}%). `;
-  note += r.weightAdded ? `Top set → ${fmtW(top,ex)}${pl?" added":""}.` : `Same weights, +reps.`;
-  const plan = r.plan.map(s=>({weight:s.weight, reps:s.reps, target:s.reps}));
-  return { plan, note, kind, prev };
+  const streak = (await getMeta(progKey(ex)))?.streak || 0;
+  let plan, note, kind, targetVol;
+  if(streak>=2){
+    const {seed} = normalizeSeed(prev.sets, sets);
+    const d = deloadPlan(seed, inc);
+    plan = d.plan; targetVol = d.vol; kind = "deload";
+    note = `Stalled 2 sessions — easing ~10% to ~${fmtVol(d.vol)} so you can rebuild, then we climb again.`;
+  } else if(streak===1){
+    const {seed,Vlast} = normalizeSeed(prev.sets, sets);
+    plan = seed.map(s=>({weight:s.weight,reps:s.reps})); targetVol = Vlast; kind = "hold";
+    note = `Came up short last time — holding at ~${fmtVol(Vlast)} (no increase). Lock it in and we add load again next.`;
+  } else {
+    const r = volumeProgress(prev.sets, {sets,repMin,repMax,inc,pct});
+    plan = r.plan; targetVol = r.Vnew;
+    kind = r.weightAdded ? "weight" : (r.repAdded ? "rep" : "repeat");
+    const gain = r.Vlast>0 ? Math.round((r.Vnew-r.Vlast)/r.Vlast*100) : 0;
+    const top = Math.max(...r.plan.map(s=>s.weight));
+    note = `Target +${pct}% volume — ~${fmtVol(r.Vnew)} vs ${fmtVol(r.Vlast)} last time (+${gain}%). ` + (r.weightAdded ? `Top set → ${fmtW(top,ex)}${pl?" added":""}.` : `Same weights, +reps.`);
+  }
+  const outPlan = plan.map(s=>({weight:s.weight, reps:s.reps, target:s.reps}));
+  return { plan: outPlan, note, kind, prev, targetVol };
 }
 
 // classic double progression — used for bodyweight & sled-only, where true volume isn't computable
@@ -723,14 +740,28 @@ async function classicNext(ex, prev, {sets,repMin,repMax,inc}){
 // pure volume-target solver: beat last session's tonnage by ~pct%, rolling the lightest set up to
 // the next load once all sets are at the top of the rep range. A graduated set keeps enough reps to
 // not drop below its old volume (no dip). Returns {plan,Vlast,Vnew,weightAdded,repAdded}.
-function volumeProgress(lastSets, {sets,repMin,repMax,inc,pct}){
-  let seed = lastSets.map(s=>({weight:+s.weight||0, reps:+s.reps||0})).filter(s=>s.reps>0);
-  if(!seed.length) seed=[{weight:0,reps:repMin}];
+// normalize a past session's sets into exactly `sets` working sets (drop the lightest extras, pad
+// with the lightest), sorted light→heavy. Shared by progress / hold / deload. Returns {seed, Vlast}.
+function normalizeSeed(lastSets, sets){
+  let seed = (lastSets||[]).map(s=>({weight:+s.weight||0, reps:+s.reps||0})).filter(s=>s.reps>0);
+  if(!seed.length) seed=[{weight:0,reps:1}];
   if(seed.length>sets) seed = seed.slice().sort((a,b)=> b.weight-a.weight || b.reps-a.reps).slice(0,sets);
   while(seed.length<sets){ const l=seed.reduce((a,b)=> (b.weight<a.weight||(b.weight===a.weight&&b.reps<a.reps))?b:a); seed.push({weight:l.weight,reps:l.reps}); }
   seed.sort((a,b)=> a.weight-b.weight || a.reps-b.reps);
+  return { seed, Vlast: seed.reduce((t,s)=>t+s.weight*s.reps,0) };
+}
+// ease back ~10% after two stalled sessions: drop the weight a notch, keep the reps
+function deloadPlan(seed, inc){
+  const plan = seed.map(s=>{
+    let w = round(s.weight*0.9, inc);
+    if(w>=s.weight && s.weight>0) w = Math.max(0, round(s.weight-inc, inc));   // ensure it actually drops
+    return { weight:w, reps:s.reps };
+  });
+  return { plan, vol: plan.reduce((t,s)=>t+s.weight*s.reps,0) };
+}
+function volumeProgress(lastSets, {sets,repMin,repMax,inc,pct}){
+  const { seed, Vlast } = normalizeSeed(lastSets, sets);
   const vol = arr => arr.reduce((t,s)=>t+s.weight*s.reps,0);
-  const Vlast = vol(seed);
   const Vtarget = Vlast*(1+pct/100);
   const plan = seed.map(s=>({weight:s.weight,reps:s.reps}));
   let weightAdded=false, repAdded=false, guard=0;
@@ -969,6 +1000,7 @@ function progBadge(item){
   if(item.kind==="weight") return el("span",{class:"progpill up"},"↑ heavier");
   if(item.kind==="rep")    return el("span",{class:"progpill up"},"↑ more reps");
   if(item.kind==="deload") return el("span",{class:"progpill down"},"↓ deload");
+  if(item.kind==="hold")   return el("span",{class:"progpill hold"},"→ hold");
   return null;
 }
 // an exercise counts as done once it's minimized, or every set is checked off
@@ -1166,6 +1198,15 @@ async function finishSession(){
   }
   await DB.put("sessions",{id:s.id,gymId:s.gymId,date:s.date,startedAt:s.startedAt,finishedAt:new Date().toISOString()});
   for(const st of done) await DB.put("sets",st);
+  // miss-aware progression: did the logged volume hit the prescribed target? track the streak per exercise
+  for(const it of s.items){
+    if(it.targetVol==null) continue;                                      // no volume target (manual / bodyweight) → skip
+    const ex = State.exercises.find(e=>e.id===it.exerciseId); if(!ex) continue;
+    const got = it.sets.filter(x=>x.done&&x.reps>0).reduce((t,x)=>t+(+x.weight||0)*(+x.reps||0),0);
+    const met = got >= it.targetVol*0.98;                                 // within 2% counts as meeting it
+    const rec = await getMeta(progKey(ex)) || {streak:0};
+    await setMeta(progKey(ex), {streak: met?0:(rec.streak||0)+1, date:s.date});
+  }
   _exStatus=null;   // training status changed
   State.activeSession=null; await setMeta("activeSession",null);
   toast(`Saved ${done.length} sets`);
@@ -1179,7 +1220,7 @@ async function addToPlan(ex, setCount){
   const base=sug.plan;
   const n=Math.max(1, setCount||base.length);
   State.activeSession.items.push({
-    exerciseId:ex.id, kind:sug.kind, note:sug.note, joint:false, rpe:null,
+    exerciseId:ex.id, kind:sug.kind, note:sug.note, joint:false, rpe:null, targetVol: sug.targetVol??null,
     last: sug.prev ? {date:sug.prev.session.date, sets:sug.prev.sets.map(s=>({weight:s.weight,reps:s.reps}))} : null,
     sets:Array.from({length:n},(_,i)=>{const p=base[Math.min(i,base.length-1)]||{weight:0,reps:ex.repMin||8};return {weight:p.weight,reps:p.reps,done:false};})
   });
@@ -2595,7 +2636,7 @@ function viewMore(){
   // ----- Progression: volume-increase target -----
   const progCard=el("div",{class:"card"});
   progCard.append(el("h2",{},"Progression"),
-    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Each time you repeat an exercise, suggestions aim to beat your last session's total volume (weight × reps) by this much. Heavier sets roll in one at a time as you top out your rep range."));
+    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Each time you repeat an exercise, suggestions aim to beat your last session's total volume (weight × reps) by this much. Heavier sets roll in one at a time as you top out your rep range. Fall short and it holds the target; fall short twice and it eases off ~10% to rebuild."));
   const vInp=el("input",{type:"number",inputMode:"numeric",min:"1",max:"25",step:"1",value:String(volTarget()),
     style:"width:84px;font-size:17px;font-weight:700;text-align:center;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 8px;color:var(--text)","aria-label":"Volume increase target percent"});
   const saveVol=async()=>{ let v=Math.round(+vInp.value); if(!Number.isFinite(v)||v<=0) v=4; v=Math.max(1,Math.min(25,v)); vInp.value=String(v); State.volTargetPct=v; await setMeta("volTargetPct",v); toast(`Targeting +${v}% volume each session`); };
