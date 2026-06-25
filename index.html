@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v55"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v56"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -869,7 +869,7 @@ function viewToday(){
       el("div",{class:"small muted",style:"margin-top:2px"}, `${curGym()?.name||""} · ${sum}`),
       el("button",{class:"btn",style:"width:100%;margin-top:14px;font-size:16px",onClick:startWorkout}, ic("play"), "Start workout"),
       el("div",{class:"row",style:"gap:8px;margin-top:8px"},
-        el("button",{class:"btn secondary sm",style:"flex:1",onClick:openPlanSheet}, ic("clipboard"), s.items.length?"Edit plan":"Add exercises"),
+        el("button",{class:"btn secondary sm",style:"flex:1",onClick: s.items.length?openPlanSheet:()=>openAddExerciseSheet(()=>render())}, ic("clipboard"), s.items.length?"Edit plan":"Add exercises"),
         el("button",{class:"btn ghost sm",style:"flex:1",onClick:discardSession}, ic("x"), "Discard"))
     ));
     if(s.items.length) s.items.forEach(it=>wrap.append(previewRow(it)));
@@ -884,13 +884,13 @@ function viewToday(){
         el("div",{style:"font-weight:700;font-size:17px"}, fmtDate(s.date)),
         el("div",{class:"small muted",style:"margin-top:2px"}, `${curGym()?.name||""}${s.items.length?` · ~${planMinutes(s.items)} min · ${s.items.length} ex`:""}`)),
       el("button",{class:"btn sm",style:"flex:none;background:var(--accent-2);color:var(--on-accent-2)",onClick:finishSession},ic("check"),"Finish")),
-    el("button",{class:"btn secondary sm",style:"width:100%;margin-top:10px",onClick:openPlanSheet}, ic("clipboard"), "Edit plan")
+    ...(s.items.length?[el("button",{class:"btn secondary sm",style:"width:100%;margin-top:10px",onClick:openPlanSheet}, ic("clipboard"), "Edit plan")]:[])
   ));
   if(!s.items.length){
     wrap.append(el("div",{class:"empty"},
       el("div",{class:"big"},ic("clipboard",42)),
       el("p",{class:"muted"},"No exercises yet."),
-      el("button",{class:"btn",onClick:openPlanSheet},ic("plus"),"Add exercises")
+      el("button",{class:"btn",onClick:()=>openAddExerciseSheet(()=>render())},ic("plus"),"Add exercises")
     ));
   } else {
     const items=s.items, curIdx = items.findIndex(it=>!isItemDone(it));   // the exercise you're on now
@@ -907,7 +907,7 @@ function viewToday(){
         wrap.append(box); i=j;
       } else { wrap.append(loggerCard(items[i], i===curIdx)); i++; }
     }
-    wrap.append(el("button",{class:"btn ghost",style:"margin-top:4px",onClick:openPlanSheet},ic("plus"),"Add exercise"));
+    wrap.append(el("button",{class:"btn ghost",style:"margin-top:4px",onClick:()=>openAddExerciseSheet(()=>render())},ic("plus"),"Add exercise"));
   }
   return wrap;
 }
@@ -1537,10 +1537,8 @@ function openPlanSheet(){
     }
     // primary action: add (opens the searchable, body-part-grouped picker)
     body.append(el("button",{class:"btn",onClick:()=>{ close(); openAddExerciseSheet(()=>{ openPlanSheet(); render(); }); }}, ic("plus",16), "Add exercise"));
-    const actions=el("div",{class:"row",style:"gap:8px;margin-top:8px"});
-    if(items.length) actions.append(el("button",{class:"btn secondary sm",style:"flex:1",onClick:savePlanSheet},ic("clipboard",15),"Save as plan"));
-    if(allPlans().length) actions.append(el("button",{class:"btn secondary sm",style:"flex:1",onClick:()=>loadPlanSheet(reopen)},ic("download",15),"Load a plan"));
-    if(actions.children.length) body.append(actions);
+    // "Load a plan" lives on the start screen — no need to re-offer it once a workout is underway
+    if(items.length) body.append(el("button",{class:"btn secondary",style:"margin-top:8px",onClick:savePlanSheet},ic("clipboard",15),"Save as a plan"));
     body.append(el("button",{class:"btn"+(items.length?"":" secondary"),style:"margin-top:8px",onClick:close}, ic("check",16), "Done"));
 
     // ---- the plan itself (short list, below the actions) ----
@@ -1747,20 +1745,6 @@ function savePlanSheet(){
       el("button",{class:"btn",onClick:async()=>{ const p=await savePlan(name.value); close(); render(); toast(`Saved plan "${p.name}"`); }},ic("check"),"Save plan"));
   });
 }
-function loadPlanSheet(after){
-  openSheet("Load a saved plan",(body,close)=>{
-    const plans=allPlans();
-    body.append(el("p",{class:"small muted",style:"margin-top:-6px"},"Adds a plan's exercises to today (skips any already in your plan). Weights are re-suggested from your history."));
-    if(!plans.length){ body.append(el("p",{class:"muted small"},"No saved plans yet.")); return; }
-    plans.forEach(p=>{
-      body.append(el("div",{class:"listitem",style:"cursor:default"},
-        el("div",{class:"grow"}, el("div",{class:"name"},p.name),
-          el("div",{class:"small muted"}, `${p.items.length} exercise${p.items.length>1?"s":""} · ~${templateMinutes(p)} min`)),
-        el("button",{class:"btn sm",onClick:async()=>{ const r=await applyPlanToSession(p); await persistSession(); close(); after&&after(); let m=`Added ${r.added}`; if(r.heavier) m+=` · ${r.heavier} going heavier`; toast(m); if(r.unresolved.length) promptAddMissing(r.unresolved); }},ic("plus",15),"Add")));
-    });
-  });
-}
-
 /* quick add via natural language */
 function openQuickAdd(){
   openSheet("Quick add",(body,close)=>{
