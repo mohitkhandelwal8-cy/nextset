@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v57"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v58"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -658,8 +658,16 @@ async function stallCount(exerciseId){
   return n; // sessions before today at same top weight
 }
 
-// How aggressively to grow volume each session (user setting, %). Default 4.
+// How aggressively to grow volume each session (user setting, %). Default 4 — this is a "Solid" session.
 function volTarget(){ const v=State.volTargetPct; return Number.isFinite(v)&&v>0 ? v : 4; }
+// autoregulation: scale that target by how the last session felt. Easy ~2.5× (push), Grind ~0.5× (ease),
+// Solid/unrated = baseline. Capped so a high baseline can't run away.
+function rpeTargetPct(baseline, rpes){
+  const r=(rpes||[]).filter(Boolean);
+  if(r.includes("grind")) return Math.max(1, Math.round(baseline*0.5*10)/10);
+  if(r.length && r.every(x=>x==="easy")) return Math.min(12, Math.round(baseline*2.5*10)/10);
+  return baseline;
+}
 
 async function suggestNext(ex){
   const prev = await lastSetsFor(ex.id, State.activeSession?.id);
@@ -674,7 +682,7 @@ async function suggestNext(ex){
   if(base<=0) return classicNext(ex, prev, {sets,repMin,repMax,inc});
   // weighted → volume model. If you fell short of the target last time, HOLD (no progression);
   // two short sessions running → ease back ~10% to rebuild. Otherwise climb by your target %.
-  const pct = volTarget(), pl = isPlate(ex);
+  const pl = isPlate(ex);
   const fmtVol = n => Math.round(n).toLocaleString(undefined);
   const streak = (await getMeta(progKey(ex)))?.streak || 0;
   let plan, note, kind, targetVol;
@@ -686,12 +694,15 @@ async function suggestNext(ex){
       ? `Same target ~${fmtVol(Vlast)} — ${streak} sessions running. Stick with it; if it's truly not moving, ease the weight down a notch yourself.`
       : `Came up short last time — holding at ~${fmtVol(Vlast)} (no increase). Nail it and we add load again next.`;
   } else {
+    // autoregulate the target by how the last session felt (Easy → push, Grind → ease)
+    const baseline = volTarget(), pct = rpeTargetPct(baseline, prev.sets.map(s=>s.rpe));
+    const feel = pct>baseline ? "Last time felt easy — pushing harder. " : pct<baseline ? "Last time was a grind — easing off. " : "";
     const r = volumeProgress(prev.sets, {sets,repMin,repMax,inc,pct});
     plan = r.plan; targetVol = r.Vnew;
     kind = r.weightAdded ? "weight" : (r.repAdded ? "rep" : "repeat");
     const gain = r.Vlast>0 ? Math.round((r.Vnew-r.Vlast)/r.Vlast*100) : 0;
     const top = Math.max(...r.plan.map(s=>s.weight));
-    note = `Target +${pct}% volume — ~${fmtVol(r.Vnew)} vs ${fmtVol(r.Vlast)} last time (+${gain}%). ` + (r.weightAdded ? `Top set → ${fmtW(top,ex)}${pl?" added":""}.` : `Same weights, +reps.`);
+    note = `${feel}Target +${pct}% volume — ~${fmtVol(r.Vnew)} vs ${fmtVol(r.Vlast)} last time (+${gain}%). ` + (r.weightAdded ? `Top set → ${fmtW(top,ex)}${pl?" added":""}.` : `Same weights, +reps.`);
   }
   const outPlan = plan.map(s=>({weight:s.weight, reps:s.reps, target:s.reps}));
   return { plan: outPlan, note, kind, prev, targetVol };
@@ -1184,7 +1195,7 @@ async function finishSession(){
   // commit session + sets that are marked done
   const done = s.items.flatMap(it=>it.sets.filter(x=>x.done&&x.reps>0).map((x,i)=>({
     id:uid(),sessionId:s.id,exerciseId:it.exerciseId,weight:+x.weight,reps:+x.reps,
-    rpe:x.rpe||null,joint:!!it.joint,order:i,createdAt:new Date().toISOString()})));
+    rpe:x.rpe||it.rpe||null,joint:!!it.joint,order:i,createdAt:new Date().toISOString()})));
   if(!done.length){
     if(!confirm("No completed sets to save. Discard this workout?")) return;
     State.activeSession=null; await setMeta("activeSession",null); render(); return;
@@ -2735,7 +2746,7 @@ function viewMore(){
   // ----- Progression: volume-increase target -----
   const progCard=el("div",{class:"card"});
   progCard.append(el("h2",{},"Progression"),
-    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Each time you repeat an exercise, suggestions aim to beat your last session's total volume (weight × reps) by this much. Heavier sets roll in one at a time as you top out your rep range. Fall short and it holds the same target — keep at it until you hit it, then it climbs again."));
+    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Each time you repeat an exercise, suggestions aim to beat your last session's total volume (weight × reps) by this much — your baseline “Solid” session. Rate a set Easy / Solid / Grind and the next target auto-adjusts: Easy pushes ~2.5× harder, Grind eases to ~½. Fall short and it holds until you hit it."));
   const vInp=el("input",{type:"number",inputMode:"numeric",min:"1",max:"25",step:"1",value:String(volTarget()),
     style:"width:84px;font-size:17px;font-weight:700;text-align:center;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 8px;color:var(--text)","aria-label":"Volume increase target percent"});
   const saveVol=async()=>{ let v=Math.round(+vInp.value); if(!Number.isFinite(v)||v<=0) v=4; v=Math.max(1,Math.min(25,v)); vInp.value=String(v); State.volTargetPct=v; await setMeta("volTargetPct",v); toast(`Targeting +${v}% volume each session`); };
