@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v48"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v49"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -678,15 +678,13 @@ async function suggestNext(ex){
   const fmtVol = n => Math.round(n).toLocaleString(undefined);
   const streak = (await getMeta(progKey(ex)))?.streak || 0;
   let plan, note, kind, targetVol;
-  if(streak>=2){
-    const {seed} = normalizeSeed(prev.sets, sets);
-    const d = deloadPlan(seed, inc);
-    plan = d.plan; targetVol = d.vol; kind = "deload";
-    note = `Stalled 2 sessions — easing ~10% to ~${fmtVol(d.vol)} so you can rebuild, then we climb again.`;
-  } else if(streak===1){
+  if(streak>=1){
+    // missed last time → hold the same target and keep trying until you hit it (no auto-deload)
     const {seed,Vlast} = normalizeSeed(prev.sets, sets);
     plan = seed.map(s=>({weight:s.weight,reps:s.reps})); targetVol = Vlast; kind = "hold";
-    note = `Came up short last time — holding at ~${fmtVol(Vlast)} (no increase). Lock it in and we add load again next.`;
+    note = streak>=3
+      ? `Same target ~${fmtVol(Vlast)} — ${streak} sessions running. Stick with it; if it's truly not moving, ease the weight down a notch yourself.`
+      : `Came up short last time — holding at ~${fmtVol(Vlast)} (no increase). Nail it and we add load again next.`;
   } else {
     const r = volumeProgress(prev.sets, {sets,repMin,repMax,inc,pct});
     plan = r.plan; targetVol = r.Vnew;
@@ -749,15 +747,6 @@ function normalizeSeed(lastSets, sets){
   while(seed.length<sets){ const l=seed.reduce((a,b)=> (b.weight<a.weight||(b.weight===a.weight&&b.reps<a.reps))?b:a); seed.push({weight:l.weight,reps:l.reps}); }
   seed.sort((a,b)=> a.weight-b.weight || a.reps-b.reps);
   return { seed, Vlast: seed.reduce((t,s)=>t+s.weight*s.reps,0) };
-}
-// ease back ~10% after two stalled sessions: drop the weight a notch, keep the reps
-function deloadPlan(seed, inc){
-  const plan = seed.map(s=>{
-    let w = round(s.weight*0.9, inc);
-    if(w>=s.weight && s.weight>0) w = Math.max(0, round(s.weight-inc, inc));   // ensure it actually drops
-    return { weight:w, reps:s.reps };
-  });
-  return { plan, vol: plan.reduce((t,s)=>t+s.weight*s.reps,0) };
 }
 function volumeProgress(lastSets, {sets,repMin,repMax,inc,pct}){
   const { seed, Vlast } = normalizeSeed(lastSets, sets);
@@ -935,9 +924,11 @@ function exerciseCard(ex){
     el("div",{class:"name"},ex.name),
     el("div",{class:"small muted"}, `${equipLabel(ex.equipment)?equipLabel(ex.equipment)+" · ":""}${ex.sets}×${ex.repMin}–${ex.repMax} · +${ex.increment}${ex.unit}`));
   const tags=muscleTags(ex); if(tags) grow.append(tags);
+  const edit=el("button",{"aria-label":`Edit or delete ${ex.name}`,style:"flex:none;width:40px;height:40px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);display:inline-flex;align-items:center;justify-content:center",
+    onClick:e=>{ e.stopPropagation(); openExerciseSheet(ex); }}, ic("clipboard",16));
   return el("div",{class:"listitem",role:"button",tabindex:"0","aria-label":`View ${ex.name}`,
       onClick:open, onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}}},
-    grow, el("span",{class:"chev"},ic("chevron",18)));
+    grow, edit, el("span",{class:"chev"},ic("chevron",18)));
 }
 // a tappable exercise name (with an info cue) that opens the detail sheet — used wherever an exercise is listed
 function exDetailName(ex, bold){
@@ -965,7 +956,7 @@ async function getExStatus(){
   _exStatus=map; return map;
 }
 // horizontal exercise card for the add-to-plan lists: preview photo + muscle/status tags + Add; tap → detail
-function addExerciseCard(ex, onAdd){
+function addExerciseCard(ex, onAdd, actLabel){
   const open=()=>openExerciseProgress(ex.id);
   const thumb=el("div",{class:"exthumb"}, ic("dumbbell",16));
   exerciseImageId(ex).then(id=>{ if(id){ const im=document.createElement("img"); im.src=libImageUrl(id,0); im.loading="lazy"; im.alt=""; im.onerror=()=>im.remove(); thumb.append(im); } });
@@ -976,8 +967,8 @@ function addExerciseCard(ex, onAdd){
     el("div",{class:"name"},ex.name),
     el("div",{class:"small muted"}, equipLabel(ex.equipment)||"Other"),
     tags);
-  const addBtn=el("button",{class:"chip add",style:"flex:none;align-self:center;min-height:40px","aria-label":`Add ${ex.name}`,
-    onClick:async e=>{ e.stopPropagation(); await onAdd(); }}, ic("plus",15),"Add");
+  const addBtn=el("button",{class:"chip add",style:"flex:none;align-self:center;min-height:40px","aria-label":`${actLabel||"Add"} ${ex.name}`,
+    onClick:async e=>{ e.stopPropagation(); await onAdd(); }}, ic("plus",15),actLabel||"Add");
   return el("div",{class:"listitem addcard",role:"button",tabindex:"0","aria-label":`${ex.name} details`,style:"cursor:pointer;gap:10px",
     onClick:open, onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}}}, thumb, grow, addBtn);
 }
@@ -1118,9 +1109,13 @@ function loggerCard(item, isCurrent, ss){
         persistSession();render();
       }},ic("arrowdown",16),"Drop set")
     ),
+    el("button",{class:"btn ghost sm","aria-label":"Remove last set",style:"width:100%;margin-top:8px",onClick:()=>{ if(item.sets.length>1){item.sets.pop();persistSession();render();} }},ic("minus",16),"Remove set"),
     el("div",{class:"row",style:"gap:8px;margin-top:8px"},
-      el("button",{class:"btn ghost sm","aria-label":"Remove last set",style:"flex:1",onClick:()=>{ if(item.sets.length>1){item.sets.pop();persistSession();render();} }},ic("minus",16),"Remove set"),
-      el("button",{class:"btn ghost sm","aria-label":"Remove exercise",style:"flex:1",onClick:()=>{
+      el("button",{class:"btn ghost sm","aria-label":"Replace exercise",style:"flex:1",onClick:()=>{
+        if(item.sets.some(s=>s.done) && !confirm("Swap this exercise out? The sets you've logged for it will be cleared.")) return;
+        openReplaceSheet(item);
+      }},ic("link",16),"Replace"),
+      el("button",{class:"btn ghost sm","aria-label":"Remove exercise from workout",style:"flex:1",onClick:()=>{
         State.activeSession.items=State.activeSession.items.filter(x=>x!==item);persistSession();render();
       }},ic("x",16),"Remove")
     ),
@@ -1143,6 +1138,39 @@ function ungroupSS(item){
   const g=item.ssGroup; if(!g) return;
   State.activeSession.items.forEach(it=>{ if(it.ssGroup===g) delete it.ssGroup; });
   persistSession(); render(); toast("Superset ungrouped");
+}
+// swap a workout item to a different exercise (added the wrong one) — re-seeds from the new exercise's history
+async function replaceExercise(item, newEx){
+  const sug=await suggestNext(newEx);
+  const base=sug.plan;
+  item.exerciseId=newEx.id;
+  item.kind=sug.kind; item.note=sug.note; item.targetVol=sug.targetVol??null;
+  item.last=sug.prev?{date:sug.prev.session.date, sets:sug.prev.sets.map(s=>({weight:s.weight,reps:s.reps}))}:null;
+  item.joint=false; item.rpe=null; item.collapsed=false;
+  item.sets=Array.from({length:Math.max(1,base.length)},(_,i)=>{ const p=base[Math.min(i,base.length-1)]||{weight:0,reps:newEx.repMin||8}; return {weight:p.weight,reps:p.reps,done:false}; });
+  await persistSession(); render(); toast(`Swapped in ${newEx.name}`);
+}
+function openReplaceSheet(item){
+  const cur=State.exercises.find(e=>e.id===item.exerciseId);
+  const inWorkout=new Set(State.activeSession.items.map(i=>i.exerciseId));
+  openSheet(`Replace ${cur?.name||"exercise"}`,(body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin:-4px 0 12px"},"Pick the exercise you meant — its sets get pre-filled from its own history."));
+    const gx=gymExercises().filter(e=>e.id!==item.exerciseId && !inWorkout.has(e.id));
+    if(gx.length){
+      REGION_ORDER.forEach(region=>{
+        const inRegion=sortForAdd(gx.filter(e=>exRegion(e)===region));
+        if(!inRegion.length)return;
+        body.append(el("div",{class:"regionhead"},region));
+        inRegion.forEach(ex=> body.append(addExerciseCard(ex, async()=>{ await replaceExercise(item, ex); close(); }, "Swap")));
+      });
+      decorateAddStatus();
+    } else {
+      body.append(el("p",{class:"muted small"},"No other exercises set up at this gym yet — create one below."));
+    }
+    body.append(el("div",{class:"divider"}),
+      el("button",{class:"btn secondary",onClick:()=>{ close(); openExerciseSheet(null,{onCreate: async ex=>{ await replaceExercise(item, ex); }}); }},ic("plus",16),"Create a new exercise"),
+      el("button",{class:"btn",style:"margin-top:10px",onClick:close},"Cancel"));
+  });
 }
 
 /* stepper input with +/- ; pass disabled=true to lock it (e.g. a completed set) */
@@ -2636,7 +2664,7 @@ function viewMore(){
   // ----- Progression: volume-increase target -----
   const progCard=el("div",{class:"card"});
   progCard.append(el("h2",{},"Progression"),
-    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Each time you repeat an exercise, suggestions aim to beat your last session's total volume (weight × reps) by this much. Heavier sets roll in one at a time as you top out your rep range. Fall short and it holds the target; fall short twice and it eases off ~10% to rebuild."));
+    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Each time you repeat an exercise, suggestions aim to beat your last session's total volume (weight × reps) by this much. Heavier sets roll in one at a time as you top out your rep range. Fall short and it holds the same target — keep at it until you hit it, then it climbs again."));
   const vInp=el("input",{type:"number",inputMode:"numeric",min:"1",max:"25",step:"1",value:String(volTarget()),
     style:"width:84px;font-size:17px;font-weight:700;text-align:center;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 8px;color:var(--text)","aria-label":"Volume increase target percent"});
   const saveVol=async()=>{ let v=Math.round(+vInp.value); if(!Number.isFinite(v)||v<=0) v=4; v=Math.max(1,Math.min(25,v)); vInp.value=String(v); State.volTargetPct=v; await setMeta("volTargetPct",v); toast(`Targeting +${v}% volume each session`); };
