@@ -368,7 +368,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v46"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v47"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -555,7 +555,7 @@ const planMinutes = items => items.reduce((t,it)=>{
 
 /* ---------- app state ---------- */
 const State = {
-  gyms:[], exercises:[], plans:[], currentGymId:null, activeSession:null,
+  gyms:[], exercises:[], plans:[], currentGymId:null, activeSession:null, volTargetPct:4,
 };
 async function loadState(){
   State.gyms = await DB.all("gyms");
@@ -585,6 +585,8 @@ async function loadState(){
   State.currentGymId = m?.v || State.gyms[0]?.id || null;
   const as = await DB.get("meta","activeSession");
   State.activeSession = as?.v || null;
+  const vt = await DB.get("meta","volTargetPct");
+  State.volTargetPct = (vt && Number.isFinite(+vt.v) && +vt.v>0) ? +vt.v : 4;
   // resume only if same day
   if(State.activeSession && State.activeSession.date !== todayISO()){
     State.activeSession=null; await DB.put("meta",{k:"activeSession",v:null});
@@ -653,6 +655,9 @@ async function stallCount(exerciseId){
   return n; // sessions before today at same top weight
 }
 
+// How aggressively to grow volume each session (user setting, %). Default 4.
+function volTarget(){ const v=State.volTargetPct; return Number.isFinite(v)&&v>0 ? v : 4; }
+
 async function suggestNext(ex){
   const prev = await lastSetsFor(ex.id, State.activeSession?.id);
   const sets = Math.max(1, ex.sets||3);
@@ -661,7 +666,24 @@ async function suggestNext(ex){
     return { plan: Array.from({length:sets},()=>({weight:0,reps:repMin,target:repMin})),
              note: isBW(ex)?"First time — log your reps and I'll progress them next time.":"First time on this — log a working set and I'll progress it next time.", kind:"new" };
   }
-  // working weight = heaviest weight used last time
+  // pure bodyweight / sled-only (no working load → can't compute volume) keeps classic double progression
+  const base = Math.max(0, ...prev.sets.map(s=>+s.weight||0));
+  if(base<=0) return classicNext(ex, prev, {sets,repMin,repMax,inc});
+  // weighted → target a small VOLUME increase each session, rolling weight up one set at a time
+  const pct = volTarget();
+  const r = volumeProgress(prev.sets, {sets,repMin,repMax,inc,pct});
+  const kind = r.weightAdded ? "weight" : (r.repAdded ? "rep" : "repeat");
+  const gain = r.Vlast>0 ? Math.round((r.Vnew-r.Vlast)/r.Vlast*100) : 0;
+  const top = Math.max(...r.plan.map(s=>s.weight)), pl=isPlate(ex);
+  const fmtVol = n => Math.round(n).toLocaleString(undefined);
+  let note = `Target +${pct}% volume — ~${fmtVol(r.Vnew)} vs ${fmtVol(r.Vlast)} last time (+${gain}%). `;
+  note += r.weightAdded ? `Top set → ${fmtW(top,ex)}${pl?" added":""}.` : `Same weights, +reps.`;
+  const plan = r.plan.map(s=>({weight:s.weight, reps:s.reps, target:s.reps}));
+  return { plan, note, kind, prev };
+}
+
+// classic double progression — used for bodyweight & sled-only, where true volume isn't computable
+async function classicNext(ex, prev, {sets,repMin,repMax,inc}){
   const workW = Math.max(...prev.sets.map(s=>s.weight));
   const atWork = prev.sets.filter(s=>s.weight===workW);
   const repsAt = atWork.map(s=>s.reps);
@@ -670,7 +692,6 @@ async function suggestNext(ex){
   const rpe = atWork.map(s=>s.rpe).filter(Boolean);
   const allEasy = rpe.length===atWork.length && rpe.every(r=>r==="easy");
   const anyGrind = rpe.some(r=>r==="grind");
-
   const bw = isBW(ex);
   const loadStr = w => bw ? ((+w)>0 ? `+${fmtW(w,ex)}` : "bodyweight")
     : (isPlate(ex)&&(+w)===0 ? "sled only" : fmtW(w,ex));
@@ -697,6 +718,34 @@ async function suggestNext(ex){
     }
   }
   return {plan,note,kind,prev};
+}
+
+// pure volume-target solver: beat last session's tonnage by ~pct%, rolling the lightest set up to
+// the next load once all sets are at the top of the rep range. A graduated set keeps enough reps to
+// not drop below its old volume (no dip). Returns {plan,Vlast,Vnew,weightAdded,repAdded}.
+function volumeProgress(lastSets, {sets,repMin,repMax,inc,pct}){
+  let seed = lastSets.map(s=>({weight:+s.weight||0, reps:+s.reps||0})).filter(s=>s.reps>0);
+  if(!seed.length) seed=[{weight:0,reps:repMin}];
+  if(seed.length>sets) seed = seed.slice().sort((a,b)=> b.weight-a.weight || b.reps-a.reps).slice(0,sets);
+  while(seed.length<sets){ const l=seed.reduce((a,b)=> (b.weight<a.weight||(b.weight===a.weight&&b.reps<a.reps))?b:a); seed.push({weight:l.weight,reps:l.reps}); }
+  seed.sort((a,b)=> a.weight-b.weight || a.reps-b.reps);
+  const vol = arr => arr.reduce((t,s)=>t+s.weight*s.reps,0);
+  const Vlast = vol(seed);
+  const Vtarget = Vlast*(1+pct/100);
+  const plan = seed.map(s=>({weight:s.weight,reps:s.reps}));
+  let weightAdded=false, repAdded=false, guard=0;
+  while(vol(plan) < Vtarget && guard++ < 600){
+    let i=-1, few=Infinity;                                            // cheapest move: +1 rep on the fewest-rep set under the cap
+    for(let k=0;k<plan.length;k++){ if(plan[k].reps<repMax && plan[k].reps<few){ few=plan[k].reps; i=k; } }
+    if(i>=0){ plan[i].reps++; repAdded=true; continue; }
+    let j=0; for(let k=1;k<plan.length;k++){ if(plan[k].weight<plan[j].weight) j=k; }  // all maxed → graduate the lightest set
+    const oldVol=plan[j].weight*plan[j].reps;
+    plan[j].weight=round(plan[j].weight+inc, inc);
+    plan[j].reps=Math.max(repMin, Math.min(repMax, Math.ceil(oldVol/plan[j].weight)));
+    weightAdded=true;
+    plan.sort((a,b)=> a.weight-b.weight || a.reps-b.reps);
+  }
+  return { plan, Vlast, Vnew: vol(plan), weightAdded, repAdded };
 }
 const fmtW = (w,ex)=> `${(+w).toLocaleString(undefined,{maximumFractionDigits:2})}${ex.unit||"kg"}`;
 
@@ -2543,6 +2592,18 @@ function viewMore(){
     seg.append(el("button",{class:"segbtn"+(cur===k?" on":""),"aria-pressed":cur===k?"true":"false",onClick:()=>setTheme(k)}, lbl)));
   themeCard.append(seg, el("div",{class:"tiny muted",style:"margin-top:8px"},"Dark by default · System follows your phone."));
   wrap.append(themeCard);
+  // ----- Progression: volume-increase target -----
+  const progCard=el("div",{class:"card"});
+  progCard.append(el("h2",{},"Progression"),
+    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Each time you repeat an exercise, suggestions aim to beat your last session's total volume (weight × reps) by this much. Heavier sets roll in one at a time as you top out your rep range."));
+  const vInp=el("input",{type:"number",inputMode:"numeric",min:"1",max:"25",step:"1",value:String(volTarget()),
+    style:"width:84px;font-size:17px;font-weight:700;text-align:center;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 8px;color:var(--text)","aria-label":"Volume increase target percent"});
+  const saveVol=async()=>{ let v=Math.round(+vInp.value); if(!Number.isFinite(v)||v<=0) v=4; v=Math.max(1,Math.min(25,v)); vInp.value=String(v); State.volTargetPct=v; await setMeta("volTargetPct",v); toast(`Targeting +${v}% volume each session`); };
+  vInp.addEventListener("change",saveVol); vInp.addEventListener("blur",saveVol);
+  progCard.append(el("div",{class:"row",style:"gap:10px;align-items:center"},
+    vInp, el("div",{style:"font-weight:700;font-size:17px"},"% per session"),
+    el("div",{class:"grow"}), el("span",{class:"tiny muted"},"Default 4%")));
+  wrap.append(progCard);
   wrap.append(el("div",{class:"card"},
     el("h2",{},"Your data"),
     el("p",{class:"small muted",style:"margin-top:-4px"},"It's all yours and lives on this device. Export anytime — no account, no lock-in."),
@@ -2552,7 +2613,7 @@ function viewMore(){
   wrap.append(el("div",{class:"card"},
     el("h2",{},"About"),
     el("p",{class:"small muted",style:"margin:-4px 0 0"},
-      "NextSet · local-first workout tracker. Suggestions use double progression on your own history. Add to Home Screen to use it like an app."),
+      "NextSet · local-first workout tracker. Suggestions target a small volume increase each session (set it under Progression), from your own history. Add to Home Screen to use it like an app."),
     el("button",{class:"btn secondary",style:"margin-top:10px",onClick:checkForUpdates},ic("download"),"Check for updates"),
     el("p",{class:"tiny muted",style:"margin:8px 0 0"}, `Version ${APP_VERSION}`)
   ));
