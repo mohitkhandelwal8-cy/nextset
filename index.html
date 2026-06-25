@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v52"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v53"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1109,13 +1109,9 @@ function loggerCard(item, isCurrent, ss){
         persistSession();render();
       }},ic("arrowdown",16),"Drop set")
     ),
-    el("button",{class:"btn ghost sm","aria-label":"Remove last set",style:"width:100%;margin-top:8px",onClick:()=>{ if(item.sets.length>1){item.sets.pop();persistSession();render();} }},ic("minus",16),"Remove set"),
     el("div",{class:"row",style:"gap:8px;margin-top:8px"},
-      el("button",{class:"btn ghost sm","aria-label":"Replace exercise",style:"flex:1",onClick:()=>{
-        if(item.sets.some(s=>s.done) && !confirm("Swap this exercise out? The sets you've logged for it will be cleared.")) return;
-        openReplaceSheet(item);
-      }},ic("link",16),"Replace"),
-      el("button",{class:"btn ghost sm","aria-label":"Remove exercise from workout",style:"flex:1",onClick:()=>{
+      el("button",{class:"btn ghost sm","aria-label":"Remove last set",style:"flex:1",onClick:()=>{ if(item.sets.length>1){item.sets.pop();persistSession();render();} }},ic("minus",16),"Remove set"),
+      el("button",{class:"btn ghost sm","aria-label":"Remove exercise",style:"flex:1",onClick:()=>{
         State.activeSession.items=State.activeSession.items.filter(x=>x!==item);persistSession();render();
       }},ic("x",16),"Remove")
     ),
@@ -1138,39 +1134,6 @@ function ungroupSS(item){
   const g=item.ssGroup; if(!g) return;
   State.activeSession.items.forEach(it=>{ if(it.ssGroup===g) delete it.ssGroup; });
   persistSession(); render(); toast("Superset ungrouped");
-}
-// swap a workout item to a different exercise (added the wrong one) — re-seeds from the new exercise's history
-async function replaceExercise(item, newEx){
-  const sug=await suggestNext(newEx);
-  const base=sug.plan;
-  item.exerciseId=newEx.id;
-  item.kind=sug.kind; item.note=sug.note; item.targetVol=sug.targetVol??null;
-  item.last=sug.prev?{date:sug.prev.session.date, sets:sug.prev.sets.map(s=>({weight:s.weight,reps:s.reps}))}:null;
-  item.joint=false; item.rpe=null; item.collapsed=false;
-  item.sets=Array.from({length:Math.max(1,base.length)},(_,i)=>{ const p=base[Math.min(i,base.length-1)]||{weight:0,reps:newEx.repMin||8}; return {weight:p.weight,reps:p.reps,done:false}; });
-  await persistSession(); render(); toast(`Swapped in ${newEx.name}`);
-}
-function openReplaceSheet(item){
-  const cur=State.exercises.find(e=>e.id===item.exerciseId);
-  const inWorkout=new Set(State.activeSession.items.map(i=>i.exerciseId));
-  openSheet(`Replace ${cur?.name||"exercise"}`,(body,close)=>{
-    body.append(el("p",{class:"small muted",style:"margin:-4px 0 12px"},"Pick the exercise you meant — its sets get pre-filled from its own history."));
-    const gx=gymExercises().filter(e=>e.id!==item.exerciseId && !inWorkout.has(e.id));
-    if(gx.length){
-      REGION_ORDER.forEach(region=>{
-        const inRegion=sortForAdd(gx.filter(e=>exRegion(e)===region));
-        if(!inRegion.length)return;
-        body.append(el("div",{class:"regionhead"},region));
-        inRegion.forEach(ex=> body.append(addExerciseCard(ex, async()=>{ await replaceExercise(item, ex); close(); }, "Swap")));
-      });
-      decorateAddStatus();
-    } else {
-      body.append(el("p",{class:"muted small"},"No other exercises set up at this gym yet — create one below."));
-    }
-    body.append(el("div",{class:"divider"}),
-      el("button",{class:"btn secondary",onClick:()=>{ close(); openExerciseSheet(null,{onCreate: async ex=>{ await replaceExercise(item, ex); }}); }},ic("plus",16),"Create a new exercise"),
-      el("button",{class:"btn",style:"margin-top:10px",onClick:close},"Cancel"));
-  });
 }
 
 /* stepper input with +/- ; pass disabled=true to lock it (e.g. a completed set) */
@@ -1826,12 +1789,16 @@ function openSessionDetail(se){
       for(const [exId,list] of Object.entries(byEx)){
         const ex=exById(exId);
         const setsTxt=list.sort((a,b)=>a.order-b.order).map(x=>fmtSetShort(ex,x.weight,x.reps)).join("   ");
-        const head=el("div",{class:"row",style:"gap:6px;align-items:center"},
-          el("div",{style:"font-weight:600"}, ex?ex.name:"(deleted)"),
-          ...(list.some(x=>x.joint)?[el("span",{style:"color:var(--warn);display:inline-flex",title:"joint flagged"},ic("alert",14))]:[]),
-          ...(ex?[el("span",{class:"chev",style:"margin-left:auto"},ic("chevron",15))]:[]));
-        mount.append(el(ex?"button":"div", ex?{class:"rowbtn",style:"margin-bottom:10px",onClick:()=>openExerciseProgress(ex.id)}:{style:"margin-bottom:10px"},
-          el("div",{style:"width:100%"}, head, el("div",{class:"small muted",style:"margin-top:2px"}, setsTxt))));
+        const info=el("div",{style:"width:100%;text-align:left"},
+          el("div",{class:"row",style:"gap:6px;align-items:center"},
+            el("div",{style:"font-weight:600"}, ex?ex.name:"(deleted)"),
+            ...(list.some(x=>x.joint)?[el("span",{style:"color:var(--warn);display:inline-flex",title:"joint flagged"},ic("alert",14))]:[])),
+          el("div",{class:"small muted",style:"margin-top:2px"}, setsTxt));
+        const left = ex
+          ? el("button",{class:"rowbtn",style:"flex:1;min-width:0",onClick:()=>openExerciseProgress(ex.id)}, info)
+          : el("div",{style:"flex:1;min-width:0"}, info);
+        mount.append(el("div",{class:"row",style:"gap:8px;align-items:center;margin-bottom:10px"}, left,
+          el("button",{class:"btn ghost sm",style:"flex:none","aria-label":`Replace ${ex?ex.name:"this exercise"} in this workout`,onClick:()=>openHistoryReplace(se, exId, close)}, ic("link",15),"Replace")));
       }
       const planItems=planItemsFromSets(sets);
       mount.append(el("div",{class:"divider"}));
@@ -1843,6 +1810,38 @@ function openSessionDetail(se){
         }},ic("x",16),"Delete workout"));
     })();
   });
+}
+// re-point a past workout's logged sets from one exercise to another (weights/reps/order unchanged)
+async function repointSessionExercise(sessionId, oldExId, newExId){
+  const sets=(await DB.all("sets")).filter(x=>x.sessionId===sessionId && x.exerciseId===oldExId);
+  for(const s of sets){ s.exerciseId=newExId; await DB.put("sets",s); }
+  return sets.length;
+}
+// fix a wrongly-logged exercise in a PAST workout — pick the right one; the sets stay exactly the same
+function openHistoryReplace(se, oldExId, closeDetail){
+  const oldEx=State.exercises.find(e=>e.id===oldExId);
+  openSheet(`Replace ${oldEx?oldEx.name:"exercise"}`,(body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin:-4px 0 12px"},"Pick the exercise this should have been. Your logged weights, reps and sets stay exactly the same — only which exercise they count toward changes."));
+    const apply=async(newEx)=>{
+      await repointSessionExercise(se.id, oldExId, newEx.id);
+      _exStatus=null; close(); closeDetail&&closeDetail(); render(); toast(`Now logged as ${newEx.name}`); openSessionDetail(se);
+    };
+    const gx=gymExercises(se.gymId).filter(e=>e.id!==oldExId);
+    if(gx.length){
+      REGION_ORDER.forEach(region=>{
+        const inRegion=sortForAdd(gx.filter(e=>exRegion(e)===region));
+        if(!inRegion.length)return;
+        body.append(el("div",{class:"regionhead"},region));
+        inRegion.forEach(ex=> body.append(addExerciseCard(ex, ()=>apply(ex), "Use")));
+      });
+      decorateAddStatus();
+    } else {
+      body.append(el("p",{class:"muted small"},"No other exercises at this gym to switch to — create one below."));
+    }
+    body.append(el("div",{class:"divider"}),
+      el("button",{class:"btn secondary",onClick:()=>{ close(); openExerciseSheet(null,{onCreate: async ex=>{ await apply(ex); }}); }},ic("plus",16),"Create a new exercise"),
+      el("button",{class:"btn",style:"margin-top:10px",onClick:close},"Cancel"));
+  }, {stacked:true});
 }
 // name + save a past workout as a reusable plan
 function saveSessionAsPlan(se, items){
@@ -2238,7 +2237,8 @@ function openExerciseProgress(exId){
       mount.append(el("div",{class:"row between",style:"margin:-6px 0 8px;align-items:center;gap:8px"},
         el("div",{class:"small muted"}, metaTxt||""), starBtn));
       const tg=muscleTags(ex); if(tg){ tg.style.marginBottom="6px"; mount.append(tg); }
-      if(!lib) mount.append(libLinkCta(ex, close));   // offer to link → photos + how-to
+      if(!lib) mount.append(libLinkCta(ex, close));   // not linked → offer to link (photos + how-to)
+      else mount.append(libRelinkRow(ex, close));     // linked → let them fix a wrong match
       // how to do it (collapsible guide, from the library)
       if(lib && lib.raw.instructions && lib.raw.instructions.length) mount.append(howTo(lib.raw.instructions));
       // your progress (only once there's logged history)
@@ -2528,6 +2528,14 @@ function openLibraryLink(ex){
     search.addEventListener("input",render); render();
     loadLibrary().then(render).catch(()=>{ results.innerHTML=""; results.append(el("p",{class:"muted small"},"Couldn't load the library — reconnect and try again.")); });
   }, {stacked:true});
+}
+// shown in the detail when an exercise IS linked — fix a wrong library match (or drop it)
+function libRelinkRow(ex, closeDetail){
+  const s="background:none;border:none;color:var(--accent);font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px;cursor:pointer;padding:4px 0;min-height:36px";
+  const row=el("div",{class:"row",style:"gap:18px;margin:0 0 4px;flex-wrap:wrap"});
+  row.append(el("button",{style:s,"aria-label":"Change the library match",onClick:()=>openLibraryLink(ex)}, ic("search",13), "Wrong exercise? Change match"));
+  if(ex.libId) row.append(el("button",{style:s+";color:var(--muted)","aria-label":"Remove the library match",onClick:async()=>{ ex.libId=null; await DB.put("exercises",ex); State.exercises=await DB.all("exercises"); closeDetail&&closeDetail(); openExerciseProgress(ex.id); toast("Removed the library match"); }}, ic("x",13), "Remove"));
+  return row;
 }
 // CTA shown in the detail when an exercise isn't linked to the library yet
 function libLinkCta(ex, closeDetail){
