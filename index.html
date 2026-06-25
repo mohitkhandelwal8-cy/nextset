@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v56"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v57"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -827,7 +827,9 @@ function viewOnboard(){
     el("div",{class:"big"},ic("dumbbell",42)),
     el("h2",{},"Welcome to NextSet"),
     el("p",{class:"muted"},"Track sets, reps and exact weights on any machine or free weight — and get told what to try next time."),
-    el("button",{class:"btn",style:"margin-top:16px",onClick:()=>openGymSheet()},ic("plus"),"Add your first gym")
+    el("button",{class:"btn",style:"margin-top:16px",onClick:()=>openGymSheet()},ic("plus"),"Add your first gym"),
+    el("button",{class:"btn secondary",style:"margin-top:10px",onClick:importDataFromFile},ic("inbox"),"Restore from a backup"),
+    el("p",{class:"tiny muted",style:"margin-top:10px"},"Reinstalled the app or switched phones? Load a backup you exported earlier and pick up where you left off.")
   );
   return wrap;
 }
