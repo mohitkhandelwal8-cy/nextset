@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v58"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v59"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1064,6 +1064,10 @@ function loggerCard(item, isCurrent, ss){
     item.last.sets.forEach((s,i)=> lt.append(el("span",{class:"lt-set"}, el("b",{},String(i+1)), fmtSetShort(ex,s.weight,s.reps))));
     card.append(lt);
   }
+  // what weight to log, for the two ambiguous cases
+  const logHint = ex && (ex.equipment==="dumbbell" ? "Log one dumbbell — e.g. 20 for a 20 kg in each hand."
+                  : isPlate(ex) ? "Log just the plates you add — not the sled." : "");
+  if(logHint) card.append(el("div",{class:"tiny muted",style:"display:flex;align-items:center;gap:5px;margin:8px 2px 2px"}, ic("info",12), logHint));
 
   const wUnit = bw ? "+"+(ex?.unit||"kg") : (ex?.unit||"kg");
   let setNo=0;
@@ -1078,14 +1082,26 @@ function loggerCard(item, isCurrent, ss){
       set.done=!set.done;
       if(set.done){
         const pr=await prCheck(ex,+set.weight,+set.reps); toast(pr || `${drop?"Drop":"Set "+setNo}: ${fmtSetShort(ex,set.weight,set.reps)}`);
-        const nxt=item.sets[si+1];   // carry weight/reps onto the next un-logged straight set (not a drop)
-        if(nxt && !nxt.done && !nxt.drop){ nxt.weight=set.weight; nxt.reps=set.reps; }
+        const nxt=item.sets[si+1];   // bring the next un-logged set up to what you just did — but never
+        if(nxt && !nxt.done && !nxt.drop && nxt.weight<=set.weight){ nxt.weight=set.weight; nxt.reps=set.reps; }   // pull down a set the plan suggested heavier
       }
       persistSession(); render();   // re-render so the row locks/unlocks
     }},ic("check",18));
     row.append(done);
     card.append(row);
   });
+
+  // live volume vs last time — updates as you complete sets (the metric the progression targets)
+  if(item.last && item.last.sets.length){
+    const fmtV = n => Math.round(n).toLocaleString();
+    const lastVol = item.last.sets.reduce((t,s)=>t+(+s.weight||0)*(+s.reps||0),0);
+    const curVol = item.sets.reduce((t,s)=> t + (s.done?(+s.weight||0)*(+s.reps||0):0), 0);
+    const beat = curVol>0 && curVol>=lastVol;
+    card.append(el("div",{style:"display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0 2px;padding:7px 11px;border-radius:10px;background:var(--surface-2);font-size:12.5px;font-weight:600;"+(beat?"border:1px solid rgba(34,197,94,.45);color:var(--accent-2)":"color:var(--text)")},
+      el("span",{style:"font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:"+(beat?"var(--accent-2)":"var(--muted)")},"Volume"),
+      el("span",{}, el("b",{},fmtV(curVol)), " / ", fmtV(lastVol), " last time"),
+      ...(beat?[el("span",{style:"margin-left:auto;display:inline-flex;align-items:center;gap:3px"}, ic("check",13),"beat it")]:[])));
+  }
 
   // RPE for last logged set (optional)
   const rpe=el("div",{class:"rpe"});
@@ -1096,7 +1112,7 @@ function loggerCard(item, isCurrent, ss){
       persistSession(); render();
     }}, {easy:"Easy",solid:"Solid",grind:"Grind"}[level]));
   });
-  card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"How hard did this feel?"), rpe,
+  card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"How hard did this feel? Sets next time's target — Easy pushes harder, Grind eases off."), rpe,
     el("button",{class:"jointtoggle"+(item.joint?" on":""),"aria-pressed":item.joint?"true":"false",onClick:()=>{item.joint=!item.joint;persistSession();render();}},
       ic("alert",13), item.joint?"Joint flagged — tap to clear":"Tweaked a joint?"));
 
@@ -1594,30 +1610,38 @@ function openAddExerciseSheet(afterClose){
     const ownNames = ()=> new Set(own().map(e=>normName(e.name)));
     const CAP=60;
 
-    // a tap-to-add row (whole row adds; the chip is just an affordance that flips to "Added")
-    function pickRow({name, sub, tags, imgId, imgPromise, isPlanned, onAdd}){
+    const removeFromPlan = async exId => { State.activeSession.items = State.activeSession.items.filter(i=>i.exerciseId!==exId); await persistSession(); };
+    // a tap-to-add row: tapping adds to the plan right away; the ✕ on an added row removes it
+    // (and, for a library exercise added by mistake, deletes the entry it just created).
+    function pickRow({name, sub, tags, imgId, imgPromise, planned, onAdd, onRemove}){
       const thumb=el("div",{class:"exthumb"}, ic("dumbbell",18));
       const setImg=id=>{ if(!id)return; const im=document.createElement("img"); im.src=libImageUrl(id,0); im.loading="lazy"; im.alt=""; im.onerror=()=>im.remove(); thumb.append(im); };
       if(imgId) setImg(imgId); else if(imgPromise) imgPromise.then(setImg);
       const grow=el("div",{class:"grow"}, el("div",{class:"name"},name), el("div",{class:"small muted"},sub));
       if(tags) grow.append(tags);
-      const slot=el("div",{style:"flex:none"});
-      const added=()=> slot.replaceChildren(el("span",{class:"tiny muted",style:"display:inline-flex;align-items:center;gap:4px;white-space:nowrap"}, ic("check",15),"Added"));
-      slot.append(el("span",{class:"chip add",style:"min-height:40px;pointer-events:none"}, ic("plus",15),"Add"));
+      const slot=el("div",{style:"flex:none;display:flex;align-items:center;gap:2px"});
       const row=el("div",{class:"listitem",role:"button",tabindex:"0",style:"cursor:pointer;gap:10px"});
-      if(isPlanned){ added(); row.dataset.done="1"; }
-      const act=async()=>{ if(row.dataset.done) return; row.dataset.done="1"; added(); await onAdd(); };
-      row.addEventListener("click", act);
-      row.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); act(); } });
+      let curId=null;
+      const showAdd=()=>{ row.dataset.added=""; slot.replaceChildren(el("span",{class:"chip add",style:"min-height:40px;pointer-events:none"}, ic("plus",15),"Add")); };
+      const showAdded=()=>{ row.dataset.added="1"; slot.replaceChildren(
+        el("span",{class:"tiny muted",style:"display:inline-flex;align-items:center;gap:4px;white-space:nowrap"}, ic("check",15),"Added"),
+        el("button",{"aria-label":`Remove ${name}`,style:"flex:none;width:34px;height:40px;display:inline-flex;align-items:center;justify-content:center;background:none;border:none;color:var(--muted);cursor:pointer",
+          onClick:async e=>{ e.stopPropagation(); showAdd(); await onRemove(curId); curId=null; }}, ic("x",17))); };
+      const add=async()=>{ if(row.dataset.added) return; showAdded(); curId=await onAdd(); };
+      row.addEventListener("click", add);
+      row.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); add(); } });
       row.append(thumb, grow, slot);
+      if(planned){ curId=planned; showAdded(); } else showAdd();   // `planned` is the exId when already in the plan
       return row;
     }
     const ownRow = ex => pickRow({ name:ex.name, sub:(equipLabel(ex.equipment)||"Other")+" · in your collection",
-      tags:muscleTags(ex), imgPromise:exerciseImageId(ex), isPlanned:planned().has(ex.id),
-      onAdd:async()=>{ await addToPlan(ex); toast(`Added ${ex.name}`); } });
+      tags:muscleTags(ex), imgPromise:exerciseImageId(ex), planned: planned().has(ex.id)?ex.id:null,
+      onAdd:async()=>{ await addToPlan(ex); toast(`Added ${ex.name}`); return ex.id; },
+      onRemove:async()=>{ await removeFromPlan(ex.id); toast(`Removed ${ex.name}`); } });
     const libTags = le => { const t=[]; if(le.primary&&muscleLabel(le.primary)) t.push(muscleTag(muscleLabel(le.primary),regionOf(le.primary),true)); if(le.secondary&&muscleLabel(le.secondary)) t.push(muscleTag(muscleLabel(le.secondary),regionOf(le.secondary),false)); return t.length?el("div",{class:"mtags"},...t):null; };
     const libRow = le => pickRow({ name:le.name, sub:equipLabel(le.equipment)||"Other", tags:libTags(le), imgId:le.raw.id,
-      onAdd:async()=>{ const ex=await addLibraryExercise(le.raw); await addToPlan(ex); toast(`Added ${le.name}`); } });
+      onAdd:async()=>{ const ex=await addLibraryExercise(le.raw); await addToPlan(ex); toast(`Added ${le.name}`); return ex.id; },
+      onRemove:async(id)=>{ await removeFromPlan(id); await DB.del("exercises",id); State.exercises=await DB.all("exercises"); toast(`Removed ${le.name} from your exercises`); } });
 
     function customBtn(){
       const q=search.value.trim();
