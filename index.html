@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v60"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v61"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2030,7 +2030,7 @@ function viewInsights(){
         vDelta==null?"":`${vDelta>=0?"▲":"▼"} ${Math.abs(vDelta)}% vs last ${vs.unit}`)));
     const rchips=el("div",{class:"filterchips",style:"margin:8px 0 2px"});
     [["4w","4 wk"],["12w","12 wk"],["6mo","6 mo"],["1yr","1 yr"],["all","All"]].forEach(([k,lbl])=>
-      rchips.append(el("button",{class:"fchip"+(insightsRange===k?" on":""),onClick:()=>{insightsRange=k;render();}}, lbl)));
+      rchips.append(el("button",{class:"fchip"+(insightsRange===k?" on":""),onClick:()=>{insightsRange=k;_insightsScroll=window.scrollY;render();}}, lbl)));
     volCard.append(rchips, lineChart(vs.vals,{labels:vs.labels}), el("div",{class:"tiny muted",style:"margin-top:2px"}, vs.caption));
     mount.append(volCard);
 
@@ -2053,7 +2053,7 @@ function viewInsights(){
     mount.append(el("div",{class:"sectionhead",style:"margin:20px 2px 8px"},"Muscle breakdown"));
     const mrChips=el("div",{class:"filterchips",style:"margin:0 0 10px"});
     [["week","This week"],["4wk","4 weeks"],["12wk","12 weeks"],["6mo","6 months"]].forEach(([k,lbl])=>
-      mrChips.append(el("button",{class:"fchip"+(muscleRange===k?" on":""),onClick:()=>{muscleRange=k;render();}}, lbl)));
+      mrChips.append(el("button",{class:"fchip"+(muscleRange===k?" on":""),onClick:()=>{muscleRange=k;_insightsScroll=window.scrollY;render();}}, lbl)));
     mount.append(mrChips);
     if(!volEntries.length){
       mount.append(el("div",{class:"card"}, el("p",{class:"muted small",style:"margin:0"}, `No sets logged ${mrLabel}. Pick a longer range above.`)));
@@ -2185,6 +2185,7 @@ function viewInsights(){
     if(!alertCount) alerts.append(el("div",{class:"insight good"},el("div",{class:"t"},"All clear"),
       el("div",{class:"d"},"No plateaus or flags right now. Keep stacking sessions.")));
     mount.append(alerts);
+    if(_insightsScroll!=null){ const y=_insightsScroll; _insightsScroll=null; requestAnimationFrame(()=>window.scrollTo(0,y)); }
   })();
   return wrap;
 }
@@ -2287,6 +2288,7 @@ function openMuscleDetail(mk){
 /* ===== insights extras: PRs, per-exercise detail, body heatmap, ranged volume, calendar ===== */
 let insightsRange="12w";
 let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
+let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
 // committed sets for an exercise (pooled across linked machines), each stamped with its session date
 async function exerciseHistory(exId){
   let sets=[]; for(const id of linkedIds(exId)) sets=sets.concat(await DB.byIndex("sets","exerciseId",id));
