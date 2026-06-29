@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v61"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v62"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -618,6 +618,14 @@ const templateMinutes = plan => plan.items.reduce((t,it)=>{ const ex=State.exerc
 function planRegions(plan){ return [...new Set(plan.items.map(it=>{const ex=State.exercises.find(e=>e.id===it.exerciseId);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))]; }
 function suggestPlanName(items){ const regs=[...new Set(items.map(it=>{const ex=State.exercises.find(e=>e.id===it.exerciseId);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))]; return regs.length? regs.slice(0,2).join(" & ") : "My plan"; }
 const normName = s => (s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+// exercise-name search: token-ranked + a few synonyms so "hip abduction" finds "Thigh Abductor",
+// "seated leg press" finds "Leg Press", etc. (a literal substring match was missing these).
+const SEARCH_ALIAS={abductor:"abduct",abduction:"abduct",adductor:"adduct",adduction:"adduct"};
+const searchTokens = s => normName(s).split(" ").filter(w=>w.length>1).map(w=>SEARCH_ALIAS[w]||w);
+function matchScore(qTokens, name){ const nt=searchTokens(name);
+  return qTokens.filter(w=> nt.some(x=> x===w || x.startsWith(w))).length; }
+const rankByMatch = (q, items, nameOf=e=>e.name) => { const qt=searchTokens(q);
+  return items.map(e=>[e,matchScore(qt,nameOf(e))]).filter(([,s])=>s>0).sort((a,b)=>b[1]-a[1]||nameOf(a[0]).length-nameOf(b[0]).length).map(([e])=>e); };
 const gymNameOf = id => State.gyms.find(g=>g.id===id)?.name || "";
 // exercises confirmed as the SAME physical machine share a linkId; return every id in the group
 const linkedIds = exerciseId => {
@@ -1652,8 +1660,8 @@ function openAddExerciseSheet(afterClose){
     function renderSearch(q){
       results.replaceChildren(); foot.replaceChildren();
       const taken=ownNames();
-      const mine=own().filter(e=>normName(e.name).includes(q));
-      const libs=(LIB||[]).filter(e=>!taken.has(normName(e.name)) && normName(e.name).includes(q));
+      const mine=rankByMatch(q, own());
+      const libs=rankByMatch(q, (LIB||[]).filter(e=>!taken.has(normName(e.name))));
       if(!mine.length && !libs.length){
         results.append(el("p",{class:"muted small",style:"margin:8px 2px"}, LIB?"Nothing matches — create it as a custom exercise below.":"Loading the library…"));
         if(LIB) foot.append(customBtn());
@@ -2703,7 +2711,7 @@ function openLibrarySheet(){
       const q=normName(search.value);
       let list=LIB;
       if(region) list=list.filter(e=>e.region===region);
-      if(q) list=list.filter(e=>normName(e.name).includes(q));
+      if(q) list=rankByMatch(q, list);
       if(!list.length){ results.append(el("p",{class:"muted small"},"No matches. Try a different search, or use “Add your own” to create it.")); note.textContent=""; return; }
       list.slice(0,CAP).forEach(e=>results.append(libRow(e)));
       note.textContent = list.length>CAP ? `Showing ${CAP} of ${list.length} — keep typing to narrow.` : `${list.length} exercise${list.length>1?"s":""}`;
