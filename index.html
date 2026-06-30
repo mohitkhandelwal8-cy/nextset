@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v62"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v63"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1588,11 +1588,16 @@ function openPlanSheet(){
           exDetailName(ex),
           el("div",{class:"small muted"}, `${it.sets.length}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest · ~${exMinutes(ex,it.sets.length)} min`));
         const tags=muscleTags(ex); if(tags) grow.append(tags);
-        body.append(el("div",{class:"listitem",style:"cursor:default"},
-          el("div",{class:"idx",style:"width:20px;text-align:center;color:var(--muted);flex:none"}, idx+1),
+        const mvUp=async()=>{ const a=State.activeSession.items; if(idx<=0)return; [a[idx-1],a[idx]]=[a[idx],a[idx-1]]; await persistSession(); reopen(); };
+        const mvDown=async()=>{ const a=State.activeSession.items; if(idx>=a.length-1)return; [a[idx],a[idx+1]]=[a[idx+1],a[idx]]; await persistSession(); reopen(); };
+        const mvStyle=o=>`flex:none;width:30px;height:40px;background:none;border:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;opacity:${o}`;
+        body.append(el("div",{class:"listitem",style:"cursor:default;gap:2px"},
+          el("div",{class:"idx",style:"width:16px;text-align:center;color:var(--muted);flex:none"}, idx+1),
           grow,
-          el("button",{class:"sheetclose",style:"width:40px;height:40px","aria-label":`Remove ${ex.name} from plan`,onClick:async()=>{
-            State.activeSession.items=items.filter(i=>i!==it);
+          el("button",{style:mvStyle(idx===0?".25":"1"),"aria-label":`Move ${ex.name} up`,onClick:mvUp}, el("span",{style:"display:inline-flex;transform:rotate(-90deg)"},ic("chevron",18))),
+          el("button",{style:mvStyle(idx===items.length-1?".25":"1"),"aria-label":`Move ${ex.name} down`,onClick:mvDown}, el("span",{style:"display:inline-flex;transform:rotate(90deg)"},ic("chevron",18))),
+          el("button",{class:"sheetclose",style:"width:36px;height:40px;flex:none","aria-label":`Remove ${ex.name} from plan`,onClick:async()=>{
+            State.activeSession.items=State.activeSession.items.filter(i=>i!==it);
             await persistSession(); reopen();
           }}, ic("x",18))));
       });
@@ -1879,41 +1884,72 @@ function viewHistory(){
   return wrap;
 }
 // full breakdown for one past workout (opened from the History list)
-function openSessionDetail(se){
+function openSessionDetail(se, editing=false){
   openSheet(relDate(se.date)||fmtDate(se.date),(body,close)=>{
     const mount=el("div",{}); body.append(mount);
     (async()=>{
       const exById=id=>State.exercises.find(e=>e.id===id);
       const sets=(await DB.all("sets")).filter(x=>x.sessionId===se.id);
       const byEx={}; sets.forEach(x=>{(byEx[x.exerciseId]=byEx[x.exerciseId]||[]).push(x);});
-      const mins=sessionMins(se), vol=Math.round(sets.reduce((t,x)=>t+(x.weight||0)*(x.reps||0),0));
-      mount.append(el("div",{class:"small muted",style:"margin:-6px 0 10px"}, `${fmtDate(se.date)} · ${gymNameOf(se.gymId)||"—"}`));
-      const grid=el("div",{class:"statgrid"});
-      grid.append(statTile(Object.keys(byEx).length,"exercises"), statTile(sets.length,"sets"),
-        statTile(mins?String(mins):"—","minutes"), statTile(vol.toLocaleString(),"kg volume"));
-      mount.append(grid, el("div",{class:"divider"}));
+      const reopen=ed=>{ close(); openSessionDetail(se, ed); };
+      // header: date + Edit/Done toggle (editing past workouts: fix weights/reps, add or remove sets)
+      mount.append(el("div",{class:"row between",style:"margin:-6px 0 10px;gap:10px;align-items:center"},
+        el("div",{class:"small muted",style:"min-width:0"}, `${fmtDate(se.date)} · ${gymNameOf(se.gymId)||"—"}`),
+        el("button",{class:"btn ghost sm",style:"flex:none",onClick:()=>{ close(); if(editing) render(); openSessionDetail(se, !editing); }},
+          ic(editing?"check":"clipboard",15), editing?"Done":"Edit")));
+      if(!editing){
+        const mins=sessionMins(se), vol=Math.round(sets.reduce((t,x)=>t+(x.weight||0)*(x.reps||0),0));
+        const grid=el("div",{class:"statgrid"});
+        grid.append(statTile(Object.keys(byEx).length,"exercises"), statTile(sets.length,"sets"),
+          statTile(mins?String(mins):"—","minutes"), statTile(vol.toLocaleString(),"kg volume"));
+        mount.append(grid, el("div",{class:"divider"}));
+      }
+      if(!sets.length) mount.append(el("p",{class:"muted small"},"No sets logged."));
       for(const [exId,list] of Object.entries(byEx)){
         const ex=exById(exId);
-        const setsTxt=list.sort((a,b)=>a.order-b.order).map(x=>fmtSetShort(ex,x.weight,x.reps)).join("   ");
-        const info=el("div",{style:"width:100%;text-align:left"},
-          el("div",{class:"row",style:"gap:6px;align-items:center"},
-            el("div",{style:"font-weight:600"}, ex?ex.name:"(deleted)"),
-            ...(list.some(x=>x.joint)?[el("span",{style:"color:var(--warn);display:inline-flex",title:"joint flagged"},ic("alert",14))]:[])),
-          el("div",{class:"small muted",style:"margin-top:2px"}, setsTxt));
-        const left = ex
-          ? el("button",{class:"rowbtn",style:"flex:1;min-width:0",onClick:()=>openExerciseProgress(ex.id)}, info)
-          : el("div",{style:"flex:1;min-width:0"}, info);
-        mount.append(el("div",{class:"row",style:"gap:8px;align-items:center;margin-bottom:10px"}, left,
-          el("button",{class:"btn ghost sm",style:"flex:none","aria-label":`Replace ${ex?ex.name:"this exercise"} in this workout`,onClick:()=>openHistoryReplace(se, exId, close)}, ic("link",15),"Replace")));
+        list.sort((a,b)=>a.order-b.order);
+        if(editing){
+          const bw=isBW(ex), wUnit=bw?"+"+(ex?.unit||"kg"):(ex?.unit||"kg");
+          mount.append(el("div",{style:"font-weight:600;margin:6px 2px 6px"}, ex?ex.name:"(deleted)"));
+          list.forEach((st,i)=>{
+            const wStep=stepper(st.weight, ex?.increment||2.5, async v=>{ st.weight=Math.max(0,v); await DB.put("sets",st); }, wUnit);
+            const rStep=stepper(st.reps, 1, async v=>{ st.reps=Math.max(0,Math.round(v)); await DB.put("sets",st); }, "reps");
+            const row=el("div",{class:"setrow"}, el("div",{class:"idx"}, i+1));
+            if(bw){ row.append(rStep,wStep); } else { row.append(wStep,rStep); }
+            row.append(el("button",{class:"sheetclose",style:"width:38px;height:38px;flex:none","aria-label":"Remove set",onClick:async()=>{ await DB.del("sets",st.id); reopen(true); }}, ic("x",16)));
+            mount.append(row);
+          });
+          mount.append(el("button",{class:"btn secondary sm",style:"margin:2px 0 16px",onClick:async()=>{
+            const lastS=list[list.length-1], maxO=list.reduce((m,s)=>Math.max(m,s.order),-1);
+            await DB.put("sets",{id:uid(),sessionId:se.id,exerciseId:exId,weight:lastS?.weight||0,reps:lastS?.reps||(ex?.repMin||8),rpe:lastS?.rpe||null,joint:!!(lastS&&lastS.joint),order:maxO+1,createdAt:new Date().toISOString()});
+            reopen(true);
+          }}, ic("plus",15),"Add set"));
+        } else {
+          const setsTxt=list.map(x=>fmtSetShort(ex,x.weight,x.reps)).join("   ");
+          const info=el("div",{style:"width:100%;text-align:left"},
+            el("div",{class:"row",style:"gap:6px;align-items:center"},
+              el("div",{style:"font-weight:600"}, ex?ex.name:"(deleted)"),
+              ...(list.some(x=>x.joint)?[el("span",{style:"color:var(--warn);display:inline-flex",title:"joint flagged"},ic("alert",14))]:[])),
+            el("div",{class:"small muted",style:"margin-top:2px"}, setsTxt));
+          const left = ex
+            ? el("button",{class:"rowbtn",style:"flex:1;min-width:0",onClick:()=>openExerciseProgress(ex.id)}, info)
+            : el("div",{style:"flex:1;min-width:0"}, info);
+          mount.append(el("div",{class:"row",style:"gap:8px;align-items:center;margin-bottom:10px"}, left,
+            el("button",{class:"btn ghost sm",style:"flex:none","aria-label":`Replace ${ex?ex.name:"this exercise"} in this workout`,onClick:()=>openHistoryReplace(se, exId, close)}, ic("link",15),"Replace")));
+        }
       }
-      const planItems=planItemsFromSets(sets);
-      mount.append(el("div",{class:"divider"}));
-      if(planItems.length) mount.append(el("button",{class:"btn secondary",onClick:()=>saveSessionAsPlan(se, planItems)},ic("clipboard",16),"Save as a plan"));
-      mount.append(el("button",{class:"btn danger",style:planItems.length?"margin-top:8px":"",onClick:async()=>{
-          if(!confirm("Delete this workout and its logged sets? This can't be undone."))return;
-          for(const x of sets) await DB.del("sets",x.id); await DB.del("sessions",se.id);
-          close(); render(); toast("Workout deleted");
-        }},ic("x",16),"Delete workout"));
+      if(editing){
+        mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Changes save as you go — tap Done when finished."));
+      } else {
+        const planItems=planItemsFromSets(sets);
+        mount.append(el("div",{class:"divider"}));
+        if(planItems.length) mount.append(el("button",{class:"btn secondary",onClick:()=>saveSessionAsPlan(se, planItems)},ic("clipboard",16),"Save as a plan"));
+        mount.append(el("button",{class:"btn danger",style:planItems.length?"margin-top:8px":"",onClick:async()=>{
+            if(!confirm("Delete this workout and its logged sets? This can't be undone."))return;
+            for(const x of sets) await DB.del("sets",x.id); await DB.del("sessions",se.id);
+            close(); render(); toast("Workout deleted");
+          }},ic("x",16),"Delete workout"));
+      }
     })();
   });
 }
