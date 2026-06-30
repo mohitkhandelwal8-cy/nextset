@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v64"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v65"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1990,27 +1990,55 @@ function openHistoryReplace(se, oldExId, closeDetail){
 function openHistoryAddExercise(se, existingIds, closeDetail){
   const have=new Set(existingIds||[]);
   openSheet("Add exercise",(body,close)=>{
-    body.append(el("p",{class:"small muted",style:"margin:-4px 0 12px"},"Add an exercise you did but forgot to log — fill in its sets after."));
-    const add=async(ex)=>{
-      const prev=await lastSetsFor(ex.id, se.id), s0=prev&&prev.sets.length?prev.sets[0]:null;
-      await DB.put("sets",{id:uid(),sessionId:se.id,exerciseId:ex.id,weight:s0?+s0.weight:0,reps:s0?+s0.reps:(ex.repMin||8),rpe:null,joint:false,order:0,createdAt:new Date().toISOString()});
-      _exStatus=null; close(); closeDetail&&closeDetail(); toast(`Added ${ex.name}`); openSessionDetail(se, true);
-    };
-    const gx=gymExercises(se.gymId).filter(e=>!have.has(e.id));
-    if(gx.length){
-      REGION_ORDER.forEach(region=>{
-        const inRegion=sortForAdd(gx.filter(e=>exRegion(e)===region));
-        if(!inRegion.length)return;
-        body.append(el("div",{class:"regionhead"},region));
-        inRegion.forEach(ex=> body.append(addExerciseCard(ex, ()=>add(ex), "Add")));
-      });
-      decorateAddStatus();
-    } else {
-      body.append(el("p",{class:"muted small"},"Everything here is already in this workout — create a new one below."));
+    body.append(el("p",{class:"small muted",style:"margin:-6px 0 8px"},"Add an exercise you forgot to log — search your collection or the full library, then fill in its sets."));
+    const search=el("input",{type:"text",placeholder:"Search all exercises…","aria-label":"Search exercises"});
+    body.append(el("div",{style:"margin-bottom:6px"}, search));
+    const results=el("div",{}), foot=el("div",{});
+    body.append(results, foot, el("div",{class:"divider"}),
+      el("button",{class:"btn",style:"margin-top:2px",onClick:()=>{ close(); closeDetail&&closeDetail(); openSessionDetail(se, true); }}, ic("check",16), "Done"));
+    const allOwn=()=>gymExercises(se.gymId);
+    const own=()=>allOwn().filter(e=>!have.has(e.id));               // hide exercises already in this workout
+    const ownNames=()=>new Set(allOwn().map(e=>normName(e.name)));   // dedup library against the whole collection
+    const CAP=60;
+    const seed=async ex=>{ const prev=await lastSetsFor(ex.id, se.id), s0=prev&&prev.sets.length?prev.sets[0]:null;
+      await DB.put("sets",{id:uid(),sessionId:se.id,exerciseId:ex.id,weight:s0?+s0.weight:0,reps:s0?+s0.reps:(ex.repMin||8),rpe:null,joint:false,order:0,createdAt:new Date().toISOString()}); _exStatus=null; };
+    function pickRow({name,sub,tags,imgId,imgPromise,onAdd}){
+      const thumb=el("div",{class:"exthumb"}, ic("dumbbell",18));
+      const setImg=id=>{ if(!id)return; const im=document.createElement("img"); im.src=libImageUrl(id,0); im.loading="lazy"; im.alt=""; im.onerror=()=>im.remove(); thumb.append(im); };
+      if(imgId) setImg(imgId); else if(imgPromise) imgPromise.then(setImg);
+      const grow=el("div",{class:"grow"}, el("div",{class:"name"},name), el("div",{class:"small muted"},sub));
+      if(tags) grow.append(tags);
+      const slot=el("div",{style:"flex:none"});
+      slot.append(el("span",{class:"chip add",style:"min-height:40px;pointer-events:none"}, ic("plus",15),"Add"));
+      const row=el("div",{class:"listitem",role:"button",tabindex:"0",style:"cursor:pointer;gap:10px"});
+      const act=async()=>{ if(row.dataset.added)return; row.dataset.added="1"; slot.replaceChildren(el("span",{class:"tiny muted",style:"display:inline-flex;align-items:center;gap:4px;white-space:nowrap"}, ic("check",15),"Added")); await onAdd(); };
+      row.addEventListener("click",act); row.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();act();}});
+      row.append(thumb,grow,slot); return row;
     }
-    body.append(el("div",{class:"divider"}),
-      el("button",{class:"btn secondary",onClick:()=>{ close(); openExerciseSheet(null,{onCreate: async ex=>{ await add(ex); }}); }},ic("plus",16),"Create a new exercise"),
-      el("button",{class:"btn",style:"margin-top:10px",onClick:close},"Cancel"));
+    const ownRow=ex=>pickRow({name:ex.name,sub:(equipLabel(ex.equipment)||"Other")+" · in your collection",tags:muscleTags(ex),imgPromise:exerciseImageId(ex),onAdd:async()=>{ await seed(ex); toast(`Added ${ex.name}`); }});
+    const libTags=le=>{ const t=[]; if(le.primary&&muscleLabel(le.primary))t.push(muscleTag(muscleLabel(le.primary),regionOf(le.primary),true)); if(le.secondary&&muscleLabel(le.secondary))t.push(muscleTag(muscleLabel(le.secondary),regionOf(le.secondary),false)); return t.length?el("div",{class:"mtags"},...t):null; };
+    const libRow=le=>pickRow({name:le.name,sub:equipLabel(le.equipment)||"Other",tags:libTags(le),imgId:le.raw.id,onAdd:async()=>{ const ex=await addLibraryExercise(le.raw); await seed(ex); toast(`Added ${le.name}`); }});
+    function customBtn(){ const q=search.value.trim();
+      return el("button",{class:"btn secondary",style:"margin-top:10px",onClick:()=>{ close(); openExerciseSheet(null,{prefillName:q, onCreate:async ex=>{ await seed(ex); closeDetail&&closeDetail(); openSessionDetail(se,true); }}); }}, ic("plus",16), q?`Create “${q}” as a custom exercise`:"Create a custom exercise"); }
+    function renderSearch(q){ results.replaceChildren(); foot.replaceChildren(); const taken=ownNames();
+      const mine=rankByMatch(q, own()); const libs=rankByMatch(q,(LIB||[]).filter(e=>!taken.has(normName(e.name))));
+      if(!mine.length&&!libs.length){ results.append(el("p",{class:"muted small",style:"margin:8px 2px"}, LIB?"Nothing matches — create it as a custom exercise below.":"Loading the library…")); if(LIB)foot.append(customBtn()); return; }
+      if(mine.length){ results.append(el("div",{class:"regionhead"},"Your exercises")); mine.slice(0,CAP).forEach(e=>results.append(ownRow(e))); }
+      if(libs.length){ results.append(el("div",{class:"regionhead"},"From the library")); libs.slice(0,CAP).forEach(e=>results.append(libRow(e))); }
+      foot.append(el("div",{class:"tiny muted",style:"margin:10px 2px 0"},"Not the one you want?"), customBtn());
+    }
+    function renderGroups(){ results.replaceChildren(); foot.replaceChildren(); const taken=ownNames();
+      REGION_ORDER.forEach(region=>{ const mine=sortForAdd(own().filter(e=>exRegion(e)===region)); const libs=(LIB||[]).filter(e=>e.region===region&&!taken.has(normName(e.name)));
+        if(!mine.length&&!libs.length)return; const det=el("details",{class:"exgroup"});
+        det.append(el("summary",{}, el("span",{class:"grow",style:"font-weight:600"},region), el("span",{class:"tiny muted"},String(mine.length+libs.length)), el("span",{class:"chev"},ic("chevron",16))));
+        let built=false; det.addEventListener("toggle",()=>{ if(det.open&&!built){ built=true; mine.forEach(e=>det.append(ownRow(e))); libs.slice(0,CAP).forEach(e=>det.append(libRow(e))); if(libs.length>CAP)det.append(el("div",{class:"tiny muted",style:"margin:6px 2px"},`+${libs.length-CAP} more — type to search them`)); } });
+        results.append(det);
+      });
+      foot.append(el("div",{class:"tiny muted",style:"margin:12px 2px 0"},"Can't find it?"), customBtn());
+    }
+    const rerender=()=>{ const q=normName(search.value); q?renderSearch(q):renderGroups(); };
+    search.addEventListener("input", rerender); rerender();
+    loadLibrary().then(rerender).catch(()=>rerender());
   }, {stacked:true});
 }
 // name + save a past workout as a reusable plan
