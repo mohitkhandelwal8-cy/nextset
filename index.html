@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v66"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v67"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1074,7 +1074,8 @@ function loggerCard(item, isCurrent, ss){
     card.append(lt);
   }
   // what weight to log, for the two ambiguous cases
-  const logHint = ex && (ex.equipment==="dumbbell" ? "Log one dumbbell — e.g. 20 for a 20 kg in each hand."
+  const logHint = ex && (ex.unit==="lvl" ? "Numbered stack — log the level you set (1, 2, 3…), not kg."
+                  : ex.equipment==="dumbbell" ? "Log one dumbbell — e.g. 20 for a 20 kg in each hand."
                   : isPlate(ex) ? "Log just the plates you add — not the sled." : "");
   if(logHint) card.append(el("div",{class:"tiny muted",style:"display:flex;align-items:center;gap:5px;margin:8px 2px 2px"}, ic("info",12), logHint));
 
@@ -1455,8 +1456,11 @@ function openExerciseSheet(ex, opts={}){
   ex = ex || {id:uid(),gymId:State.currentGymId,name:"",unit:"kg",increment:2.5,sets:3,repMin:8,repMax:12,notes:""};
   openSheet(isNew?"Add exercise":"Edit exercise",(body,close)=>{
     const name=el("input",{type:"text",placeholder:"e.g. Barbell Bench Press, Dumbbell Curl, Leg Press",value:ex.name||opts.prefillName||""});
-    const unit=el("select",{},el("option",{value:"kg"},"kg"),el("option",{value:"lb"},"lb"));
+    const unit=el("select",{},el("option",{value:"kg"},"kg"),el("option",{value:"lb"},"lb"),el("option",{value:"lvl"},"levels (stack #)"));
     unit.value=ex.unit;
+    const lvlHint=el("div",{class:"tiny",style:"color:var(--accent);margin:-4px 0 10px;display:none"},
+      "Numbered stack (Precor-style): log the level you set — 1, 2, 3… — not kg. NextSet tracks progress on the level and steps you up one at a time.");
+    const syncUnit=()=>{ lvlHint.style.display = unit.value==="lvl" ? "" : "none"; };
     const initEquip = ex.equipment!==undefined ? ex.equipment : guessEquipment(ex.name);
     const eqSel=equipSelect(initEquip);
     const inc=el("input",{type:"number",step:"0.5",value: isNew ? EQUIP[initEquip].inc : ex.increment});
@@ -1490,14 +1494,15 @@ function openExerciseSheet(ex, opts={}){
       globalNote.style.display=scoped?"none":""; updateLinkHint(); };
     name.addEventListener("input",()=>{
       if(!mTouched){ const g=guessMuscles(name.value); pSel.value=g.primary||""; sSel.value=g.secondary||""; }
-      if(!eqTouched){ const e=guessEquipment(name.value); eqSel.value=e; if(!incTouched) inc.value=EQUIP[e].inc; }
+      if(!eqTouched){ const e=guessEquipment(name.value); eqSel.value=e; if(!incTouched && unit.value!=="lvl") inc.value=EQUIP[e].inc; }
       reSuggestRest();
       syncGymUI();
     });
     pSel.addEventListener("change",()=>{ mTouched=true; reSuggestRest(); });
     sSel.addEventListener("change",()=>mTouched=true);
-    eqSel.addEventListener("change",()=>{ eqTouched=true; if(!incTouched) inc.value=EQUIP[eqSel.value].inc; syncGymUI(); });
+    eqSel.addEventListener("change",()=>{ eqTouched=true; if(!incTouched && unit.value!=="lvl") inc.value=EQUIP[eqSel.value].inc; syncGymUI(); });
     inc.addEventListener("input",()=>incTouched=true);
+    unit.addEventListener("change",()=>{ if(!incTouched) inc.value = unit.value==="lvl" ? 1 : EQUIP[eqSel.value].inc; syncUnit(); });
     rmax.addEventListener("input",reSuggestRest);
     restSel.addEventListener("change",()=>restTouched=true);
     body.append(
@@ -1505,6 +1510,7 @@ function openExerciseSheet(ex, opts={}){
       el("div",{class:"grid2"},
         el("label",{class:"field"},el("span",{},"Equipment"),eqSel),
         el("label",{class:"field"},el("span",{},"Weight unit"),unit)),
+      lvlHint,
       gymField, linkHint, globalNote,
       el("div",{class:"grid2"},
         el("label",{class:"field"},el("span",{},"Smallest increment"),inc),
@@ -1519,7 +1525,7 @@ function openExerciseSheet(ex, opts={}){
       el("label",{class:"field"},el("span",{},"Rest between sets"),restSel),
       el("div",{class:"tiny muted",style:"margin:-4px 0 4px"},"Auto-set from rep range & movement — heavy compounds rest longer, isolation less. Change anytime."),
     );
-    syncGymUI();
+    syncGymUI(); syncUnit();
     body.append(el("button",{class:"btn",onClick:async()=>{
       if(!name.value.trim())return;
       const equipment=eqSel.value;
@@ -1908,7 +1914,7 @@ function viewHistory(){
       if(mk!==curMonth){ curMonth=mk; mount.append(el("div",{class:"regionhead",style:"margin-top:12px"}, monthYearLbl(mk))); }
       const sets=setsBy[se.id]||[];
       const byEx={}; sets.forEach(x=>{(byEx[x.exerciseId]=byEx[x.exerciseId]||[]).push(x);});
-      const exCount=Object.keys(byEx).length, vol=Math.round(sets.reduce((t,x)=>t+(x.weight||0)*(x.reps||0),0)), mins=sessionMins(se);
+      const exCount=Object.keys(byEx).length, vol=Math.round(sets.reduce((t,x)=>{const _e=exById(x.exerciseId); return _e&&_e.unit==="lvl"?t:t+(x.weight||0)*(x.reps||0);},0)), mins=sessionMins(se);
       const regions=[...new Set(Object.keys(byEx).map(id=>{const ex=exById(id);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))];
       const joint=sets.some(x=>x.joint), rel=relDate(se.date);
       const meta=[`${exCount} exercise${exCount!==1?"s":""}`, `${sets.length} sets`];
@@ -1943,7 +1949,7 @@ function openSessionDetail(se, editing=false){
       mount.append(el("button",{class:"btn"+(ed?"":" secondary"),style:"margin-bottom:12px",onClick:()=>{ ed=!ed; if(!ed) render(); build(); }},
         ic(ed?"check":"clipboard",16), ed?"Done editing":"Edit workout"));
       if(!ed){
-        const mins=sessionMins(se), vol=Math.round(sets.reduce((t,x)=>t+(x.weight||0)*(x.reps||0),0));
+        const mins=sessionMins(se), vol=Math.round(sets.reduce((t,x)=>{const _e=exById(x.exerciseId); return _e&&_e.unit==="lvl"?t:t+(x.weight||0)*(x.reps||0);},0));
         const grid=el("div",{class:"statgrid"});
         grid.append(statTile(Object.keys(byEx).length,"exercises"), statTile(sets.length,"sets"),
           statTile(mins?String(mins):"—","minutes"), statTile(vol.toLocaleString(),"kg volume"));
