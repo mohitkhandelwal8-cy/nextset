@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v67"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v68"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2397,7 +2397,7 @@ function openMuscleDetail(mk){
       for(const x of allSets){ const se=sesById[x.sessionId]; if(!se)continue; const recent=mondayOf(se.date)===thisWeek;
         if(recent) allSetsThisWeek++;
         const ex=exById(x.exerciseId); if(!ex)continue; const w=wOf(ex); if(!w)continue;
-        const wk=mondayOf(se.date); if(wk in wkSets){ wkSets[wk]+=w; wkTon[wk]+= w*(x.weight||0)*(x.reps||0); }
+        const wk=mondayOf(se.date); if(wk in wkSets){ wkSets[wk]+=w; if(ex.unit!=="lvl") wkTon[wk]+= w*(x.weight||0)*(x.reps||0); }  // levels aren't kg — count the set, not the tonnage
         if(recent) recentEx[ex.id]=(recentEx[ex.id]||0)+w; }
       const setsThis=wkSets[thisWeek]||0, setsLast=wkSets[lastWeek]||0, tonThis=Math.round(wkTon[thisWeek]||0);
       const focus= allSetsThisWeek? Math.round(100*setsThis/allSetsThisWeek):0;
