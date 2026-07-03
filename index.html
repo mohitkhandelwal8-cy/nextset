@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v65"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v66"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -388,6 +388,7 @@ const ICONS = {
   inbox:'<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   bulb:'<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/>',
   arrowdown:'<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+  grip:'<line x1="4" y1="8" x2="20" y2="8"/><line x1="4" y1="16" x2="20" y2="16"/>',
   link:'<path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/>',
   search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
   expand:'<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/>',
@@ -1558,6 +1559,49 @@ function openExerciseSheet(ex, opts={}){
 }
 
 /* build / edit today's plan (customizable) */
+// touch/mouse drag-to-reorder: rows are direct children of `container`, each with a [data-grip] handle.
+// The dragged row follows the finger; the others slide to make room; onReorder(from,to) commits on drop.
+function makeSortable(container, onReorder){
+  container.querySelectorAll("[data-grip]").forEach(handle=>{
+    handle.style.touchAction="none";
+    let drag=null;
+    handle.addEventListener("pointerdown", e=>{
+      e.preventDefault();
+      const row=handle.closest("[data-sort]"); if(!row) return;
+      const rows=[...container.children], rects=rows.map(r=>r.getBoundingClientRect());
+      const from=rows.indexOf(row), step=rows.length>1?(rects[1].top-rects[0].top):rects[0].height;
+      drag={rows,rects,from,to:from,step,startY:e.clientY,pid:e.pointerId,row};
+      try{ handle.setPointerCapture(e.pointerId); }catch(_){}
+      row.style.transition="none"; row.style.position="relative"; row.style.zIndex="5";
+      row.style.boxShadow="0 12px 26px -10px rgba(0,0,0,.55)"; row.style.opacity=".97";
+    });
+    handle.addEventListener("pointermove", e=>{
+      if(!drag||drag.pid!==e.pointerId) return;
+      const dy=e.clientY-drag.startY;
+      drag.row.style.transform=`translateY(${dy}px)`;
+      const center=drag.rects[drag.from].top+drag.rects[drag.from].height/2+dy;
+      let to=drag.from;
+      while(to<drag.rows.length-1 && center>drag.rects[to+1].top+drag.rects[to+1].height/2) to++;
+      while(to>0 && center<drag.rects[to-1].top+drag.rects[to-1].height/2) to--;
+      if(to!==drag.to){ drag.to=to;
+        drag.rows.forEach((r,j)=>{ if(r===drag.row) return;
+          let shift=0;
+          if(to>drag.from && j>drag.from && j<=to) shift=-drag.step;
+          else if(to<drag.from && j<drag.from && j>=to) shift=drag.step;
+          r.style.transition="transform .15s ease"; r.style.transform=shift?`translateY(${shift}px)`:"";
+        });
+      }
+    });
+    const end=e=>{ if(!drag||drag.pid!==e.pointerId) return;
+      const {rows,from,to}=drag; drag=null;
+      try{ handle.releasePointerCapture(e.pointerId); }catch(_){}
+      rows.forEach(r=>{ r.style.transition=""; r.style.transform=""; r.style.position=""; r.style.zIndex=""; r.style.boxShadow=""; r.style.opacity=""; });
+      if(to!==from) onReorder(from,to);
+    };
+    handle.addEventListener("pointerup", end);
+    handle.addEventListener("pointercancel", end);
+  });
+}
 function openPlanSheet(){
   openSheet("Today's plan",(body,close)=>{
     const items=State.activeSession.items;
@@ -1581,6 +1625,7 @@ function openPlanSheet(){
     // ---- the plan itself (short list, below the actions) ----
     if(items.length){
       body.append(el("div",{class:"divider"}), el("div",{class:"sectionhead",style:"margin-top:0"},"In your plan"));
+      const listBox=el("div",{});
       items.forEach((it,idx)=>{
         const ex=State.exercises.find(e=>e.id===it.exerciseId);
         if(!ex) return;
@@ -1588,19 +1633,18 @@ function openPlanSheet(){
           exDetailName(ex),
           el("div",{class:"small muted"}, `${it.sets.length}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest · ~${exMinutes(ex,it.sets.length)} min`));
         const tags=muscleTags(ex); if(tags) grow.append(tags);
-        const mvUp=async()=>{ const a=State.activeSession.items; if(idx<=0)return; [a[idx-1],a[idx]]=[a[idx],a[idx-1]]; await persistSession(); reopen(); };
-        const mvDown=async()=>{ const a=State.activeSession.items; if(idx>=a.length-1)return; [a[idx],a[idx+1]]=[a[idx+1],a[idx]]; await persistSession(); reopen(); };
-        const mvStyle=o=>`flex:none;width:30px;height:40px;background:none;border:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;cursor:pointer;opacity:${o}`;
-        body.append(el("div",{class:"listitem",style:"cursor:default;gap:2px"},
-          el("div",{class:"idx",style:"width:16px;text-align:center;color:var(--muted);flex:none"}, idx+1),
+        const grip=el("button",{"data-grip":"1","aria-label":`Drag ${ex.name} to reorder`,style:"flex:none;width:34px;height:46px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);background:none;border:none;cursor:grab;touch-action:none"}, ic("grip",18));
+        listBox.append(el("div",{"data-sort":"1",class:"listitem",style:"cursor:default;gap:4px"},
+          grip,
+          el("div",{class:"idx",style:"width:14px;text-align:center;color:var(--muted);flex:none"}, idx+1),
           grow,
-          el("button",{style:mvStyle(idx===0?".25":"1"),"aria-label":`Move ${ex.name} up`,onClick:mvUp}, el("span",{style:"display:inline-flex;transform:rotate(-90deg)"},ic("chevron",18))),
-          el("button",{style:mvStyle(idx===items.length-1?".25":"1"),"aria-label":`Move ${ex.name} down`,onClick:mvDown}, el("span",{style:"display:inline-flex;transform:rotate(90deg)"},ic("chevron",18))),
-          el("button",{class:"sheetclose",style:"width:36px;height:40px;flex:none","aria-label":`Remove ${ex.name} from plan`,onClick:async()=>{
+          el("button",{class:"sheetclose",style:"width:38px;height:40px;flex:none","aria-label":`Remove ${ex.name} from plan`,onClick:async()=>{
             State.activeSession.items=State.activeSession.items.filter(i=>i!==it);
             await persistSession(); reopen();
           }}, ic("x",18))));
       });
+      body.append(listBox);
+      makeSortable(listBox, async (from,to)=>{ const a=State.activeSession.items; const [m]=a.splice(from,1); a.splice(to,0,m); await persistSession(); reopen(); });
     }
   });
 }
@@ -1614,9 +1658,9 @@ function openAddExerciseSheet(afterClose){
       "; free-weight moves are shared across your gyms."));
     const search=el("input",{type:"text",placeholder:"Search all exercises…","aria-label":"Search exercises"});
     body.append(el("div",{style:"margin-bottom:6px"}, search));
+    body.append(el("button",{class:"btn",style:"margin:0 0 12px",onClick:done}, ic("check",16), "Done"));
     const results=el("div",{}), foot=el("div",{});
-    body.append(results, foot, el("div",{class:"divider"}),
-      el("button",{class:"btn",style:"margin-top:2px",onClick:done}, ic("check",16), "Done"));
+    body.append(results, foot);
 
     const planned = ()=> new Set(State.activeSession.items.map(i=>i.exerciseId));
     const own = ()=> gymExercises();
@@ -1887,17 +1931,18 @@ function viewHistory(){
 function openSessionDetail(se, editing=false){
   openSheet(relDate(se.date)||fmtDate(se.date),(body,close)=>{
     const mount=el("div",{}); body.append(mount);
-    (async()=>{
+    let ed=editing;
+    const sheetEl=()=>mount.closest(".sheet");
+    async function build(){
+      const sc = sheetEl()?sheetEl().scrollTop:0;                    // keep scroll across in-place rebuilds (no jump)
+      mount.replaceChildren();
       const exById=id=>State.exercises.find(e=>e.id===id);
       const sets=(await DB.all("sets")).filter(x=>x.sessionId===se.id);
       const byEx={}; sets.forEach(x=>{(byEx[x.exerciseId]=byEx[x.exerciseId]||[]).push(x);});
-      const reopen=ed=>{ close(); openSessionDetail(se, ed); };
-      // header: date + Edit/Done toggle (editing past workouts: fix weights/reps, add or remove sets)
-      mount.append(el("div",{class:"row between",style:"margin:-6px 0 10px;gap:10px;align-items:center"},
-        el("div",{class:"small muted",style:"min-width:0"}, `${fmtDate(se.date)} · ${gymNameOf(se.gymId)||"—"}`),
-        el("button",{class:"btn ghost sm",style:"flex:none",onClick:()=>{ close(); if(editing) render(); openSessionDetail(se, !editing); }},
-          ic(editing?"check":"clipboard",15), editing?"Done":"Edit")));
-      if(!editing){
+      mount.append(el("div",{class:"small muted",style:"margin:-6px 0 8px"}, `${fmtDate(se.date)} · ${gymNameOf(se.gymId)||"—"}`));
+      mount.append(el("button",{class:"btn"+(ed?"":" secondary"),style:"margin-bottom:12px",onClick:()=>{ ed=!ed; if(!ed) render(); build(); }},
+        ic(ed?"check":"clipboard",16), ed?"Done editing":"Edit workout"));
+      if(!ed){
         const mins=sessionMins(se), vol=Math.round(sets.reduce((t,x)=>t+(x.weight||0)*(x.reps||0),0));
         const grid=el("div",{class:"statgrid"});
         grid.append(statTile(Object.keys(byEx).length,"exercises"), statTile(sets.length,"sets"),
@@ -1908,7 +1953,7 @@ function openSessionDetail(se, editing=false){
       for(const [exId,list] of Object.entries(byEx)){
         const ex=exById(exId);
         list.sort((a,b)=>a.order-b.order);
-        if(editing){
+        if(ed){
           const bw=isBW(ex), wUnit=bw?"+"+(ex?.unit||"kg"):(ex?.unit||"kg");
           mount.append(el("div",{style:"font-weight:600;margin:6px 2px 6px"}, ex?ex.name:"(deleted)"));
           list.forEach((st,i)=>{
@@ -1916,13 +1961,13 @@ function openSessionDetail(se, editing=false){
             const rStep=stepper(st.reps, 1, async v=>{ st.reps=Math.max(0,Math.round(v)); await DB.put("sets",st); }, "reps");
             const row=el("div",{class:"setrow"}, el("div",{class:"idx"}, i+1));
             if(bw){ row.append(rStep,wStep); } else { row.append(wStep,rStep); }
-            row.append(el("button",{class:"sheetclose",style:"width:38px;height:38px;flex:none","aria-label":"Remove set",onClick:async()=>{ await DB.del("sets",st.id); reopen(true); }}, ic("x",16)));
+            row.append(el("button",{class:"sheetclose",style:"width:38px;height:38px;flex:none","aria-label":"Remove set",onClick:async()=>{ await DB.del("sets",st.id); build(); }}, ic("x",16)));
             mount.append(row);
           });
           mount.append(el("button",{class:"btn secondary sm",style:"margin:2px 0 16px",onClick:async()=>{
             const lastS=list[list.length-1], maxO=list.reduce((m,s)=>Math.max(m,s.order),-1);
             await DB.put("sets",{id:uid(),sessionId:se.id,exerciseId:exId,weight:lastS?.weight||0,reps:lastS?.reps||(ex?.repMin||8),rpe:lastS?.rpe||null,joint:!!(lastS&&lastS.joint),order:maxO+1,createdAt:new Date().toISOString()});
-            reopen(true);
+            build();
           }}, ic("plus",15),"Add set"));
         } else {
           const setsTxt=list.map(x=>fmtSetShort(ex,x.weight,x.reps)).join("   ");
@@ -1938,9 +1983,9 @@ function openSessionDetail(se, editing=false){
             el("button",{class:"btn ghost sm",style:"flex:none","aria-label":`Replace ${ex?ex.name:"this exercise"} in this workout`,onClick:()=>openHistoryReplace(se, exId, close)}, ic("link",15),"Replace")));
         }
       }
-      if(editing){
+      if(ed){
         mount.append(el("button",{class:"btn secondary",style:"margin-top:2px",onClick:()=>openHistoryAddExercise(se, Object.keys(byEx), close)}, ic("plus",16),"Add an exercise"),
-          el("div",{class:"tiny muted",style:"margin-top:8px"},"Add a missed exercise, or fix sets above. Changes save as you go — tap Done when finished."));
+          el("div",{class:"tiny muted",style:"margin-top:8px"},"Add a missed exercise, or fix sets above. Changes save as you go."));
       } else {
         const planItems=planItemsFromSets(sets);
         mount.append(el("div",{class:"divider"}));
@@ -1951,7 +1996,9 @@ function openSessionDetail(se, editing=false){
             close(); render(); toast("Workout deleted");
           }},ic("x",16),"Delete workout"));
       }
-    })();
+      requestAnimationFrame(()=>{ const s=sheetEl(); if(s) s.scrollTop=sc; });
+    }
+    build();
   });
 }
 // re-point a past workout's logged sets from one exercise to another (weights/reps/order unchanged)
@@ -1993,9 +2040,9 @@ function openHistoryAddExercise(se, existingIds, closeDetail){
     body.append(el("p",{class:"small muted",style:"margin:-6px 0 8px"},"Add an exercise you forgot to log — search your collection or the full library, then fill in its sets."));
     const search=el("input",{type:"text",placeholder:"Search all exercises…","aria-label":"Search exercises"});
     body.append(el("div",{style:"margin-bottom:6px"}, search));
+    body.append(el("button",{class:"btn",style:"margin:0 0 12px",onClick:()=>{ close(); closeDetail&&closeDetail(); openSessionDetail(se, true); }}, ic("check",16), "Done"));
     const results=el("div",{}), foot=el("div",{});
-    body.append(results, foot, el("div",{class:"divider"}),
-      el("button",{class:"btn",style:"margin-top:2px",onClick:()=>{ close(); closeDetail&&closeDetail(); openSessionDetail(se, true); }}, ic("check",16), "Done"));
+    body.append(results, foot);
     const allOwn=()=>gymExercises(se.gymId);
     const own=()=>allOwn().filter(e=>!have.has(e.id));               // hide exercises already in this workout
     const ownNames=()=>new Set(allOwn().map(e=>normName(e.name)));   // dedup library against the whole collection
@@ -2064,8 +2111,9 @@ function fmtWeekLbl(iso){ const d=new Date(iso+"T12:00:00"); return (d.getMonth(
 // Lifts are pooled by linkId and need ≥2 sessions in the window to count.
 function overloadScore(sessions, sets){
   const sesById=Object.fromEntries(sessions.map(s=>[s.id,s])); const unit={}; const weeks=new Set();
+  const curWk=lastNWeeks(1)[0];   // exclude the current, incomplete week — a partial week always drags this down
   for(const x of sets){ const ex=State.exercises.find(e=>e.id===x.exerciseId); if(!ex)continue;
-    const se=sesById[x.sessionId]; if(!se||daysAgo(se.date)>28)continue;
+    const se=sesById[x.sessionId]; if(!se||daysAgo(se.date)>28||mondayOf(se.date)===curWk)continue;
     weeks.add(mondayOf(se.date));
     const key=ex.linkId||ex.id, m=isBW(ex)?x.reps:epley(x.weight,x.reps);
     (unit[key]=unit[key]||{})[se.date]=Math.max(unit[key][se.date]||0, m); }
@@ -2112,22 +2160,23 @@ function viewInsights(){
     grid.append(
       statTile(daysThisYear, `workout days in ${year}`),
       statTile(streak, streak===1?"week streak":"weeks streak", "accent2"),
-      statTile(setsThis, "working sets this week"),
+      statTile(setsThis, "sets so far this week"),
       statTile(ov.score==null?"—":ov.score+"/10", "progressive overload", ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""));
     const ovCard=el("div",{class:"card"}); ovCard.append(el("h2",{},"Overview"), grid);
     if(ov.tracked) ovCard.append(el("div",{class:"tiny muted",style:"margin-top:10px"},
-      `Progressive overload ${ov.score}/10 · ${ov.label} — ${ov.up} of ${ov.tracked} lift${ov.tracked>1?"s":""} moving up · trained ${ov.weeks} of last 4 weeks · avg ${ov.avgGainPct>=0?"+":""}${ov.avgGainPct}% per lift. Blends progress, consistency & gain size.`));
+      `Progressive overload ${ov.score}/10 · ${ov.label} — ${ov.up} of ${ov.tracked} lift${ov.tracked>1?"s":""} moving up · trained ${ov.weeks} of last 4 completed weeks · avg ${ov.avgGainPct>=0?"+":""}${ov.avgGainPct}% per lift. Based on completed weeks only (this week isn't counted until it ends).`));
     mount.append(ovCard);
 
     // ===== Training volume trend (range-filterable) =====
     const vs=volumeSeries(allSets, dateOf, insightsRange);
-    const vPrev=vs.vals[vs.vals.length-2], vLast=vs.vals[vs.vals.length-1];
-    const vDelta = vPrev? Math.round((vLast-vPrev)/vPrev*100) : null;
+    const nv=vs.vals.length;   // last bar = current (partial) period; compare the two most recent COMPLETE ones
+    const vLast=nv>=2?vs.vals[nv-2]:null, vPrev=nv>=3?vs.vals[nv-3]:null;
+    const vDelta = (vPrev!=null&&vLast!=null&&vPrev>0)? Math.round((vLast-vPrev)/vPrev*100) : null;
     const volCard=el("div",{class:"card"});
     volCard.append(el("div",{class:"row between"},
       el("h2",{style:"margin:0"},"Training volume"),
       el("span",{class:"small",style: vDelta==null?"color:var(--muted)":vDelta>=0?"color:var(--accent-2)":"color:var(--warn)"},
-        vDelta==null?"":`${vDelta>=0?"▲":"▼"} ${Math.abs(vDelta)}% vs last ${vs.unit}`)));
+        vDelta==null?"":`${vDelta>=0?"▲":"▼"} ${Math.abs(vDelta)}% · last full ${vs.unit}`)));
     const rchips=el("div",{class:"filterchips",style:"margin:8px 0 2px"});
     [["4w","4 wk"],["12w","12 wk"],["6mo","6 mo"],["1yr","1 yr"],["all","All"]].forEach(([k,lbl])=>
       rchips.append(el("button",{class:"fchip"+(insightsRange===k?" on":""),onClick:()=>{insightsRange=k;_insightsScroll=window.scrollY;render();}}, lbl)));
