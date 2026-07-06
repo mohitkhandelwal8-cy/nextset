@@ -418,7 +418,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v73"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v74"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -563,6 +563,51 @@ function fmtSetShort(ex,w,r){
   if(isPlate(ex) && +w===0) return `${r} reps · sled only`;
   return `${w}${ex.unit||"kg"}×${r}`;
 }
+/* ---------- bodyweight coefficients + honest tonnage ---------- */
+// fraction of bodyweight actually moved per movement — first phrase match wins (specific → general)
+const BW_COEF=[
+  [["pull up","pull-up","pullup","chin up","chin-up","chinup","muscle up"],1.00],
+  [["dip"],0.96],
+  [["push up","push-up","pushup"],0.64],
+  [["inverted row"],0.50],
+  [["pistol","single leg squat"],0.85],
+  [["squat","lunge","step up","step-up"],0.85],
+  [["sit up","sit-up","situp","crunch"],0.35],
+  [["leg raise","knee raise","hanging"],0.50],
+  [["plank","hold"],0],                       // isometric — no reps×load to count
+];
+function bwCoef(name){
+  const n=" "+(name||"").toLowerCase()+" ";
+  for(const [keys,c] of BW_COEF){ if(keys.some(k=>n.includes(k))) return c; }
+  return 0.60;
+}
+// calibrated/entered kg-per-level for numbered-stack machines (null until known)
+function levelKg(ex){ return (ex && +ex.kgPerLevel>0) ? +ex.kgPerLevel : null; }
+// Effective tonnage of one committed set, in kg. Returns null when kg isn't knowable
+// (numbered levels without a kg-per-level, isometric holds). Display/insights layer ONLY —
+// the progression engine works in each exercise's native units and never reads this.
+function setTonnage(ex, weight, reps){
+  if(!ex || !(reps>0)) return null;
+  if(ex.unit==="lvl"){
+    const kpl = levelKg(ex);
+    return kpl!=null ? kpl*weight*reps : null;
+  }
+  if(isBW(ex)){
+    const c=bwCoef(ex.name);
+    if(c===0) return null;                    // isometrics
+    return State.bodyweightKg!=null ? (State.bodyweightKg*c + (+weight||0))*reps : (+weight||0)*reps;
+  }
+  return (+weight||0)*reps;                   // plate machines stay added-plates-only (documented)
+}
+// sum sets through setTonnage; count the sets whose kg isn't knowable so surfaces can say so
+function tonnageSum(sets, exOf){
+  let kg=0, excluded=0;
+  for(const x of sets){ if(!(+x.reps>0)) continue;
+    const t=setTonnage(exOf(x.exerciseId), x.weight, x.reps);
+    if(t==null) excluded++; else kg+=t; }
+  return {kg:Math.round(kg), excluded};
+}
+
 /* ---------- rest between sets (evidence-based) + time estimate ---------- */
 // movement pattern → compound (multi-joint, rest longer) vs isolation (single-joint, rest less)
 const ISO_KEYS=["curl","fly","flye","raise","pushdown","push down","pressdown","press down","extension","pullover","shrug","calf","kickback","crossover","pec deck","pec fly","face pull","reverse fly","rear delt","lateral","wrist","forearm","grip","crunch","sit up","sit-up","situp","plank","leg raise","knee raise","russian twist","oblique","bicep","tricep","abductor","adductor","abduction","adduction","leg curl","leg extension"];
@@ -609,6 +654,7 @@ const planMinutes = items => items.reduce((t,it)=>{
 /* ---------- app state ---------- */
 const State = {
   gyms:[], exercises:[], plans:[], currentGymId:null, activeSession:null, volTargetPct:4, unit:"kg",
+  bodyweightKg:null, bwUnit:"kg",
 };
 // preferred weight unit — the default for new exercises and the label on aggregate (mixed-exercise) volume
 const prefUnit = () => State.unit==="lb" ? "lb" : "kg";
@@ -644,6 +690,9 @@ async function loadState(){
   State.volTargetPct = (vt && Number.isFinite(+vt.v) && +vt.v>0) ? +vt.v : 4;
   const un = await DB.get("meta","unit");
   State.unit = un?.v==="lb" ? "lb" : "kg";
+  const bwm = await getMeta("bodyweight");
+  State.bodyweightKg = (bwm && Number.isFinite(+bwm.kg) && +bwm.kg>0) ? +bwm.kg : null;
+  State.bwUnit = (await getMeta("bwUnit"))==="lb" ? "lb" : "kg";
   // resume only if same day
   if(State.activeSession && State.activeSession.date !== todayISO()){
     State.activeSession=null; await DB.put("meta",{k:"activeSession",v:null});
@@ -751,6 +800,12 @@ async function suggestNext(ex){
   // pure bodyweight / sled-only (no working load → can't compute volume) keeps classic double progression
   const base = Math.max(0, ...prev.sets.map(s=>+s.weight||0));
   if(base<=0) return classicNext(ex, prev, {sets,repMin,repMax,inc});
+  // weighted bodyweight (e.g. +10kg dips): solve on implied TOTAL load (bodyweight×coef + added), so
+  // a +4% target is +4% of true stimulus — then convert the plan back to added load for logging.
+  // Bodyweight enters as a CONSTANT (never the drifting calibrated levelKg); unset → old behavior.
+  const bwBase = (isBW(ex) && State.bodyweightKg>0) ? State.bodyweightKg*bwCoef(ex.name) : 0;
+  const seedSets = bwBase ? prev.sets.map(s=>({...s, weight:(+s.weight||0)+bwBase})) : prev.sets;
+  const toAdded = p => bwBase ? p.map(s=>({...s, weight:round(Math.max(0, s.weight-bwBase), inc)})) : p;
   // weighted → volume model. If you fell short of the target last time, HOLD (no progression);
   // two short sessions running → ease back ~10% to rebuild. Otherwise climb by your target %.
   const pl = isPlate(ex);
@@ -758,8 +813,8 @@ async function suggestNext(ex){
   let plan, note, kind, targetVol;
   if(streak>=1){
     // missed last time → hold the same target and keep trying until you hit it (no auto-deload)
-    const {seed,Vlast} = normalizeSeed(prev.sets, sets);
-    plan = seed.map(s=>({weight:s.weight,reps:s.reps})); targetVol = Vlast; kind = "hold";
+    const {seed,Vlast} = normalizeSeed(seedSets, sets);
+    plan = toAdded(seed.map(s=>({weight:s.weight,reps:s.reps}))); targetVol = Vlast; kind = "hold";
     note = streak>=3
       ? `Still holding — ${streak} sessions at this target. Stick with it; if it's truly stuck, ease the weight down a notch yourself.`
       : `Came up short last time — same weights and reps again. Nail every set and we add load next.`;
@@ -767,14 +822,14 @@ async function suggestNext(ex){
     // autoregulate the target by how the last session felt (Easy → push, Grind → ease)
     const baseline = volTarget(), pct = rpeTargetPct(baseline, prev.sets.map(s=>s.rpe));
     const feel = pct>baseline ? "Last time felt easy — let's push. " : pct<baseline ? "Last time was a grind — easing off a touch. " : "";
-    const r = volumeProgress(prev.sets, {sets,repMin,repMax,inc,pct});
-    plan = r.plan; targetVol = r.Vnew;
+    const r = volumeProgress(seedSets, {sets,repMin,repMax,inc,pct});
+    plan = toAdded(r.plan); targetVol = r.Vnew;
     kind = r.weightAdded ? "weight" : (r.repAdded ? "rep" : "repeat");
-    const top = Math.max(...r.plan.map(s=>s.weight));
+    const top = Math.max(...plan.map(s=>s.weight));
     if(r.weightAdded){
-      note = `${feel}Beat last time: take your top set to ${fmtW(top,ex)}${pl?" added":""}.`;
+      note = `${feel}Beat last time: take your top set to ${fmtW(top,ex)}${(pl||bwBase)?" added":""}.`;
     } else if(r.repAdded){
-      const {seed} = normalizeSeed(prev.sets, sets);
+      const {seed} = normalizeSeed(seedSets, sets);
       const extra = Math.max(1, Math.round(r.plan.reduce((t,s)=>t+s.reps,0) - seed.reduce((t,s)=>t+s.reps,0)));
       note = `${feel}Beat last time: same weights, ${extra>1?`${extra} more reps`:"one more rep"} than before.`;
     } else {
@@ -783,7 +838,7 @@ async function suggestNext(ex){
   }
   const outPlan = plan.map(s=>({weight:s.weight, reps:s.reps, target:s.reps}))
     .sort((a,b)=> a.weight-b.weight || b.reps-a.reps);   // clean display order (not 10/9/10); keeps the completion pull-up safe
-  return { plan: outPlan, note, kind, prev, targetVol };
+  return { plan: outPlan, note, kind, prev, targetVol, bwBase: bwBase||null };
 }
 
 // classic double progression — used for bodyweight & sled-only, where true volume isn't computable
@@ -1397,9 +1452,21 @@ async function finishSession(){
   // sets the user actually entered (edited weight or reps) but forgot to tick done — don't silently drop them
   const pending = s.items.flatMap(it=>it.sets.filter(x=>!x.done && !x.drop && +x.reps>0 && (x.wTouched||x.rTouched)));
   if(pending.length){
-    if(confirm(`${pending.length} set${pending.length>1?"s have":" has"} weights or reps entered but ${pending.length>1?"aren't":"isn't"} ticked as done.\n\nOK — save them too.\nCancel — finish without them.`))
-      pending.forEach(x=>x.done=true);
+    openSheet("Unticked sets",(body,close)=>{
+      body.append(el("p",{class:"small muted",style:"margin-top:-6px"},
+        `${pending.length} set${pending.length>1?"s have":" has"} weights or reps entered but ${pending.length>1?"aren't":"isn't"} ticked as done.`));
+      body.append(
+        el("button",{class:"btn",onClick:async()=>{ pending.forEach(x=>x.done=true); close(); await commitSession(); }},ic("check",16),"Save them too"),
+        el("button",{class:"btn secondary",style:"margin-top:8px",onClick:async()=>{ close(); await commitSession(); }},"Leave them out"),
+        el("button",{class:"btn ghost",style:"margin-top:8px",onClick:close},"Cancel"));
+    });
+    return;
   }
+  await commitSession();
+}
+// commit the active session: save done sets, update per-exercise miss-streaks, close it out
+async function commitSession(){
+  const s=State.activeSession;
   // commit session + sets that are marked done
   const done = s.items.flatMap(it=>it.sets.filter(x=>x.done&&x.reps>0).map((x,i)=>({
     id:uid(),sessionId:s.id,exerciseId:it.exerciseId,weight:+x.weight,reps:+x.reps,
@@ -1414,7 +1481,7 @@ async function finishSession(){
   for(const it of s.items){
     if(it.targetVol==null) continue;                                      // no volume target (manual / bodyweight) → skip
     const ex = State.exercises.find(e=>e.id===it.exerciseId); if(!ex) continue;
-    const got = it.sets.filter(x=>x.done&&x.reps>0).reduce((t,x)=>t+(+x.weight||0)*(+x.reps||0),0);
+    const got = it.sets.filter(x=>x.done&&x.reps>0).reduce((t,x)=>t+((it.bwBase||0)+(+x.weight||0))*(+x.reps||0),0);   // same scale the target was solved on
     const met = got >= it.targetVol*0.98;                                 // within 2% counts as meeting it
     const rec = await getMeta(progKey(ex)) || {streak:0};
     await setMeta(progKey(ex), {streak: met?0:(rec.streak||0)+1, date:s.date});
@@ -1432,7 +1499,7 @@ async function addToPlan(ex, setCount){
   const base=sug.plan;
   const n=Math.max(1, setCount||base.length);
   State.activeSession.items.push({
-    exerciseId:ex.id, kind:sug.kind, note:sug.note, joint:false, rpe:null, targetVol: sug.targetVol??null,
+    exerciseId:ex.id, kind:sug.kind, note:sug.note, joint:false, rpe:null, targetVol: sug.targetVol??null, bwBase: sug.bwBase??null,
     last: sug.prev ? {date:sug.prev.session.date, sets:sug.prev.sets.map(s=>({weight:s.weight,reps:s.reps}))} : null,
     sets:Array.from({length:n},(_,i)=>{const p=base[Math.min(i,base.length-1)]||{weight:0,reps:ex.repMin||8};return {weight:p.weight,reps:p.reps,done:false};})
   });
@@ -2095,11 +2162,11 @@ function viewHistory(){
       if(mk!==curMonth){ curMonth=mk; mount.append(el("div",{class:"regionhead",style:"margin-top:12px"}, monthYearLbl(mk))); }
       const sets=setsBy[se.id]||[];
       const byEx={}; sets.forEach(x=>{(byEx[x.exerciseId]=byEx[x.exerciseId]||[]).push(x);});
-      const exCount=Object.keys(byEx).length, vol=Math.round(sets.reduce((t,x)=>{const _e=exById(x.exerciseId); return _e&&_e.unit==="lvl"?t:t+(x.weight||0)*(x.reps||0);},0)), mins=sessionMins(se);
+      const exCount=Object.keys(byEx).length, ton=tonnageSum(sets, exById), mins=sessionMins(se);
       const regions=[...new Set(Object.keys(byEx).map(id=>{const ex=exById(id);return ex?exRegion(ex):null;}).filter(r=>r&&r!=="Other"))];
       const joint=sets.some(x=>x.joint), rel=relDate(se.date);
       const meta=[`${exCount} exercise${exCount!==1?"s":""}`, `${sets.length} sets`];
-      if(mins) meta.push(`${mins} min`); if(vol>0) meta.push(`${vol.toLocaleString()} ${prefUnit()}`);
+      if(mins) meta.push(`${mins} min`); if(ton.kg>0) meta.push(`${ton.kg.toLocaleString()} ${prefUnit()} loaded`);
       mount.append(el("button",{class:"histrow",onClick:()=>openSessionDetail(se)},
         el("div",{class:"grow"},
           el("div",{class:"row",style:"gap:7px;align-items:center;flex-wrap:wrap"},
@@ -2130,11 +2197,13 @@ function openSessionDetail(se, editing=false){
       mount.append(el("button",{class:"btn"+(ed?"":" secondary"),style:"margin-bottom:12px",onClick:()=>{ ed=!ed; if(!ed) render(); build(); }},
         ic(ed?"check":"clipboard",16), ed?"Done editing":"Edit workout"));
       if(!ed){
-        const mins=sessionMins(se), vol=Math.round(sets.reduce((t,x)=>{const _e=exById(x.exerciseId); return _e&&_e.unit==="lvl"?t:t+(x.weight||0)*(x.reps||0);},0));
+        const mins=sessionMins(se), ton=tonnageSum(sets, exById);
         const grid=el("div",{class:"statgrid"});
         grid.append(statTile(Object.keys(byEx).length,"exercises"), statTile(sets.length,"sets"),
-          statTile(mins?String(mins):"—","minutes"), statTile(vol.toLocaleString(),prefUnit()+" volume"));
-        mount.append(grid, el("div",{class:"divider"}));
+          statTile(mins?String(mins):"—","minutes"), statTile(ton.kg.toLocaleString(),prefUnit()+" loaded volume"));
+        mount.append(grid);
+        if(ton.excluded) mount.append(el("div",{class:"tiny muted",style:"margin:8px 2px 0"},`Loaded volume excludes ${ton.excluded} set${ton.excluded>1?"s":""} (levels/holds).`));
+        mount.append(el("div",{class:"divider"}));
       }
       if(!sets.length) mount.append(el("p",{class:"muted small"},"No sets logged."));
       for(const [exId,list] of Object.entries(byEx)){
@@ -2574,12 +2643,15 @@ function openMuscleDetail(mk){
       const wOf=ex=> ex.primary===mk?1: ex.secondary===mk?0.5:0;
       const WK=lastNWeeks(10);
       const wkSets=Object.fromEntries(WK.map(k=>[k,0])), wkTon=Object.fromEntries(WK.map(k=>[k,0]));
-      const recentEx={}; let allSetsThisWeek=0;
+      const recentEx={}; let allSetsThisWeek=0, tonExcluded=0;
       const thisWeek=WK[WK.length-1], lastWeek=WK[WK.length-2];
       for(const x of allSets){ const se=sesById[x.sessionId]; if(!se)continue; const recent=mondayOf(se.date)===thisWeek;
         if(recent) allSetsThisWeek++;
         const ex=exById(x.exerciseId); if(!ex)continue; const w=wOf(ex); if(!w)continue;
-        const wk=mondayOf(se.date); if(wk in wkSets){ wkSets[wk]+=w; if(ex.unit!=="lvl") wkTon[wk]+= w*(x.weight||0)*(x.reps||0); }  // levels aren't kg — count the set, not the tonnage
+        const wk=mondayOf(se.date);
+        if(wk in wkSets){ wkSets[wk]+=w;
+          const t=setTonnage(ex, x.weight, x.reps);                      // shared honest-tonnage rules (levels/holds → excluded)
+          if(t!=null) wkTon[wk]+= w*t; else if(recent && +x.reps>0) tonExcluded++; }
         if(recent) recentEx[ex.id]=(recentEx[ex.id]||0)+w; }
       const setsThis=wkSets[thisWeek]||0, setsLast=wkSets[lastWeek]||0, tonThis=Math.round(wkTon[thisWeek]||0);
       const focus= allSetsThisWeek? Math.round(100*setsThis/allSetsThisWeek):0;
@@ -2589,9 +2661,10 @@ function openMuscleDetail(mk){
       grid.append(
         statTile(setsThis%1?setsThis.toFixed(1):setsThis, "sets this week"),
         statTile(focus+"%", "of weekly volume"),
-        statTile(tonThis.toLocaleString(), prefUnit()+" moved this week"),
+        statTile(tonThis.toLocaleString(), prefUnit()+" loaded this week"),
         statTile(ov.score==null?"—":ov.score+"/10", "progressive overload · "+ov.label, ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""));
       mount.append(grid);
+      if(tonExcluded) mount.append(el("div",{class:"tiny muted",style:"margin:8px 2px 0"},`Loaded ${prefUnit()} excludes ${tonExcluded} set${tonExcluded>1?"s":""} this week (levels/holds).`));
 
       const deltaPct = setsLast? Math.round((setsThis-setsLast)/setsLast*100):null;
       mount.append(el("div",{class:"row between",style:"margin:16px 0 0"},
@@ -3121,6 +3194,35 @@ function viewMore(){
   paintU();
   unitCard.append(uSeg, el("div",{class:"tiny muted",style:"margin-top:8px"},"Sets the default for new exercises and the unit on your volume totals. Existing exercises keep their unit — change one in its editor."));
   wrap.append(unitCard);
+  // ----- You: bodyweight (counts bodyweight work in volume; strength standards later) -----
+  const youCard=el("div",{class:"card"});
+  youCard.append(el("h2",{},"You"),
+    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Used to count bodyweight exercises in your volume, and for strength standards. Never leaves your device."));
+  const toLb=kg=>kg*2.2046226218, toKgF=lb=>lb/2.2046226218;
+  const bwShow=()=> State.bodyweightKg!=null ? String(Math.round((State.bwUnit==="lb"?toLb(State.bodyweightKg):State.bodyweightKg)*10)/10) : "";
+  const bwInp=el("input",{type:"number",inputMode:"decimal",min:"0",step:"0.1",value:bwShow(),placeholder:State.bwUnit==="lb"?"e.g. 165":"e.g. 75",
+    style:"width:110px;font-size:17px;font-weight:700;text-align:center;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 8px;color:var(--text)","aria-label":"Bodyweight"});
+  const bwSeg=el("div",{class:"seg",style:"flex:none"});
+  const paintBW=()=>bwSeg.querySelectorAll(".segbtn").forEach(b=>{const on=b.dataset.u===State.bwUnit; b.classList.toggle("on",on); b.setAttribute("aria-pressed",on?"true":"false");});
+  ["kg","lb"].forEach(u=>bwSeg.append(el("button",{class:"segbtn","data-u":u,onClick:async()=>{
+    if(State.bwUnit===u) return;
+    State.bwUnit=u; await setMeta("bwUnit",u); paintBW();
+    bwInp.value=bwShow(); bwInp.placeholder = u==="lb"?"e.g. 165":"e.g. 75";
+  }},u)));
+  paintBW();
+  const saveBW=async()=>{
+    const raw=bwInp.value.trim();
+    if(raw===""){ if(State.bodyweightKg!=null){ State.bodyweightKg=null; await setMeta("bodyweight",null); toast("Bodyweight cleared"); } return; }
+    const v=+raw; if(!Number.isFinite(v)||v<=0) return;
+    const kg=Math.round((State.bwUnit==="lb"?toKgF(v):v)*10)/10;
+    if(kg===State.bodyweightKg) return;
+    State.bodyweightKg=kg; await setMeta("bodyweight",{kg, updatedAt:new Date().toISOString()});
+    toast("Saved — bodyweight exercises now count in your volume");
+  };
+  bwInp.addEventListener("change",saveBW); bwInp.addEventListener("blur",saveBW);
+  youCard.append(el("div",{class:"row",style:"gap:10px;align-items:center"},
+    bwInp, el("div",{style:"font-weight:700;font-size:17px"},"bodyweight"), el("div",{class:"grow"}), bwSeg));
+  wrap.append(youCard);
   // ----- Progression: volume-increase target -----
   const progCard=el("div",{class:"card"});
   progCard.append(el("h2",{},"Progression"),
