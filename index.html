@@ -137,6 +137,12 @@
   .restbar.done .resttime{color:var(--accent-2)}
   .restbtn{flex:none;min-width:44px;height:36px;padding:0 10px;border-radius:9px;background:var(--surface);
     border:1px solid var(--line);color:var(--text);font-size:12px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;cursor:pointer}
+  /* cross-tab "workout in progress" reminder */
+  .inprogress-pill{position:sticky;top:6px;z-index:20;width:100%;display:flex;align-items:center;gap:10px;
+    margin-bottom:12px;padding:11px 14px;border-radius:12px;background:var(--accent);color:var(--on-accent);
+    border:none;font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.28)}
+  .ipdot{width:9px;height:9px;border-radius:50%;background:currentColor;flex:none;animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
   .sparkwrap{height:60px;width:100%}
   .chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:8px 14px;min-height:44px;border-radius:999px;
     background:var(--surface-2);border:1px solid var(--line);color:var(--text);margin:0 6px 8px 0}
@@ -410,7 +416,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v71"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v72"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -581,6 +587,8 @@ function fmtRest(sec){
   if(sec<120) return `${sec}s`;
   return `${(sec/60).toFixed(1)} min`;
 }
+function fmtElapsed(ms){ const s=Math.max(0,Math.floor(ms/1000)), h=Math.floor(s/3600), m=Math.floor(s%3600/60), ss=s%60;
+  return h ? `${h}:${String(m).padStart(2,"0")}:${String(ss).padStart(2,"0")}` : `${m}:${String(ss).padStart(2,"0")}`; }
 // time estimate (minutes) for one exercise = setup + work + rest between sets (n-1 gaps)
 function exMinutes(ex, nSets){
   if(!ex) return 0;
@@ -893,11 +901,24 @@ function render(){
   $("#gymPick").textContent = curGym()? curGym().name : "Set up gym";
   { const gp=$("#gymPick"), g=curGym(); if(g){ const h=gymHue(g.id); gp.style.color=h; gp.style.background=h+"1f"; gp.style.borderColor=h+"59"; } else { gp.style.color=gp.style.background=gp.style.borderColor=""; } }
   if(noGyms){ return v.append(viewOnboard()); }
+  // on any tab other than Today, keep a live reminder that a workout is running
+  if(State.activeSession?.started && currentTab!=="today"){
+    const st=State.activeSession.startedAt;
+    v.append(el("button",{class:"inprogress-pill",onClick:()=>setTab("today")},
+      el("span",{class:"ipdot"}), el("span",{style:"flex:1;text-align:left"},"Workout in progress"),
+      ...(st?[el("span",{id:"elapsedClock",style:"font-variant-numeric:tabular-nums;font-weight:800"}, fmtElapsed(Date.now()-new Date(st).getTime()))]:[]),
+      ic("chevron",16)));
+  }
   if(currentTab==="today") v.append(viewToday());
   else if(currentTab==="history") v.append(viewHistory());
   else if(currentTab==="insights") v.append(viewInsights());
   else if(currentTab==="more") v.append(viewMore());
 }
+// one ticker keeps the elapsed clock (status card on Today, pill elsewhere) live
+setInterval(()=>{
+  const c=document.getElementById("elapsedClock"), s=State.activeSession;
+  if(c && s && s.startedAt) c.textContent=fmtElapsed(Date.now()-new Date(s.startedAt).getTime());
+}, 1000);
 
 /* ---------- onboarding ---------- */
 function viewOnboard(){
@@ -973,7 +994,8 @@ function viewToday(){
   wrap.append(el("div",{class:"statuscard"},
     el("div",{class:"row between",style:"align-items:flex-start;gap:10px"},
       el("div",{style:"min-width:0"},
-        el("div",{class:"statuscard-eyebrow"},"Workout in progress"),
+        el("div",{class:"statuscard-eyebrow",style:"display:flex;align-items:center;gap:7px"},"Workout in progress",
+          ...(s.startedAt?[el("span",{id:"elapsedClock",style:"font-variant-numeric:tabular-nums;color:var(--accent);font-weight:700"}, fmtElapsed(Date.now()-new Date(s.startedAt).getTime()))]:[])),
         el("div",{style:"font-weight:700;font-size:17px"}, fmtDate(s.date)),
         el("div",{class:"small muted",style:"margin-top:2px"}, `${curGym()?.name||""}${s.items.length?` · ~${planMinutes(s.items)} min · ${s.items.length} ex`:""}`)),
       el("button",{class:"btn sm",style:"flex:none;background:var(--accent-2);color:var(--on-accent-2)",onClick:finishSession},ic("check"),"Finish")),
@@ -1290,8 +1312,12 @@ async function discardSession(){
 // compact, read-only exercise row for the pre-start preview
 function previewRow(item){
   const ex=State.exercises.find(e=>e.id===item.exerciseId); if(!ex) return el("span");
-  const grow=el("div",{class:"grow"}, exDetailName(ex),
-    el("div",{class:"small muted"}, `${item.sets.length}×${ex.repMin}–${ex.repMax} · ${fmtRest(restOf(ex))} rest`));
+  const top=Math.max(0,...item.sets.map(s=>+s.weight||0));
+  const wStr = top>0 ? ` · ${fmtW(top,ex)}` : "";        // show the suggested target here, not only after starting
+  const nameRow=el("div",{class:"row",style:"gap:6px;align-items:center;flex-wrap:wrap"}, exDetailName(ex));
+  const pill=progBadge(item); if(pill) nameRow.append(pill);
+  const grow=el("div",{class:"grow"}, nameRow,
+    el("div",{class:"small muted"}, `${item.sets.length}×${ex.repMin}–${ex.repMax}${wStr} · ${fmtRest(restOf(ex))} rest`));
   const t=muscleTags(ex); if(t) grow.append(t);
   return el("div",{class:"listitem",style:"cursor:default"}, grow);
 }
@@ -1343,10 +1369,6 @@ async function addToPlan(ex, setCount){
   });
   await persistSession();
 }
-async function autofillPlanFromHistory(){
-  // suggest the machines trained on this weekday most recently (light heuristic): skip — leave plan empty, user customizes
-}
-
 /* ---------- plans / routines: save a workout once, repeat it in one tap ---------- */
 // a plan stores the MOVEMENTS (exerciseId + set count), not frozen weights — so repeating it
 // re-suggests progressed targets from your latest history.
@@ -1368,7 +1390,6 @@ function planItemsFromSets(sets){
   return items;
 }
 async function deletePlan(id){ await DB.del("plans",id); State.plans=State.plans.filter(p=>p.id!==id); }
-async function renamePlan(plan,name){ const n=(name||"").trim(); if(!n)return; plan.name=n; await DB.put("plans",plan); State.plans=await DB.all("plans"); }
 // add a plan's exercises to the current session, resolving each to this gym's equivalent.
 // `unresolved` = machines that exist (at another gym) but aren't set up here yet — offer to add them.
 async function applyPlanToSession(plan){
@@ -1428,7 +1449,10 @@ function openSheet(title, buildBody, opts={}){
   const stacked=!!opts.stacked;                 // stacked: layer over the current sheet instead of replacing it
   const host=$("#sheetHost");
   const bg=el("div",{class:"sheet-bg"}); if(stacked) bg.style.zIndex="55";
-  const close=()=>{ if(stacked){ bg.remove(); } else { host.innerHTML=""; document.body.classList.remove("modal-open"); } };
+  let onKey;
+  const close=()=>{ document.removeEventListener("keydown",onKey); if(stacked){ bg.remove(); } else { host.innerHTML=""; document.body.classList.remove("modal-open"); } };
+  onKey=e=>{ if(e.key!=="Escape") return; const bgs=document.querySelectorAll(".sheet-bg"); if(bgs.length && bgs[bgs.length-1]===bg) close(); };  // Esc closes the topmost sheet
+  document.addEventListener("keydown",onKey);
   bg.addEventListener("click",e=>{ if(e.target===bg) close(); });
   const sheet=el("div",{class:"sheet"});
   sheet.append(el("div",{class:"grabber"}));
@@ -1540,7 +1564,7 @@ function gymMultiSelect(preChecked, lockedSet, onChange){
 }
 function openExerciseSheet(ex, opts={}){
   const isNew=!ex;
-  ex = ex || {id:uid(),gymId:State.currentGymId,name:"",unit:prefUnit(),increment:2.5,sets:3,repMin:8,repMax:12,notes:""};
+  ex = ex || {id:uid(),gymId:State.currentGymId,name:"",unit:prefUnit(),increment:2.5,sets:3,repMin:8,repMax:12};
   openSheet(isNew?"Add exercise":"Edit exercise",(body,close)=>{
     const name=el("input",{type:"text",placeholder:"e.g. Barbell Bench Press, Dumbbell Curl, Leg Press",value:ex.name||opts.prefillName||""});
     const unit=el("select",{},el("option",{value:"kg"},"kg"),el("option",{value:"lb"},"lb"),el("option",{value:"lvl"},"levels (stack #)"));
@@ -1751,7 +1775,7 @@ function openAddExerciseSheet(afterClose){
       "; free-weight moves are shared across your gyms."));
     const search=el("input",{type:"text",placeholder:"Search all exercises…","aria-label":"Search exercises"});
     body.append(el("div",{style:"margin-bottom:6px"}, search));
-    body.append(el("button",{class:"btn",style:"margin:0 0 12px",onClick:done}, ic("check",16), "Done"));
+    body.append(el("button",{class:"btn secondary",style:"margin:0 0 12px",onClick:done}, ic("check",16), "Done"));
     const results=el("div",{}), foot=el("div",{});
     body.append(results, foot);
 
@@ -2134,7 +2158,7 @@ function openHistoryAddExercise(se, existingIds, closeDetail){
     body.append(el("p",{class:"small muted",style:"margin:-6px 0 8px"},"Add an exercise you forgot to log — search your collection or the full library, then fill in its sets."));
     const search=el("input",{type:"text",placeholder:"Search all exercises…","aria-label":"Search exercises"});
     body.append(el("div",{style:"margin-bottom:6px"}, search));
-    body.append(el("button",{class:"btn",style:"margin:0 0 12px",onClick:()=>{ close(); closeDetail&&closeDetail(); openSessionDetail(se, true); }}, ic("check",16), "Done"));
+    body.append(el("button",{class:"btn secondary",style:"margin:0 0 12px",onClick:()=>{ close(); closeDetail&&closeDetail(); openSessionDetail(se, true); }}, ic("check",16), "Done"));
     const results=el("div",{}), foot=el("div",{});
     body.append(results, foot);
     const allOwn=()=>gymExercises(se.gymId);
@@ -2282,7 +2306,7 @@ function viewInsights(){
     const dateCount={}; for(const x of allSets){ const d=dateOf(x); if(d) dateCount[d]=(dateCount[d]||0)+1; }
     const calCard=el("div",{class:"card"});
     calCard.append(el("div",{class:"row between"}, el("h2",{style:"margin:0"},"Consistency"),
-      el("span",{class:"small muted"}, `${daysThisYear} days in ${year}`)));
+      el("span",{class:"small muted"}, `${daysThisYear} day${daysThisYear===1?"":"s"} in ${year}`)));
     calCard.append(consistencyCard(dateCount), el("div",{class:"tiny muted",style:"margin-top:8px"},"Each square is a day · last 26 weeks · greener = more sets."));
     mount.append(calCard);
 
@@ -2417,13 +2441,13 @@ function viewInsights(){
         el("div",{class:"t"},`${r}${last?` — ${ago} days since trained`:" — not trained yet"}`),
         el("div",{class:"d"},"This region is falling behind — slot it into your next session.")));}
     });
-    // joint patterns
-    const jointByEx={};
-    allSets.filter(x=>x.joint).forEach(x=>{jointByEx[x.exerciseId]=(jointByEx[x.exerciseId]||0)+1;});
+    // joint patterns — count distinct WORKOUTS the joint was flagged, not individual sets
+    const jointByEx={}, jointSeen=new Set();
+    allSets.filter(x=>x.joint).forEach(x=>{ const k=x.exerciseId+"|"+x.sessionId; if(jointSeen.has(k))return; jointSeen.add(k); jointByEx[x.exerciseId]=(jointByEx[x.exerciseId]||0)+1; });
     for(const[exId,c] of Object.entries(jointByEx)){
       const ex=State.exercises.find(e=>e.id===exId);if(!ex)continue;
       if(c>=2){alertCount++;alerts.append(el("div",{class:"insight warn"},
-        el("div",{class:"t"},`Joint flagged on ${ex.name} ×${c}`),
+        el("div",{class:"t"},`Joint flagged on ${ex.name} — ${c} workouts`),
         el("div",{class:"d"},"Recurring niggle — consider lighter load, slower tempo, or swapping the movement.")));}
     }
     if(!alertCount) alerts.append(el("div",{class:"insight good"},el("div",{class:"t"},"All clear"),
@@ -2728,7 +2752,7 @@ async function addLibraryExercise(le){
   const rec={ id:uid(), gymId: equipGymScoped(equipment)?State.currentGymId:null, name:m.name, libId:le.id,
     unit:prefUnit(), increment:EQUIP[equipment].inc, sets:3, repMin:8, repMax:12,
     primary:m.primary, secondary:m.secondary, equipment,
-    restSec:suggestRest({name:m.name, repMax:12, primary:m.primary}), notes:"" };
+    restSec:suggestRest({name:m.name, repMax:12, primary:m.primary}) };
   await DB.put("exercises", rec);
   State.exercises = await DB.all("exercises");
   return rec;
