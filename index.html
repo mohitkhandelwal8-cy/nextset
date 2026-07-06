@@ -18,13 +18,15 @@
   :root{
     --bg:#111827; --surface:#1F2937; --surface-2:#2D3A4D; --line:#3A4658;
     --text:#F8FAFC; --muted:#9FB0C3; --accent:#F97316; --on-accent:#0F172A;
+    --data:#60A5FA;   /* charts & data viz — orange stays exclusively interactive/brand */
     --accent-2:#22C55E; --on-accent-2:#06231A; --warn:#FBBF24; --danger:#F87171;
     --bar-bg:rgba(11,14,20,.86); --tab-bg:rgba(20,25,37,.95);
     --radius:14px; --safe-b:env(safe-area-inset-bottom,0px);
   }
   :root[data-theme="light"]{
     --bg:#F4F6F9; --surface:#FFFFFF; --surface-2:#EAEEF3; --line:#D6DCE5;
-    --text:#0F172A; --muted:#5B6878; --accent:#E2620C; --on-accent:#FFFFFF;
+    --text:#0F172A; --muted:#5B6878; --accent:#C2410C; --on-accent:#FFFFFF;   /* orange-700: white text ≈4.9:1 */
+    --data:#2563EB;
     --accent-2:#15803D; --on-accent-2:#FFFFFF; --warn:#B45309; --danger:#DC2626;
     --bar-bg:rgba(244,246,249,.85); --tab-bg:rgba(255,255,255,.95);
   }
@@ -73,6 +75,7 @@
   .btn.secondary{background:var(--surface-2);border:1px solid var(--line);color:var(--text)}
   .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text)}
   .btn.danger{background:transparent;border:1px solid var(--danger);color:var(--danger)}
+  .btn.success-ghost{background:transparent;border:1px solid var(--accent-2);color:var(--accent-2)}
   .btn:active{transform:scale(.98)}
   .btn.sm{padding:9px 12px;width:auto;font-size:14px;border-radius:10px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
   input[type=text],input[type=number],select,textarea{width:100%;background:var(--surface-2);
@@ -167,7 +170,7 @@
   .vbar{display:flex;align-items:center;gap:10px;margin-bottom:9px}
   .vbar .lbl{width:90px;font-size:13px;flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .vbar .track{flex:1;height:8px;background:var(--surface-2);border-radius:999px;overflow:hidden}
-  .vbar .fill{height:100%;background:var(--accent);border-radius:999px;min-width:3px}
+  .vbar .fill{height:100%;background:var(--data);border-radius:999px;min-width:3px}
   .vbar .val{width:30px;text-align:right;font-size:12px;color:var(--muted);flex:none}
   .filterchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:6px;-webkit-overflow-scrolling:touch}
   .fchip{flex:none;font-size:13px;padding:7px 13px;min-height:40px;border-radius:999px;background:var(--surface-2);
@@ -418,7 +421,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v77"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v78"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -467,8 +470,8 @@ const muscleLabel=k=>MUSCLES[k]?.label||null;
 const regionOf=k=>MUSCLES[k]?.region||"Other";
 const exRegion=ex=>ex.primary?regionOf(ex.primary):"Other";
 // distinct hue per muscle region — color-codes body-part tags so they read at a glance
-const REGION_HUE={Legs:"#60A5FA",Back:"#2DD4BF",Chest:"#FB7185",Shoulders:"#EAB308",Arms:"#A78BFA",Core:"#A3E635",Other:"#9FB0C3"};
-const REGION_HUE_LIGHT={Legs:"#2563EB",Back:"#0D9488",Chest:"#E11D48",Shoulders:"#B45309",Arms:"#7C3AED",Core:"#4D7C0F",Other:"#5B6878"};
+const REGION_HUE={Legs:"#60A5FA",Back:"#2DD4BF",Chest:"#FB7185",Shoulders:"#CA8A04",Arms:"#A78BFA",Core:"#A3E635",Other:"#9FB0C3"};      // Shoulders = gold, distinct from --warn amber
+const REGION_HUE_LIGHT={Legs:"#2563EB",Back:"#0D9488",Chest:"#E11D48",Shoulders:"#92700C",Arms:"#7C3AED",Core:"#4D7C0F",Other:"#5B6878"}; // ≥4.5:1 on white, distinct from light --warn
 const regionHue=r=>(resolvedTheme==="light"?REGION_HUE_LIGHT:REGION_HUE)[r] || (resolvedTheme==="light"?"#5B6878":"#9FB0C3");
 // a colored muscle/region pill; primary = filled tint, secondary = outline only
 function muscleTag(label, region, primary){
@@ -1550,7 +1553,7 @@ function loggerCard(item, isCurrent, ss){
   const grouped = item.ssGroup && ((sitems[idx-1]&&sitems[idx-1].ssGroup===item.ssGroup)||(sitems[idx+1]&&sitems[idx+1].ssGroup===item.ssGroup));
   const ctl=el("div",{style:"margin-top:12px"});
   ctl.append(
-    el("button",{class:"btn",style:"width:100%;background:var(--accent-2);color:var(--on-accent-2)","aria-label":"Mark exercise done",onClick:()=>{
+    el("button",{class:"btn success-ghost",style:"width:100%","aria-label":"Mark exercise done",onClick:()=>{
       item.sets.forEach(s=>{ if((+s.reps)>0) s.done=true; });
       item.collapsed=true; persistSession(); render();
       toast(`${ex?.name||"Exercise"} done`);
@@ -3005,8 +3008,8 @@ function sparkline(series,label=""){
     const y=h-pad-((v-min)/rng)*(h-2*pad); return `${x.toFixed(1)},${y.toFixed(1)}`;});
   const wrap=el("div",{class:"sparkwrap",role:"img","aria-label":label||"Progress trend"});
   wrap.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:100%">
-    <polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${pts.join(" ")}"/>
-    ${pts.length?`<circle cx="${pts[pts.length-1].split(",")[0]}" cy="${pts[pts.length-1].split(",")[1]}" r="3" fill="var(--accent)"/>`:""}
+    <polyline fill="none" stroke="var(--data)" stroke-width="2" points="${pts.join(" ")}"/>
+    ${pts.length?`<circle cx="${pts[pts.length-1].split(",")[0]}" cy="${pts[pts.length-1].split(",")[1]}" r="3" fill="var(--data)"/>`:""}
   </svg>`;
   return wrap;
 }
@@ -3026,9 +3029,9 @@ function lineChart(values, opts={}){
   const wrap=el("div",{class:"chart",role:"img","aria-label":"Trend chart"});
   wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
     <line x1="${padL}" y1="${base}" x2="${W-padR}" y2="${base}" stroke="var(--line)"/>
-    <polygon points="${fillPts}" fill="var(--accent)" opacity="0.10"/>
-    <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-    <circle cx="${X(li).toFixed(1)}" cy="${Y(values[li]).toFixed(1)}" r="3.5" fill="var(--accent)"/>
+    <polygon points="${fillPts}" fill="var(--data)" opacity="0.10"/>
+    <polyline points="${line}" fill="none" stroke="var(--data)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${X(li).toFixed(1)}" cy="${Y(values[li]).toFixed(1)}" r="3.5" fill="var(--data)"/>
     <text x="${padL}" y="${(padT-3).toFixed(1)}" fill="var(--muted)" font-size="9">${esc(fmt(max))}</text>
     ${xl}
   </svg>`;
@@ -3359,7 +3362,11 @@ function bodyHeatmap(vol){
   const F={delts:(vol.front_delts||0)+(vol.side_delts||0),chest:vol.chest||0,biceps:vol.biceps||0,forearms:vol.forearms||0,abs:vol.core||0,quads:vol.quads||0};
   const B={delts:vol.rear_delts||0,back:(vol.lats||0)+(vol.upper_back||0),triceps:vol.triceps||0,forearms:vol.forearms||0,lowerback:vol.lower_back||0,glutes:vol.glutes||0,hams:vol.hamstrings||0,calves:vol.calves||0};
   const max=Math.max(1,...Object.values(F),...Object.values(B));
-  const f=v=>`rgba(249,115,22,${(0.10+0.85*(v/max)).toFixed(2)})`, sk="var(--surface-2)", st="var(--line)";
+  // theme-aware data-hue ramp — light needs a higher alpha floor so faint muscles stay visible on white
+  const f=v=> resolvedTheme==="light"
+    ? `rgba(37,99,235,${(0.16+0.80*(v/max)).toFixed(2)})`
+    : `rgba(96,165,250,${(0.10+0.85*(v/max)).toFixed(2)})`;
+  const sk="var(--surface-2)", st="var(--line)";
   const wrap=el("div",{class:"bodymap",role:"img","aria-label":"Muscle map by weekly volume"});
   wrap.innerHTML=`<svg viewBox="0 0 360 222" style="width:100%;height:auto;display:block">
     <circle cx="95" cy="20" r="13" fill="${sk}" stroke="${st}"/>
