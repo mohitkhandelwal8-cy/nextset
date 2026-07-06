@@ -418,7 +418,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v75"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v76"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -654,7 +654,7 @@ const planMinutes = items => items.reduce((t,it)=>{
 /* ---------- app state ---------- */
 const State = {
   gyms:[], exercises:[], plans:[], currentGymId:null, activeSession:null, volTargetPct:4, unit:"kg",
-  bodyweightKg:null, bwUnit:"kg",
+  bodyweightKg:null, bwUnit:"kg", sex:null,
 };
 // preferred weight unit — the default for new exercises and the label on aggregate (mixed-exercise) volume
 const prefUnit = () => State.unit==="lb" ? "lb" : "kg";
@@ -693,6 +693,8 @@ async function loadState(){
   const bwm = await getMeta("bodyweight");
   State.bodyweightKg = (bwm && Number.isFinite(+bwm.kg) && +bwm.kg>0) ? +bwm.kg : null;
   State.bwUnit = (await getMeta("bwUnit"))==="lb" ? "lb" : "kg";
+  const sx = await getMeta("sex");
+  State.sex = (sx==="m"||sx==="f") ? sx : null;
   // resume only if same day
   if(State.activeSession && State.activeSession.date !== todayISO()){
     State.activeSession=null; await DB.put("meta",{k:"activeSession",v:null});
@@ -2431,6 +2433,78 @@ function viewInsights(){
     const gymName=id=>State.gyms.find(g=>g.id===id)?.name||"";
     const sesById=Object.fromEntries(sessions.map(s=>[s.id,s]));
     const dateOf=x=>sesById[x.sessionId]?.date;
+    // weekly set targets: explicit overrides in meta; default 10 for muscles trained in the last
+    // 8 weeks; untrained muscles get none (no nagging about neck) — cardio isn't a muscle
+    const targetsOverride=(await getMeta("muscleTargets"))||{};
+    const trained8=new Set();
+    for(const x of allSets){ const d=dateOf(x); if(!d||daysAgo(d)>56)continue; const ex=exById(x.exerciseId); if(!ex)continue;
+      if(ex.primary)trained8.add(ex.primary); if(ex.secondary)trained8.add(ex.secondary); }
+    const targetOf=mk=> targetsOverride[mk]!=null ? targetsOverride[mk] : (trained8.has(mk)&&mk!=="cardio" ? 10 : null);
+
+    // ===== Weekly recap — appears each Monday for the completed week, until dismissed =====
+    const curMon=mondayOf(todayISO());
+    const prevMonD=new Date(curMon+"T12:00:00"); prevMonD.setDate(prevMonD.getDate()-7);
+    const prevMon=prevMonD.toISOString().slice(0,10);
+    if((await getMeta("lastRecapWeek"))!==curMon){
+      const rSessions=sessions.filter(s=>mondayOf(s.date)===prevMon);
+      if(rSessions.length){
+        const rIds=new Set(rSessions.map(s=>s.id));
+        const rSets=allSets.filter(x=>rIds.has(x.sessionId) && x.reps>0);
+        const mVol={};
+        rSets.forEach(x=>{const ex=exById(x.exerciseId); if(!ex)return;
+          if(ex.primary) mVol[ex.primary]=(mVol[ex.primary]||0)+1;
+          if(ex.secondary) mVol[ex.secondary]=(mVol[ex.secondary]||0)+0.5;});
+        const targetSum=[...trained8].reduce((t,mk)=>t+(targetOf(mk)||0),0);
+        // best moment — priority: a PR that week → biggest e1RM jump → most sets in a week for a muscle
+        const olderSets=allSets.filter(x=>{const d=dateOf(x); return d && x.reps>0 && mondayOf(d)<prevMon;});
+        let prText=null, bestJump=null;
+        const byExWeek={}; rSets.forEach(x=>{(byExWeek[x.exerciseId]=byExWeek[x.exerciseId]||[]).push(x);});
+        for(const [exId,list] of Object.entries(byExWeek)){
+          const ex=exById(exId); if(!ex) continue;
+          const before=olderSets.filter(x=>x.exerciseId===exId);
+          if(!before.length) continue;                      // first-ever week isn't a "PR"
+          const prB=computePRs(before, ex);
+          if(isBW(ex)){
+            const wr=Math.max(...list.map(x=>x.reps));
+            if(wr>prB.maxReps && !prText) prText=`New rep PR on ${ex.name} — ${wr} reps`;
+          } else {
+            const wb=Math.max(...list.map(x=>epley(x.weight,x.reps)));
+            if(wb>prB.best1rm && !prText) prText=`New est-1RM PR on ${ex.name}`;
+            if(prB.best1rm>0){ const j=(wb-prB.best1rm)/prB.best1rm;
+              if(j>0 && (!bestJump||j>bestJump.j)) bestJump={j, text:`${ex.name} est-1RM up ${Math.round(j*100)}% — biggest jump of the week`}; }
+          }
+        }
+        let muscleText=null;
+        if(!prText && !bestJump){
+          const histWk={};
+          allSets.forEach(x=>{const d=dateOf(x); if(!d||!(x.reps>0))return; const wk2=mondayOf(d); if(wk2>=prevMon)return;
+            const ex=exById(x.exerciseId); if(!ex||!ex.primary)return;
+            (histWk[ex.primary]=histWk[ex.primary]||{})[wk2]=(histWk[ex.primary][wk2]||0)+1;});
+          for(const [mk,v] of Object.entries(mVol)){
+            const prevMax=Math.max(0,...Object.values(histWk[mk]||{}));
+            if(v>prevMax && v>=3 && !muscleText) muscleText=`Most ${(muscleLabel(mk)||mk).toLowerCase()} sets in a week yet (${v%1?v.toFixed(1):v})`;
+          }
+        }
+        const bestMoment = prText || (bestJump&&bestJump.text) || muscleText || null;
+        // one fix — the muscle furthest below its weekly target, phrased as an action
+        let fix=null, worstShort=0;
+        for(const mk of trained8){ const t=targetOf(mk); if(!t) continue;
+          const short=t-(mVol[mk]||0);
+          if(short>worstShort){ worstShort=short; fix={mk, got:mVol[mk]||0, t}; } }
+        const DAYFIX={Chest:"one push day",Shoulders:"one push day",Back:"one pull day",Legs:"one leg day",Arms:"an arm finisher",Core:"a core finisher"};
+        const recap=el("div",{class:"statuscard"});
+        recap.append(el("div",{class:"row between",style:"align-items:flex-start"},
+          el("div",{},
+            el("div",{class:"statuscard-eyebrow"},"Weekly recap"),
+            el("div",{style:"font-weight:700;font-size:16px"},`${rSessions.length} workout${rSessions.length>1?"s":""} last week`)),
+          el("button",{class:"sheetclose","aria-label":"Dismiss recap",onClick:async()=>{ await setMeta("lastRecapWeek",curMon); recap.remove(); }},ic("x",18))));
+        recap.append(el("div",{class:"small",style:"margin-top:4px"},`${rSets.length} working sets${targetSum?` · weekly target ${targetSum}`:""}`));
+        if(bestMoment) recap.append(el("div",{class:"small",style:"margin-top:4px;color:var(--accent-2);font-weight:600"}, bestMoment));
+        if(fix) recap.append(el("div",{class:"small muted",style:"margin-top:4px"},
+          `One fix: ${muscleLabel(fix.mk)||fix.mk} landed ${fix.got%1?fix.got.toFixed(1):fix.got}/${fix.t} — ${DAYFIX[regionOf(fix.mk)]||"one focused session"} covers it.`));
+        mount.append(recap);
+      }
+    }
 
     // ===== Overview (Q1: Am I consistent?) =====
     const year=new Date().getFullYear();
@@ -2489,13 +2563,6 @@ function viewInsights(){
     for(const x of allSets){ const d=dateOf(x); if(!d||!inMR(d))continue; const ex=exById(x.exerciseId); if(!ex)continue;
       if(ex.primary) vol[ex.primary]=(vol[ex.primary]||0)+1;
       if(ex.secondary) vol[ex.secondary]=(vol[ex.secondary]||0)+0.5; }
-    // weekly set targets: explicit overrides in meta; default 10 for muscles trained in the last
-    // 8 weeks; untrained muscles get none (no nagging about neck) — cardio isn't a muscle
-    const targetsOverride=(await getMeta("muscleTargets"))||{};
-    const trained8=new Set();
-    for(const x of allSets){ const d=dateOf(x); if(!d||daysAgo(d)>56)continue; const ex=exById(x.exerciseId); if(!ex)continue;
-      if(ex.primary)trained8.add(ex.primary); if(ex.secondary)trained8.add(ex.secondary); }
-    const targetOf=mk=> targetsOverride[mk]!=null ? targetsOverride[mk] : (trained8.has(mk)&&mk!=="cardio" ? 10 : null);
     const volEntries=Object.entries(vol).sort((a,b)=>b[1]-a[1]);
     if(muscleRange==="week"){          // muscles with a target but no sets yet still show (0/10)
       for(const mk of trained8){ if(!(mk in vol) && targetOf(mk)!=null) volEntries.push([mk,0]); }
@@ -2680,6 +2747,22 @@ function viewInsights(){
         el("div",{class:"row",style:"gap:8px;margin-top:8px"},
           el("button",{class:"btn secondary sm",onClick:()=>openExerciseProgress(exId)},"See history"))));}
     }
+    // frequency: high weekly volume for a muscle crammed into one day — max ONE such insight
+    const l4=new Set(lastNWeeks(5).slice(0,4));    // last 4 COMPLETED weeks
+    const fqSets={}, fqDays={};
+    for(const x of allSets){ const se=sesById[x.sessionId]; if(!se||!(x.reps>0)) continue;
+      const wk2=mondayOf(se.date); if(!l4.has(wk2)) continue;
+      const ex=exById(x.exerciseId); if(!ex||!ex.primary) continue;
+      fqSets[ex.primary]=(fqSets[ex.primary]||0)+1;
+      (fqDays[ex.primary]=fqDays[ex.primary]||new Set()).add(se.date); }
+    let fq=null;
+    for(const mk of Object.keys(fqSets)){
+      const avgSets=fqSets[mk]/4, freq=fqDays[mk].size/4;
+      if(avgSets>=6 && freq<1.5 && (!fq||avgSets>fq.avgSets)) fq={mk,avgSets};
+    }
+    if(fq){ alertCount++; alerts.append(el("div",{class:"insight"},
+      el("div",{class:"t"},`${muscleLabel(fq.mk)||fq.mk}: all ${Math.round(fq.avgSets)} weekly sets land in one day`),
+      el("div",{class:"d"},"Splitting them across two days usually lets you do more quality sets."))); }
     if(!alertCount) alerts.append(el("div",{class:"insight good"},el("div",{class:"t"},"All clear"),
       el("div",{class:"d"},"No plateaus or flags right now. Keep stacking sessions.")));
     mount.append(alerts);
@@ -2839,6 +2922,36 @@ function computePRs(sets, ex){
   return {heaviest,best1rm:Math.round(best1rm),bestSetVol:Math.round(bestSetVol),
     bestSessionVol:Math.round(Math.max(0,...Object.values(bySession),0)),maxReps,repMax,bw};
 }
+/* ---- strength standards (rough bands) ----
+   e1RM as a multiple of bodyweight, strengthlevel.com-style values, per movement family.
+   Bands: Beginner / Novice / Intermediate / Advanced / Elite. Kept in one block so the
+   numbers are easy to correct later. Only shown for barbell lifts in kg, and only when
+   the user set both bodyweight and sex. */
+const STANDARD_BANDS=["Beginner","Novice","Intermediate","Advanced","Elite"];
+const STANDARDS={
+  bench:    {m:[0.50,0.75,1.00,1.50,2.00], f:[0.35,0.50,0.75,1.00,1.40]},
+  squat:    {m:[0.75,1.25,1.50,2.25,2.75], f:[0.50,0.75,1.25,1.50,2.00]},
+  deadlift: {m:[1.00,1.50,2.00,2.50,3.00], f:[0.50,1.00,1.25,1.75,2.50]},
+  ohp:      {m:[0.35,0.55,0.80,1.10,1.40], f:[0.25,0.40,0.55,0.75,1.00]},
+};
+function standardFamily(name){ const n=" "+normName(name)+" ";
+  if(/overhead press|shoulder press|military|\bohp\b/.test(n)) return "ohp";
+  if(/bench/.test(n)) return "bench";
+  if(/deadlift/.test(n)) return "deadlift";
+  if(/squat/.test(n)) return "squat";
+  return null;
+}
+// ordinary least squares over [{x,y}] → {slope, intercept, r2}, or null if degenerate
+function olsFit(points){
+  const n=points.length; if(n<2) return null;
+  let sx=0,sy=0,sxx=0,sxy=0,syy=0;
+  for(const p of points){ sx+=p.x; sy+=p.y; sxx+=p.x*p.x; sxy+=p.x*p.y; syy+=p.y*p.y; }
+  const denom=n*sxx-sx*sx; if(!denom) return null;
+  const slope=(n*sxy-sx*sy)/denom, intercept=(sy-slope*sx)/n;
+  const varY=n*syy-sy*sy;
+  const r2 = varY ? Math.pow(n*sxy-sx*sy,2)/(denom*varY) : 0;
+  return {slope, intercept, r2};
+}
 // returns a PR message if (weight,reps) beats committed history for this exercise, else null
 async function prCheck(ex,weight,reps){
   if(!ex||!(reps>0))return null; const hist=await exerciseHistory(ex.id); if(!hist.length)return null;
@@ -2893,6 +3006,32 @@ function openExerciseProgress(exId){
           el("span",{class:"small",style:pct==null?"color:var(--muted)":pct>=0?"color:var(--accent-2)":"color:var(--warn)"}, pct==null?"":`${pct>=0?"▲":"▼"} ${Math.abs(pct)}%`)));
         mount.append(lineChart(series,{labels:dates.map(fmtShortDate), fmt:v=>Math.round(v)+(bw?"":(ex.unit||"kg"))}));
         if(!bw) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Estimated 1RM via the Epley formula — weight × (1 + reps/30). Most accurate at ≤10 reps."+(pl?" Plate machine: added load only — excludes the sled/base, so it reads lower than the total moved.":"")));
+        // forecast: straight-line pace to the next milestone. Shown only for loaded kg/lb lifts
+        // with a clean upward trend (≥4 sessions over ≥28 days in the last 10 weeks, r² ≥ 0.4).
+        if(!bw && ex.unit!=="lvl"){
+          const d0=new Date(dates[0]+"T12:00:00");
+          const pts=dates.map((d,i)=>({x:(new Date(d+"T12:00:00")-d0)/86400000, y:series[i]}))
+            .filter(p=> (new Date(dates[dates.length-1]+"T12:00:00")-d0)/86400000 - p.x <= 70);
+          const span=pts.length? pts[pts.length-1].x-pts[0].x : 0;
+          const f = (pts.length>=4 && span>=28) ? olsFit(pts) : null;
+          if(f && f.slope>0 && f.r2>=0.4){
+            const cur=series[series.length-1];
+            let milestone=Math.floor(cur/10)*10+10, msLabel=`${milestone}${ex.unit||"kg"}`;
+            const fam=standardFamily(ex.name);
+            if(State.bodyweightKg && fam && (ex.unit||"kg")==="kg"){
+              const mult=Math.floor((cur/State.bodyweightKg)/0.25)*0.25+0.25;
+              milestone=mult*State.bodyweightKg; msLabel=`${mult}× bodyweight (${Math.round(milestone)}kg)`;
+            }
+            const daysTo=(milestone-cur)/f.slope;
+            const when = daysTo<=112
+              ? "around "+new Date(Date.now()+daysTo*86400000).toLocaleDateString(undefined,{month:"short",day:"numeric"})
+              : "later this year";
+            const fEl=el("div",{class:"insight good",style:"margin-top:10px"},
+              el("div",{class:"t"},`On pace for ${msLabel} ${when}`),
+              el("div",{class:"d"},"Straight-line estimate from your last 10 weeks — not a promise."));
+            mount.append(fEl);
+          }
+        }
         mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Records"));
         const recs=el("div",{class:"statgrid"});
         if(bw) recs.append(statTile(pr.maxReps||0,"most reps in a set"), statTile((pr.heaviest||0)+(ex.unit||"kg"),"most added load"));
@@ -2902,6 +3041,20 @@ function openExerciseProgress(exId){
           statTile(pr.bestSetVol.toLocaleString(),"best set volume (kg)"),
           statTile(pr.bestSessionVol.toLocaleString(),"best session volume (kg)"));
         mount.append(recs);
+        // strength-standard band (barbell kg lifts only; needs bodyweight + sex — both optional)
+        if(!bw && State.bodyweightKg && State.sex && ex.equipment==="barbell" && (ex.unit||"kg")==="kg" && pr.best1rm>0){
+          const fam=standardFamily(ex.name);
+          if(fam){
+            const mult=STANDARDS[fam][State.sex];
+            const rel=pr.best1rm/State.bodyweightKg;
+            let bi=0; while(bi<mult.length && rel>=mult[bi]) bi++;
+            const band = bi===0 ? "Getting started" : STANDARD_BANDS[bi-1];
+            const nxt = bi<mult.length ? `${STANDARD_BANDS[bi]} at ${Math.round(mult[bi]*State.bodyweightKg)}kg` : null;
+            mount.append(el("div",{style:"margin-top:10px"},
+              el("span",{class:"progpill hold",style:"font-size:12px"}, nxt? `${band} — next: ${nxt}` : `${band} — top band`),
+              el("div",{class:"tiny muted",style:"margin-top:4px"},"Rough strength-standard bands · est. 1RM ÷ bodyweight.")));
+          }
+        }
         if(!bw){ const reps=Object.keys(pr.repMax).map(Number).sort((a,b)=>a-b).slice(0,8);
           if(reps.length) mount.append(el("div",{class:"tiny muted",style:"margin-top:10px"}, "Best by reps · "+reps.map(r=>`${pr.repMax[r]}${ex.unit||"kg"}×${r}`).join("  ·  "))); }
         mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Recent sessions"));
@@ -3345,6 +3498,13 @@ function viewMore(){
   bwInp.addEventListener("change",saveBW); bwInp.addEventListener("blur",saveBW);
   youCard.append(el("div",{class:"row",style:"gap:10px;align-items:center"},
     bwInp, el("div",{style:"font-weight:700;font-size:17px"},"bodyweight"), el("div",{class:"grow"}), bwSeg));
+  // optional sex — only gates the strength-standards bands on barbell lifts
+  const sexSeg=el("div",{class:"seg",style:"margin-top:12px"});
+  const paintSex=()=>sexSeg.querySelectorAll(".segbtn").forEach(b=>{const on=(b.dataset.s||"")===(State.sex||""); b.classList.toggle("on",on); b.setAttribute("aria-pressed",on?"true":"false");});
+  [["m","Male"],["f","Female"],["","Not set"]].forEach(([v,lbl])=>
+    sexSeg.append(el("button",{class:"segbtn","data-s":v,onClick:async()=>{ State.sex=v||null; await setMeta("sex",v||null); paintSex(); }}, lbl)));
+  paintSex();
+  youCard.append(sexSeg, el("div",{class:"tiny muted",style:"margin-top:8px"},"Used only for strength standards — leave unset to hide them."));
   wrap.append(youCard);
   // ----- Progression: volume-increase target -----
   const progCard=el("div",{class:"card"});
