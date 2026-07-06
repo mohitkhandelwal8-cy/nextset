@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v68"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v69"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1085,15 +1085,18 @@ function loggerCard(item, isCurrent, ss){
     const drop=!!set.drop; if(!drop) setNo++;
     const row=el("div",{class:"setrow"+(set.done?" locked":"")+(drop?" drop":"")});
     row.append(drop ? el("div",{class:"idx","aria-label":"drop set"},"▾") : el("div",{class:"idx"}, setNo));
-    const wStep=stepper(set.weight, ex?.increment||2.5, v=>{set.weight=Math.max(0,v);persistSession();}, wUnit, set.done);
-    const rStep=stepper(set.reps, 1, v=>{set.reps=Math.max(0,Math.round(v));persistSession();}, "reps", set.done);
+    const wStep=stepper(set.weight, ex?.increment||2.5, v=>{set.weight=Math.max(0,v);set.wTouched=true;persistSession();}, wUnit, set.done);
+    const rStep=stepper(set.reps, 1, v=>{set.reps=Math.max(0,Math.round(v));set.rTouched=true;persistSession();}, "reps", set.done);
     if(bw){ row.append(rStep, wStep); } else { row.append(wStep, rStep); }
     const done=el("button",{class:"done"+(set.done?" on":""),"aria-label":set.done?"Unlock set":"Complete set","aria-pressed":set.done?"true":"false",onClick:async()=>{
       set.done=!set.done;
       if(set.done){
         const pr=await prCheck(ex,+set.weight,+set.reps); toast(pr || `${drop?"Drop":"Set "+setNo}: ${fmtSetShort(ex,set.weight,set.reps)}`);
         const nxt=item.sets[si+1];   // bring the next un-logged set up to what you just did — but never
-        if(nxt && !nxt.done && !nxt.drop && nxt.weight<=set.weight){ nxt.weight=set.weight; nxt.reps=set.reps; }   // pull down a set the plan suggested heavier
+        if(nxt && !nxt.done && !nxt.drop && nxt.weight<=set.weight){        // clobber a value the user typed
+          if(!nxt.wTouched) nxt.weight=set.weight;
+          if(!nxt.rTouched) nxt.reps=set.reps;
+        }
       }
       persistSession(); render();   // re-render so the row locks/unlocks
     }},ic("check",18));
@@ -1151,6 +1154,7 @@ function loggerCard(item, isCurrent, ss){
     el("div",{class:"row",style:"gap:8px;margin-top:8px"},
       el("button",{class:"btn ghost sm","aria-label":"Remove last set",style:"flex:1",onClick:()=>{ if(item.sets.length>1){item.sets.pop();persistSession();render();} }},ic("minus",16),"Remove set"),
       el("button",{class:"btn ghost sm","aria-label":"Remove exercise",style:"flex:1",onClick:()=>{
+        if(item.sets.some(s=>s.done) && !confirm(`Remove ${ex?.name||"this exercise"}? Its completed sets will be discarded.`)) return;
         State.activeSession.items=State.activeSession.items.filter(x=>x!==item);persistSession();render();
       }},ic("x",16),"Remove")
     ),
@@ -1218,6 +1222,12 @@ function previewRow(item){
 async function persistSession(){ await setMeta("activeSession",State.activeSession); }
 async function finishSession(){
   const s=State.activeSession;
+  // sets the user actually entered (edited weight or reps) but forgot to tick done — don't silently drop them
+  const pending = s.items.flatMap(it=>it.sets.filter(x=>!x.done && !x.drop && +x.reps>0 && (x.wTouched||x.rTouched)));
+  if(pending.length){
+    if(confirm(`${pending.length} set${pending.length>1?"s have":" has"} weights or reps entered but ${pending.length>1?"aren't":"isn't"} ticked as done.\n\nOK — save them too.\nCancel — finish without them.`))
+      pending.forEach(x=>x.done=true);
+  }
   // commit session + sets that are marked done
   const done = s.items.flatMap(it=>it.sets.filter(x=>x.done&&x.reps>0).map((x,i)=>({
     id:uid(),sessionId:s.id,exerciseId:it.exerciseId,weight:+x.weight,reps:+x.reps,
