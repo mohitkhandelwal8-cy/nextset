@@ -369,7 +369,7 @@ function toast(msg){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v69"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v70"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -627,6 +627,13 @@ function matchScore(qTokens, name){ const nt=searchTokens(name);
   return qTokens.filter(w=> nt.some(x=> x===w || x.startsWith(w))).length; }
 const rankByMatch = (q, items, nameOf=e=>e.name) => { const qt=searchTokens(q);
   return items.map(e=>[e,matchScore(qt,nameOf(e))]).filter(([,s])=>s>0).sort((a,b)=>b[1]-a[1]||nameOf(a[0]).length-nameOf(b[0]).length).map(([e])=>e); };
+// which search section leads: your-collection first UNLESS the library has a strictly stronger top
+// match (so "leg press" surfaces the library's Leg Press over your own Dumbbell Bench Press).
+const libLeadsSearch = (q, mine, libs) => {
+  const qt=searchTokens(q);
+  const mt=mine.length?matchScore(qt,mine[0].name):0, lt=libs.length?matchScore(qt,libs[0].name):0;
+  return lt>mt;
+};
 const gymNameOf = id => State.gyms.find(g=>g.id===id)?.name || "";
 // exercises confirmed as the SAME physical machine share a linkId; return every id in the group
 const linkedIds = exerciseId => {
@@ -692,7 +699,6 @@ async function suggestNext(ex){
   // weighted → volume model. If you fell short of the target last time, HOLD (no progression);
   // two short sessions running → ease back ~10% to rebuild. Otherwise climb by your target %.
   const pl = isPlate(ex);
-  const fmtVol = n => Math.round(n).toLocaleString(undefined);
   const streak = (await getMeta(progKey(ex)))?.streak || 0;
   let plan, note, kind, targetVol;
   if(streak>=1){
@@ -700,20 +706,28 @@ async function suggestNext(ex){
     const {seed,Vlast} = normalizeSeed(prev.sets, sets);
     plan = seed.map(s=>({weight:s.weight,reps:s.reps})); targetVol = Vlast; kind = "hold";
     note = streak>=3
-      ? `Same target ~${fmtVol(Vlast)} — ${streak} sessions running. Stick with it; if it's truly not moving, ease the weight down a notch yourself.`
-      : `Came up short last time — holding at ~${fmtVol(Vlast)} (no increase). Nail it and we add load again next.`;
+      ? `Still holding — ${streak} sessions at this target. Stick with it; if it's truly stuck, ease the weight down a notch yourself.`
+      : `Came up short last time — same weights and reps again. Nail every set and we add load next.`;
   } else {
     // autoregulate the target by how the last session felt (Easy → push, Grind → ease)
     const baseline = volTarget(), pct = rpeTargetPct(baseline, prev.sets.map(s=>s.rpe));
-    const feel = pct>baseline ? "Last time felt easy — pushing harder. " : pct<baseline ? "Last time was a grind — easing off. " : "";
+    const feel = pct>baseline ? "Last time felt easy — let's push. " : pct<baseline ? "Last time was a grind — easing off a touch. " : "";
     const r = volumeProgress(prev.sets, {sets,repMin,repMax,inc,pct});
     plan = r.plan; targetVol = r.Vnew;
     kind = r.weightAdded ? "weight" : (r.repAdded ? "rep" : "repeat");
-    const gain = r.Vlast>0 ? Math.round((r.Vnew-r.Vlast)/r.Vlast*100) : 0;
     const top = Math.max(...r.plan.map(s=>s.weight));
-    note = `${feel}Target +${pct}% volume — ~${fmtVol(r.Vnew)} vs ${fmtVol(r.Vlast)} last time (+${gain}%). ` + (r.weightAdded ? `Top set → ${fmtW(top,ex)}${pl?" added":""}.` : `Same weights, +reps.`);
+    if(r.weightAdded){
+      note = `${feel}Beat last time: take your top set to ${fmtW(top,ex)}${pl?" added":""}.`;
+    } else if(r.repAdded){
+      const {seed} = normalizeSeed(prev.sets, sets);
+      const extra = Math.max(1, Math.round(r.plan.reduce((t,s)=>t+s.reps,0) - seed.reduce((t,s)=>t+s.reps,0)));
+      note = `${feel}Beat last time: same weights, ${extra>1?`${extra} more reps`:"one more rep"} than before.`;
+    } else {
+      note = `${feel}Match last time, then we'll add load.`;
+    }
   }
-  const outPlan = plan.map(s=>({weight:s.weight, reps:s.reps, target:s.reps}));
+  const outPlan = plan.map(s=>({weight:s.weight, reps:s.reps, target:s.reps}))
+    .sort((a,b)=> a.weight-b.weight || b.reps-a.reps);   // clean display order (not 10/9/10); keeps the completion pull-up safe
   return { plan: outPlan, note, kind, prev, targetVol };
 }
 
@@ -889,9 +903,14 @@ function viewToday(){
       el("div",{class:"statuscard-eyebrow"},"Ready to start"),
       el("div",{style:"font-weight:700;font-size:18px"},"Today's workout"),
       el("div",{class:"small muted",style:"margin-top:2px"}, `${curGym()?.name||""} · ${sum}`),
-      el("button",{class:"btn",style:"width:100%;margin-top:14px;font-size:16px",onClick:startWorkout}, ic("play"), "Start workout"),
+      // with no exercises yet, the useful action is Add — starting an empty workout leads nowhere
+      s.items.length
+        ? el("button",{class:"btn",style:"width:100%;margin-top:14px;font-size:16px",onClick:startWorkout}, ic("play"), "Start workout")
+        : el("button",{class:"btn",style:"width:100%;margin-top:14px;font-size:16px",onClick:()=>openAddExerciseSheet(()=>render())}, ic("plus"), "Add exercises"),
       el("div",{class:"row",style:"gap:8px;margin-top:8px"},
-        el("button",{class:"btn secondary sm",style:"flex:1",onClick: s.items.length?openPlanSheet:()=>openAddExerciseSheet(()=>render())}, ic("clipboard"), s.items.length?"Edit plan":"Add exercises"),
+        s.items.length
+          ? el("button",{class:"btn secondary sm",style:"flex:1",onClick:openPlanSheet}, ic("clipboard"), "Edit plan")
+          : el("button",{class:"btn secondary sm",style:"flex:1",onClick:startWorkout}, ic("play"), "Start empty"),
         el("button",{class:"btn ghost sm",style:"flex:1",onClick:discardSession}, ic("x"), "Discard"))
     ));
     if(s.items.length) s.items.forEach(it=>wrap.append(previewRow(it)));
@@ -1732,8 +1751,9 @@ function openAddExerciseSheet(afterClose){
         if(LIB) foot.append(customBtn());
         return;
       }
-      if(mine.length){ results.append(el("div",{class:"regionhead"},"Your exercises")); mine.slice(0,CAP).forEach(e=>results.append(ownRow(e))); }
-      if(libs.length){ results.append(el("div",{class:"regionhead"},"From the library")); libs.slice(0,CAP).forEach(e=>results.append(libRow(e))); }
+      const mineSec=()=>{ results.append(el("div",{class:"regionhead"},"Your exercises")); mine.slice(0,CAP).forEach(e=>results.append(ownRow(e))); };
+      const libsSec=()=>{ results.append(el("div",{class:"regionhead"},"From the library")); libs.slice(0,CAP).forEach(e=>results.append(libRow(e))); };
+      (libLeadsSearch(q, mine, libs) ? [libs.length&&libsSec, mine.length&&mineSec] : [mine.length&&mineSec, libs.length&&libsSec]).forEach(fn=>fn&&fn());
       foot.append(el("div",{class:"tiny muted",style:"margin:10px 2px 0"},"Not the one you want?"), customBtn());
     }
     function renderGroups(){
@@ -2086,8 +2106,9 @@ function openHistoryAddExercise(se, existingIds, closeDetail){
     function renderSearch(q){ results.replaceChildren(); foot.replaceChildren(); const taken=ownNames();
       const mine=rankByMatch(q, own()); const libs=rankByMatch(q,(LIB||[]).filter(e=>!taken.has(normName(e.name))));
       if(!mine.length&&!libs.length){ results.append(el("p",{class:"muted small",style:"margin:8px 2px"}, LIB?"Nothing matches — create it as a custom exercise below.":"Loading the library…")); if(LIB)foot.append(customBtn()); return; }
-      if(mine.length){ results.append(el("div",{class:"regionhead"},"Your exercises")); mine.slice(0,CAP).forEach(e=>results.append(ownRow(e))); }
-      if(libs.length){ results.append(el("div",{class:"regionhead"},"From the library")); libs.slice(0,CAP).forEach(e=>results.append(libRow(e))); }
+      const mineSec=()=>{ results.append(el("div",{class:"regionhead"},"Your exercises")); mine.slice(0,CAP).forEach(e=>results.append(ownRow(e))); };
+      const libsSec=()=>{ results.append(el("div",{class:"regionhead"},"From the library")); libs.slice(0,CAP).forEach(e=>results.append(libRow(e))); };
+      (libLeadsSearch(q, mine, libs) ? [libs.length&&libsSec, mine.length&&mineSec] : [mine.length&&mineSec, libs.length&&libsSec]).forEach(fn=>fn&&fn());
       foot.append(el("div",{class:"tiny muted",style:"margin:10px 2px 0"},"Not the one you want?"), customBtn());
     }
     function renderGroups(){ results.replaceChildren(); foot.replaceChildren(); const taken=ownNames();
