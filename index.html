@@ -418,7 +418,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v76"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v77"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -581,8 +581,23 @@ function bwCoef(name){
   for(const [keys,c] of BW_COEF){ if(keys.some(k=>n.includes(k))) return c; }
   return 0.60;
 }
-// calibrated/entered kg-per-level for numbered-stack machines (null until known)
-function levelKg(ex){ return (ex && +ex.kgPerLevel>0) ? +ex.kgPerLevel : null; }
+// kg-per-level for numbered-stack machines: user-entered value wins; else inferred from an
+// equivalent kg machine's calibration (through-origin ratio IS kg-per-level); else null
+function levelKg(ex){
+  if(ex && +ex.kgPerLevel>0) return +ex.kgPerLevel;
+  if(ex && ex.unit==="lvl" && ex.equivId && State.calib){
+    const rec=State.calib[ex.equivId];
+    if(rec && rec.ratio>0){
+      const other=equivOther(ex);
+      if(other && (other.unit||"kg")==="kg"){          // anchor side must be a kg machine
+        const exIsAnchor=linkedIds(ex.id).includes(rec.anchor);
+        const k = exIsAnchor ? rec.ratio : 1/rec.ratio; // kg e1RM ÷ level e1RM
+        if(k>0 && isFinite(k)) return k;
+      }
+    }
+  }
+  return null;
+}
 // Effective tonnage of one committed set, in kg. Returns null when kg isn't knowable
 // (numbered levels without a kg-per-level, isometric holds). Display/insights layer ONLY —
 // the progression engine works in each exercise's native units and never reads this.
@@ -695,6 +710,9 @@ async function loadState(){
   State.bwUnit = (await getMeta("bwUnit"))==="lb" ? "lb" : "kg";
   const sx = await getMeta("sex");
   State.sex = (sx==="m"||sx==="f") ? sx : null;
+  // calibration records cached for sync reads (levelKg/setTonnage run in tight loops)
+  State.calib={};
+  for(const m of await DB.all("meta")){ if(m && typeof m.k==="string" && m.k.startsWith("calib:") && m.v) State.calib[m.k.slice(6)]=m.v; }
   // resume only if same day
   if(State.activeSession && State.activeSession.date !== todayISO()){
     State.activeSession=null; await DB.put("meta",{k:"activeSession",v:null});
@@ -795,6 +813,33 @@ async function suggestNext(ex){
   const prev = await lastSetsFor(ex.id, State.activeSession?.id);
   const sets = Math.max(1, ex.sets||3);
   const repMin = ex.repMin||8, repMax = ex.repMax||12, inc = ex.increment||2.5;
+  // equivalent-machine mapping (hint, never override): no recent own history, but the linked
+  // machine at the other gym has one + a calibration ratio → map its plan through the ratio.
+  // Inert unless the user linked machines as equivalent (ex.equivId).
+  if(ex.equivId && (!prev || daysAgo(prev.session.date)>21)){
+    const other=equivOther(ex), rate=calibRateFor(ex);
+    if(other && rate){
+      const oPrev=await lastSetsFor(other.id, State.activeSession?.id);
+      if(oPrev && daysAgo(oPrev.session.date)<=21){
+        // the equivalent's own suggested plan (volume model, no meta side effects), then convert
+        const oSets=Math.max(1,other.sets||3), oInc=other.increment||2.5;
+        const baseO=Math.max(0,...oPrev.sets.map(s2=>+s2.weight||0));
+        let oPlan=null;
+        if(baseO>0){
+          const streakO=(await getMeta(progKey(other)))?.streak || 0;
+          if(streakO>=1) oPlan=normalizeSeed(oPrev.sets, oSets).seed;
+          else oPlan=volumeProgress(oPrev.sets,{sets:oSets,repMin:other.repMin||8,repMax:other.repMax||12,inc:oInc,pct:rpeTargetPct(volTarget(), oPrev.sets.map(s2=>s2.rpe))}).plan;
+        }
+        if(oPlan){
+          const mapped=oPlan.map(p=>({weight:Math.max(0, round(p.weight*rate, inc)), reps:Math.max(repMin, Math.min(repMax, p.reps)), target:p.reps}))
+            .sort((a,b)=> a.weight-b.weight || b.reps-a.reps);
+          const topO=Math.max(...oPlan.map(p=>p.weight)), topM=Math.max(...mapped.map(p=>p.weight));
+          return { plan: mapped, kind:"mapped", prev,
+            note:`Based on ${other.name} at ${gymNameOf(other.gymId)||"your other gym"} (${fmtW(topO,other)} there) — ≈ ${fmtW(topM,ex)} here. First time mapping, so treat it as a starting point.` };
+        }
+      }
+    }
+  }
   if(!prev){
     return { plan: Array.from({length:sets},()=>({weight:0,reps:repMin,target:repMin})),
              note: isBW(ex)?"First time — log your reps and I'll progress them next time.":"First time on this — log a working set and I'll progress it next time.", kind:"new" };
@@ -850,6 +895,19 @@ async function suggestNext(ex){
   }
   const outPlan = plan.map(s=>({weight:s.weight, reps:s.reps, target:s.reps}))
     .sort((a,b)=> a.weight-b.weight || b.reps-a.reps);   // clean display order (not 10/9/10); keeps the completion pull-up safe
+  // own history wins — but if the equivalent machine's NEWER sessions disagree by >10%, say so
+  if(ex.equivId){
+    const other=equivOther(ex), rate=calibRateFor(ex);
+    if(other && rate){
+      const oPrev=await lastSetsFor(other.id, State.activeSession?.id);
+      if(oPrev && oPrev.session.date>prev.session.date){
+        const mappedTop=round(Math.max(0,...oPrev.sets.map(s2=>+s2.weight||0))*rate, inc);
+        const ownTop=Math.max(0,...outPlan.map(s2=>s2.weight));
+        if(ownTop>0 && mappedTop>ownTop*1.1)
+          note+=` Your ${gymNameOf(other.gymId)||"other gym"} sessions suggest you're stronger than this — try ${fmtW(mappedTop,ex)} if it feels light.`;
+      }
+    }
+  }
   return { plan: outPlan, note, kind, prev, targetVol, bwBase: bwBase||null };
 }
 
@@ -943,13 +1001,136 @@ function maybePromptSameMachine(ex){
   if(!equipGymScoped(ex.equipment)) return;        // only machines/cables are gym-bound
   const other=findSameNameOtherGym(ex);
   if(!other) return;
+  const canEquiv = canBeEquivalent(ex) && canBeEquivalent(other) && !ex.equivId && !other.equivId;
   openSheet("Same machine?", (body,close)=>{
     body.append(el("p",{class:"small muted",style:"margin-top:-6px"},
-      `You also have "${other.name}" at ${gymNameOf(other.gymId)}. If it's the exact same machine, I'll combine their progress into one trend. If they feel different (e.g. one's a cable, the other a plate machine), keep them separate.`));
+      `You also have "${other.name}" at ${gymNameOf(other.gymId)}. If it's the exact same machine, I'll combine their progress into one trend. If it's a different machine for the same movement, I can map suggestions between them instead.`));
     body.append(
       el("button",{class:"btn",onClick:async()=>{ await linkExercises(ex,other); close(); render(); toast("Combined — progress is now shared"); }}, ic("check"), "Same machine — combine"),
-      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:close}, "Different machine"));
+      ...(canEquiv?[el("button",{class:"btn secondary",style:"margin-top:8px",onClick:async()=>{ await linkEquivalent(ex,other); close(); render(); toast("Linked as equivalent — separate history, mapped suggestions"); }}, ic("link",16), "Different machine — same movement")]:[]),
+      el("button",{class:"btn ghost",style:"margin-top:8px",onClick:close}, canEquiv?"Unrelated":"Different machine"));
   });
+}
+
+/* ============================================================
+   EQUIVALENT MACHINES  (same movement, different machine)
+   linkId = same physical machine (histories pool).
+   equivId = same movement on a different machine: histories and PRs stay
+   separate; only a calibration ratio (an "exchange rate") is shared, so
+   suggestions can be mapped as HINTS. v1: loaded machines/cables only,
+   pairwise groups. With no equivId anywhere, all of this is inert.
+   ============================================================ */
+const canBeEquivalent = ex => !!(ex && ex.gymId && (ex.equipment==="machine"||ex.equipment==="cable"));
+const equivGroup = equivId => State.exercises.filter(e=>e.equivId===equivId);
+// one exercise per physical machine (a linkId pool counts as a single node)
+function equivNodes(equivId){
+  const seen=new Set(), nodes=[];
+  for(const e of equivGroup(equivId)){ const k=e.linkId||e.id; if(seen.has(k))continue; seen.add(k); nodes.push(e); }
+  return nodes;
+}
+// the equivalent counterpart of ex (the other node of its pair), or null
+function equivOther(ex){
+  if(!ex||!ex.equivId) return null;
+  const myKey=ex.linkId||ex.id;
+  return equivNodes(ex.equivId).find(n=>(n.linkId||n.id)!==myKey) || null;
+}
+async function putCalib(equivId, rec){ await setMeta("calib:"+equivId, rec); (State.calib=State.calib||{})[equivId]=rec; }
+async function linkEquivalent(a,b){
+  const eid=a.equivId||b.equivId||("eq-"+uid());
+  const ids=new Set([...linkedIds(a.id), ...linkedIds(b.id)]);
+  for(const e of State.exercises){ if(ids.has(e.id)){ e.equivId=eid; await DB.put("exercises",e); } }
+  State.exercises=await DB.all("exercises");
+  await recomputeCalib(eid);          // initial ratio from any overlapping history
+  return eid;
+}
+async function unlinkEquiv(equivId){
+  for(const e of State.exercises.filter(e=>e.equivId===equivId)){ delete e.equivId; await DB.put("exercises",e); }
+  await DB.del("meta","calib:"+equivId);
+  if(State.calib) delete State.calib[equivId];
+  State.exercises=await DB.all("exercises");
+}
+// best per-session e1RM series for a machine (pooled across its linkId group): [{date, m}]
+async function e1rmSeries(exId){
+  let sets=[]; for(const id of linkedIds(exId)) sets=sets.concat(await DB.byIndex("sets","exerciseId",id));
+  const by=Object.fromEntries((await DB.all("sessions")).map(s=>[s.id,s]));
+  const bySession={};
+  for(const s of sets){ if(!(s.reps>0))continue; const se=by[s.sessionId]; if(!se)continue;
+    bySession[se.date]=Math.max(bySession[se.date]||0, epley(+s.weight||0, s.reps)); }
+  return Object.entries(bySession).sort((a,b)=>a[0].localeCompare(b[0])).map(([date,m])=>({date,m}));
+}
+// calibration pairs: for each B session, the nearest A session ≤14 days away (each A used once)
+function calibPairs(seriesA, seriesB){
+  const usedA=new Set(), pairs=[];
+  for(const b of seriesB){
+    let best=null, bestD=15;
+    for(let i=0;i<seriesA.length;i++){
+      if(usedA.has(i))continue;
+      const d=Math.abs((new Date(b.date+"T12:00:00")-new Date(seriesA[i].date+"T12:00:00"))/86400000);
+      if(d<=14 && d<bestD){ bestD=d; best=i; }
+    }
+    if(best!=null){ usedA.add(best); pairs.push({a:seriesA[best].m, b:b.m, date:b.date}); }
+  }
+  return pairs;
+}
+// least squares through the origin (zero strength = zero on both rulers; robust with few points)
+function calibRatio(pairs){
+  if(!pairs||!pairs.length) return null;
+  let saa=0,sab=0; for(const p of pairs){ saa+=p.a*p.a; sab+=p.a*p.b; }
+  return saa>0 ? sab/saa : null;
+}
+// recompute a pair's ratio from history (lazily, after sessions commit). Keeps the original
+// anchor (the reference ruler) once set; preserves any RPE drift as a factor on the new fit.
+async function recomputeCalib(equivId){
+  const nodes=equivNodes(equivId); if(nodes.length<2) return null;
+  const [n1,n2]=nodes;
+  const s1=await e1rmSeries(n1.id), s2=await e1rmSeries(n2.id);
+  const prev=await getMeta("calib:"+equivId);
+  let anchorId = prev?.anchor;
+  if(!anchorId || ![...linkedIds(n1.id),...linkedIds(n2.id)].includes(anchorId))
+    anchorId = s1.length>=s2.length ? n1.id : n2.id;
+  const aIsN1=linkedIds(n1.id).includes(anchorId);
+  const pairs=calibPairs(aIsN1?s1:s2, aIsN1?s2:s1).slice(-8);   // rolling, last 8
+  const fitted=calibRatio(pairs);
+  if(fitted==null){                       // nothing paired yet — keep a cold-start seed if present
+    if(prev) return prev;
+    return null;
+  }
+  const drift = (prev && prev.fitted>0 && prev.ratio>0) ? Math.max(0.85,Math.min(1.15,prev.ratio/prev.fitted)) : 1;
+  const rec={pairs, fitted, ratio:fitted*drift, anchor:anchorId, updatedAt:new Date().toISOString()};
+  await putCalib(equivId, rec);
+  return rec;
+}
+// exchange rate INTO ex's units: multiply the other machine's weights by this
+function calibRateFor(ex){
+  const rec=State.calib && ex && ex.equivId ? State.calib[ex.equivId] : null;
+  if(!rec || !(rec.ratio>0)) return null;
+  return linkedIds(ex.id).includes(rec.anchor) ? 1/rec.ratio : rec.ratio;
+}
+// first completed set on a machine with an equivalent but no calibration yet →
+// one quick question seeds the exchange rate (±7% by feel)
+async function maybeSeedCalib(ex, set){
+  if(!ex||!ex.equivId||!(+set.reps>0)) return;
+  const rec=await getMeta("calib:"+ex.equivId);
+  if(rec && (rec.ratio>0 || (rec.pairs&&rec.pairs.length))) return;
+  const s=State.activeSession; if(!s || s["calibAsked_"+ex.equivId]) return;
+  const other=equivOther(ex); if(!other) return;
+  const oSeries=await e1rmSeries(other.id); if(!oSeries.length) return;
+  const a=oSeries[oSeries.length-1].m, b=epley(+set.weight||0, +set.reps);
+  if(!(a>0&&b>0)) return;
+  s["calibAsked_"+ex.equivId]=true; persistSession();
+  openSheet("Quick calibration",(body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin-top:-6px"},
+      `First time mapping this machine. Compared to ${other.name} at ${gymNameOf(other.gymId)}, how did that set feel?`));
+    const pick=async f=>{
+      const ratio=(b*f)/a;                 // anchor = the machine that already has history
+      await putCalib(ex.equivId,{pairs:[{a, b:b*f, date:todayISO()}], fitted:ratio, ratio, anchor:other.id, updatedAt:new Date().toISOString()});
+      close(); toast("Got it — suggestions between these machines are calibrated");
+    };
+    body.append(
+      el("button",{class:"btn secondary",onClick:()=>pick(1.07)},"Easier than usual"),
+      el("button",{class:"btn",style:"margin-top:8px",onClick:()=>pick(1)},"About the same"),
+      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>pick(0.93)},"Harder than usual"));
+  }, {stacked: !!document.querySelector("#sheetHost .sheet")});
 }
 
 /* ============================================================
@@ -1227,6 +1408,7 @@ function progBadge(item){
   if(item.kind==="rep")    return el("span",{class:"progpill up"},"↑ more reps");
   if(item.kind==="deload") return el("span",{class:"progpill down"},"↓ deload");
   if(item.kind==="hold")   return el("span",{class:"progpill hold"},"→ hold");
+  if(item.kind==="mapped") return el("span",{class:"progpill hold"},"≈ from your other gym");
   return null;
 }
 // an exercise counts as done once it's minimized, or every set is checked off
@@ -1324,6 +1506,7 @@ function loggerCard(item, isCurrent, ss){
       set.done=!set.done;
       if(set.done){
         const pr=await prCheck(ex,+set.weight,+set.reps); toast(pr || `${drop?"Drop":"Set "+setNo}: ${fmtSetShort(ex,set.weight,set.reps)}`);
+        maybeSeedCalib(ex, set);   // first set on an uncalibrated equivalent machine → one quick question
         const nxt=item.sets[si+1];   // bring the next un-logged set up to what you just did — but never
         if(nxt && !nxt.done && !nxt.drop && nxt.weight<=set.weight){        // clobber a value the user typed
           if(!nxt.wTouched) nxt.weight=set.weight;
@@ -1511,6 +1694,24 @@ async function commitSession(){
     const met = got >= it.targetVol*0.98;                                 // within 2% counts as meeting it
     const rec = await getMeta(progKey(ex)) || {streak:0};
     await setMeta(progKey(ex), {streak: met?0:(rec.streak||0)+1, date:s.date});
+  }
+  // equivalent machines: refresh calibration ratios lazily; a mapped session's feel tunes them
+  const eqIds=new Set(s.items.map(it=>State.exercises.find(e=>e.id===it.exerciseId)?.equivId).filter(Boolean));
+  for(const eid of eqIds) await recomputeCalib(eid);
+  for(const it of s.items){
+    if(it.kind!=="mapped") continue;
+    const ex=State.exercises.find(e=>e.id===it.exerciseId); if(!ex||!ex.equivId) continue;
+    const rec=await getMeta("calib:"+ex.equivId); if(!rec || !(rec.ratio>0)) continue;
+    const rpes=it.sets.filter(x=>x.done&&x.reps>0).map(x=>x.rpe||it.rpe).filter(Boolean);
+    if(!rpes.length) continue;
+    let f=1; if(rpes.includes("grind")) f=0.95; else if(rpes.every(r=>r==="easy")) f=1.05;
+    if(f===1) continue;
+    const isAnchor=linkedIds(ex.id).includes(rec.anchor);              // drift toward THIS machine's direction
+    const drifted=rec.ratio*(isAnchor?1/f:f);
+    const base=rec.fitted>0?rec.fitted:rec.ratio;
+    rec.ratio=Math.max(base*0.85, Math.min(base*1.15, drifted));       // total drift capped at ±15% of the fit
+    rec.updatedAt=new Date().toISOString();
+    await putCalib(ex.equivId, rec);
   }
   _exStatus=null;   // training status changed
   State.activeSession=null; await setMeta("activeSession",null);
@@ -1734,7 +1935,9 @@ function openExerciseSheet(ex, opts={}){
     unit.value=ex.unit;
     const lvlHint=el("div",{class:"tiny",style:"color:var(--accent);margin:-4px 0 10px;display:none"},
       "Numbered stack (Precor-style): log the level you set — 1, 2, 3… — not kg. NextSet tracks progress on the level and steps you up one at a time.");
-    const syncUnit=()=>{ lvlHint.style.display = unit.value==="lvl" ? "" : "none"; };
+    const kplInp=el("input",{type:"number",step:"0.5",min:"0",value: +ex.kgPerLevel>0? String(ex.kgPerLevel):"",placeholder:"optional"});
+    const kplField=el("label",{class:"field",style:"display:none"},el("span",{},"kg per level (if the stack shows it)"),kplInp);
+    const syncUnit=()=>{ const lvl=unit.value==="lvl"; lvlHint.style.display = lvl ? "" : "none"; kplField.style.display = lvl ? "" : "none"; };
     const initEquip = ex.equipment!==undefined ? ex.equipment : guessEquipment(ex.name);
     const eqSel=equipSelect(initEquip);
     const inc=el("input",{type:"number",step:"0.5",value: isNew ? EQUIP[initEquip].inc : ex.increment});
@@ -1784,7 +1987,7 @@ function openExerciseSheet(ex, opts={}){
       el("div",{class:"grid2"},
         el("label",{class:"field"},el("span",{},"Equipment"),eqSel),
         el("label",{class:"field"},el("span",{},"Weight unit"),unit)),
-      lvlHint,
+      lvlHint, kplField,
       gymField, linkHint, globalNote,
       el("div",{class:"grid2"},
         el("label",{class:"field"},el("span",{},"Smallest increment"),inc),
@@ -1805,7 +2008,8 @@ function openExerciseSheet(ex, opts={}){
       const equipment=eqSel.value;
       const base={name:name.value.trim(),equipment,unit:unit.value,increment:+inc.value||EQUIP[equipment].inc,
         sets:+sets.value||3,repMin:+rmin.value||8,repMax:+rmax.value||12,
-        primary:pSel.value||null, secondary:sSel.value||null, restSec:+restSel.value||suggestRest({name:name.value,repMax:+rmax.value||12,primary:pSel.value})};
+        primary:pSel.value||null, secondary:sSel.value||null, restSec:+restSel.value||suggestRest({name:name.value,repMax:+rmax.value||12,primary:pSel.value}),
+        kgPerLevel:(unit.value==="lvl" && +kplInp.value>0)? +kplInp.value : null};
       if(equipGymScoped(equipment)){
         let desired=gms.get(); if(!desired.length) desired=[State.currentGymId];
         const groupRecords = isNew?[]:linkedIds(ex.id).map(id=>State.exercises.find(e=>e.id===id)).filter(Boolean);
@@ -2626,21 +2830,44 @@ function viewInsights(){
       const metric = bw ? (x=>x.reps) : (x=>epley(x.weight,x.reps));
       const bySession={}; u.sets.forEach(x=>{const se=sessions.find(s=>s.id===x.sessionId);if(!se)return;
         const k=se.date+se.startedAt; bySession[k]=Math.max(bySession[k]||0, metric(x));});
-      const series=Object.entries(bySession).sort((a,b)=>a[0].localeCompare(b[0])).map(e=>e[1]);
+      const entries=Object.entries(bySession).sort((a,b)=>a[0].localeCompare(b[0]));
+      const series=entries.map(e=>e[1]);
       if(!series.length)continue;
+      const dated=entries.map(([k,m])=>({d:k.slice(0,10), m}));   // for the normalized equiv-group chart
       const first=series[0],last=series[series.length-1];
-      stats.push({ex,bw,series,first,last,pct:first>0?((last-first)/first*100):0,
+      stats.push({ex,bw,series,dated,first,last,pct:first>0?((last-first)/first*100):0,
         unitLbl: bw?"reps":"est 1RM", hasTrend:series.length>=2,
         combined: u.exIds.size>1, gyms: u.gymIds.size});
     }
     let strengthCard=null;
     if(stats.length){
       const card=el("div",{class:"card"}); card.append(el("h2",{},"Strength progress"));
-      const groups={}; stats.forEach(s=>{(groups[normName(s.ex.name)]=groups[normName(s.ex.name)]||[]).push(s);});
+      // equivalent-machine pairs render as ONE movement: a normalized (% of each machine's own
+      // start) combined trend, then the per-machine rows in raw units below it
+      const eqGroups={}, rest=[];
+      stats.forEach(s=>{ if(s.ex.equivId) (eqGroups[s.ex.equivId]=eqGroups[s.ex.equivId]||[]).push(s); else rest.push(s); });
+      const groups={}; rest.forEach(s=>{(groups[normName(s.ex.name)]=groups[normName(s.ex.name)]||[]).push(s);});
       const pctEl = s => s.hasTrend
         ? el("div",{class:"small",style:(s.pct>1?"color:var(--accent-2)":s.pct<-1?"color:var(--warn)":"color:var(--muted)")},
             (s.pct>=0?"▲ ":"▼ ")+Math.abs(Math.round(s.pct))+"%")
         : el("div",{class:"small muted"}, `${Math.round(s.last)} ${s.unitLbl}`);
+      Object.values(eqGroups).forEach(arr=>{
+        if(arr.length<2){ const s=arr[0]; (groups[normName(s.ex.name)]=groups[normName(s.ex.name)]||[]).push(s); return; }  // partner not logged yet
+        const block=el("div",{style:"margin-bottom:16px"});
+        block.append(el("div",{class:"row between",style:"margin-bottom:4px"},
+          el("div",{style:"font-weight:600;font-size:14px"}, arr[0].ex.name),
+          el("span",{class:"tiny muted"},"equivalent machines · normalized")));
+        const pts=[];
+        arr.forEach(s=>{ const f=s.dated.length?s.dated[0].m:0; if(f>0) s.dated.forEach(p=>pts.push({d:p.d, v:p.m/f*100})); });
+        pts.sort((a,b)=>a.d.localeCompare(b.d));
+        if(pts.length>=2) block.append(lineChart(pts.map(p=>p.v),{labels:pts.map(p=>fmtShortDate(p.d)), fmt:v=>Math.round(v)+"%"}));
+        block.append(el("div",{class:"tiny muted",style:"margin:2px 0 6px"},
+          `combined trend across ${arr.length} machines · ${[...new Set(arr.map(s=>gymNameOf(s.ex.gymId)).filter(Boolean))].join(", ")} · 100% = each machine's first session`));
+        arr.forEach(s=>block.append(el("button",{class:"rowbtn",style:"margin:4px 0",onClick:()=>openExerciseProgress(s.ex.id)},
+          el("div",{class:"row between",style:"width:100%"},
+            el("div",{class:"small muted"}, `${s.ex.name!==arr[0].ex.name? s.ex.name+" · ":""}${gymNameOf(s.ex.gymId)||""}`), pctEl(s)))));
+        card.append(block);
+      });
       Object.values(groups).forEach(arr=>{
         const block=el("div",{style:"margin-bottom:16px"});
         if(arr.length===1){
@@ -3064,10 +3291,52 @@ function openExerciseProgress(exId){
       } else {
         mount.append(el("p",{class:"muted small",style:"margin:2px 0 0"}, "No sets logged yet — your progress will show up here."));
       }
+      // level machines: show the inferred/entered kg-per-level so tonnage isn't a black box
+      if(ex.unit==="lvl"){
+        const kpl=levelKg(ex);
+        if(kpl!=null){
+          const src = +ex.kgPerLevel>0 ? "you set this in exercise settings"
+            : `from your ${equivOther(ex)?.name||"equivalent machine"} history — edit in exercise settings to override`;
+          mount.append(el("div",{class:"tiny muted",style:"margin-top:10px"},`1 level ≈ ${Math.round(kpl*10)/10} kg (${src}).`));
+        }
+      }
+      // equivalent machines: link / unlink (machines & cables only; hint-level feature)
+      if(canBeEquivalent(ex)){
+        if(ex.equivId){
+          const eqOther=equivOther(ex);
+          mount.append(el("button",{class:"btn ghost sm",style:"width:100%;margin-top:12px",onClick:async()=>{
+            if(!confirm(`Unlink ${ex.name} from ${eqOther?eqOther.name:"its equivalent"}? Mapped suggestions and the combined trend go away; logged history stays.`))return;
+            await unlinkEquiv(ex.equivId); close(); render(); toast("Unlinked equivalent");
+          }},ic("x",15),"Unlink equivalent"+(eqOther?` (${eqOther.name})`:"")));
+        } else {
+          const seen=new Set(linkedIds(ex.id));
+          const nodeSeen=new Set();
+          const candidates=State.exercises.filter(e=> !seen.has(e.id) && canBeEquivalent(e) && e.gymId!==ex.gymId
+            && !e.equivId && e.primary && e.primary===ex.primary)
+            .filter(e=>{ const k=e.linkId||e.id; if(nodeSeen.has(k))return false; nodeSeen.add(k); return true; });
+          if(candidates.length){
+            mount.append(el("button",{class:"btn ghost sm",style:"width:100%;margin-top:12px",onClick:()=>openEquivLinkSheet(ex,candidates)},
+              ic("link",15),"Train this movement at another gym? Link as equivalent"));
+          }
+        }
+      }
       mount.append(el("div",{class:"divider"}),
         el("button",{class:"btn secondary",style:"width:100%",onClick:()=>{ close(); openExerciseSheet(ex); }},ic("clipboard",16),"Edit exercise"));
     })();
   }, {stacked: !!document.querySelector("#sheetHost .sheet")});  // layer over an open sheet (plan editor, add list…) so closing returns there
+}
+// pick a machine at another gym to link as "same movement, different machine"
+function openEquivLinkSheet(ex, candidates){
+  openSheet("Link as equivalent",(body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin-top:-6px"},
+      "Same movement on a different machine. Histories and PRs stay separate — NextSet just learns an exchange rate between them, so it can suggest a starting weight when you train there."));
+    candidates.forEach(c=> body.append(el("button",{class:"rowbtn",style:"margin:4px 0;width:100%",onClick:async()=>{
+      await linkEquivalent(ex,c); close(); render(); toast("Linked — I'll map suggestions between them");
+    }}, el("div",{class:"row",style:"gap:8px;align-items:center;width:100%"},
+      el("span",{class:"gdot",style:`background:${gymHue(c.gymId)}`}),
+      el("div",{style:"font-weight:600;font-size:14px"},c.name),
+      el("div",{class:"grow"}), el("span",{class:"tiny muted"},gymNameOf(c.gymId))))));
+  },{stacked:true});
 }
 // ranged training-volume series (weekly for 12w, monthly for longer)
 function lastNMonths(n){ const d=new Date(); d.setDate(15); const out=[]; for(let i=n-1;i>=0;i--){ const m=new Date(d); m.setMonth(d.getMonth()-i); out.push(m.toISOString().slice(0,7)); } return out; }
