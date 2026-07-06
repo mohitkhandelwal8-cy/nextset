@@ -143,6 +143,8 @@
     border:none;font-size:13.5px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.28)}
   .ipdot{width:9px;height:9px;border-radius:50%;background:currentColor;flex:none;animation:pulse 1.6s ease-in-out infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .card.upcoming{padding:13px 14px;opacity:.9;cursor:pointer}
+  .card.upcoming:active{opacity:1}
   .sparkwrap{height:60px;width:100%}
   .chip{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:8px 14px;min-height:44px;border-radius:999px;
     background:var(--surface-2);border:1px solid var(--line);color:var(--text);margin:0 6px 8px 0}
@@ -416,7 +418,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v72"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v73"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -920,6 +922,51 @@ setInterval(()=>{
   if(c && s && s.startedAt) c.textContent=fmtElapsed(Date.now()-new Date(s.startedAt).getTime());
 }, 1000);
 
+/* ---------- sample data (for prospects evaluating an empty app) ---------- */
+// every demo record is tagged demo:true so "Remove sample data" can wipe it cleanly
+async function seedDemoData(){
+  if(State.gyms.some(g=>g.demo)){ State.currentGymId=State.gyms.find(g=>g.demo).id; setTab("today"); return; }
+  const now=Date.now(), iso=d=>new Date(now-d*86400000).toISOString(), day=d=>iso(d).slice(0,10);
+  const gymId="demo-gym";
+  await DB.put("gyms",{id:gymId,name:"Demo Gym",createdAt:iso(30),demo:true});
+  const exDefs=[
+    {id:"demo-legpress", name:"Leg Press",    equipment:"machine", primary:"quads",      secondary:"glutes",  inc:5,   base:80, step:5},
+    {id:"demo-latpull",  name:"Lat Pulldown", equipment:"cable",   primary:"lats",       secondary:"biceps",  inc:2.5, base:45, step:2.5},
+    {id:"demo-chestpress",name:"Chest Press", equipment:"machine", primary:"chest",      secondary:"triceps", inc:2.5, base:40, step:2.5},
+    {id:"demo-row",      name:"Seated Row",   equipment:"cable",   primary:"upper_back", secondary:"biceps",  inc:2.5, base:45, step:2.5},
+    {id:"demo-legcurl",  name:"Leg Curl",     equipment:"machine", primary:"hamstrings", secondary:null,      inc:2.5, base:35, step:2.5},
+  ];
+  for(const e of exDefs)
+    await DB.put("exercises",{id:e.id, gymId, name:e.name, unit:"kg", equipment:e.equipment, increment:e.inc,
+      sets:3, repMin:8, repMax:12, primary:e.primary, secondary:e.secondary,
+      restSec:suggestRest({name:e.name,repMax:12,primary:e.primary}), demo:true});
+  const sessionDays=[26,24,22,19,17,15,12,10,8,5,3,1];   // ~3×/week for 4 weeks
+  let sc=0;
+  for(let i=0;i<sessionDays.length;i++){
+    const d=sessionDays[i], week=Math.floor(i/3), sid="demo-s"+i;
+    await DB.put("sessions",{id:sid, gymId, date:day(d), startedAt:iso(d), finishedAt:iso(d), demo:true});
+    let order=0;
+    for(const e of exDefs){
+      const w=e.base + week*e.step, reps=[12,11,10];
+      for(let s=0;s<3;s++)
+        await DB.put("sets",{id:"demo-set-"+(sc++), sessionId:sid, exerciseId:e.id, weight:w, reps:reps[s],
+          rpe:s===2?(week>=2?"grind":"solid"):null, joint:false, order:order++, createdAt:iso(d), demo:true});
+    }
+  }
+  State.currentGymId=gymId; await setMeta("currentGymId",gymId);
+  await loadState(); setTab("insights"); toast("Loaded 4 weeks of sample data");
+}
+async function removeDemoData(){
+  if(!confirm("Remove all sample data? Anything you've added yourself stays.")) return;
+  for(const store of ["sets","sessions","exercises","gyms"]){
+    const all=await DB.all(store);
+    for(const r of all) if(r.demo) await DB.del(store, r.id);
+  }
+  await loadState();
+  if(!State.gyms.find(g=>g.id===State.currentGymId)){ State.currentGymId=State.gyms[0]?.id||null; await setMeta("currentGymId",State.currentGymId||""); }
+  render(); toast("Sample data removed");
+}
+
 /* ---------- onboarding ---------- */
 function viewOnboard(){
   const wrap=el("div",{class:"empty"});
@@ -936,7 +983,10 @@ function viewOnboard(){
     unitSeg,
     el("button",{class:"btn",style:"margin-top:16px",onClick:()=>openGymSheet()},ic("plus"),"Add your first gym"),
     el("button",{class:"btn secondary",style:"margin-top:10px",onClick:importDataFromFile},ic("inbox"),"Restore from a backup"),
-    el("p",{class:"tiny muted",style:"margin-top:10px"},"Reinstalled the app or switched phones? Load a backup you exported earlier and pick up where you left off.")
+    el("p",{class:"tiny muted",style:"margin-top:10px"},"Reinstalled the app or switched phones? Load a backup you exported earlier and pick up where you left off."),
+    el("div",{class:"divider",style:"margin:18px 0 6px"}),
+    el("p",{class:"tiny muted",style:"margin:0 0 8px"},"Just looking around?"),
+    el("button",{class:"btn ghost",onClick:seedDemoData},ic("star"),"See it with sample data")
   );
   return wrap;
 }
@@ -1144,6 +1194,25 @@ function loggerCard(item, isCurrent, ss){
           el("div",{style:"font-weight:700"}, ex?.name||"Exercise"),
           el("div",{class:"tiny muted",style:"white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, summary))),
       el("button",{class:"btn ghost sm",style:"flex:none",onClick:expand},ic("clipboard",15),"Edit")));
+    return card;
+  }
+
+  // ----- UPCOMING (not current, not started, not in a superset): compact row, tap to expand -----
+  const started = item.sets.some(s=>s.done);
+  if(!isCurrent && !started && !ss && !item.peek){
+    const top=Math.max(0,...item.sets.map(s=>+s.weight||0));
+    const tgt=`${item.sets.length}×${ex?.repMin??8}–${ex?.repMax??12}${(top>0&&ex)?` · ${fmtW(top,ex)}`:""}`;
+    const open=()=>{ item.peek=true; render(); };
+    const ub=progBadge(item);
+    const card=el("div",{class:"card upcoming",role:"button",tabindex:"0","aria-label":`Expand ${ex?.name||"exercise"}`,
+      onClick:open, onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();open();}}});
+    card.append(el("div",{class:"row between",style:"gap:10px;align-items:center"},
+      el("div",{style:"min-width:0"},
+        el("div",{class:"row",style:"gap:8px;align-items:center;flex-wrap:wrap"},
+          el("div",{style:"font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, ex?.name||"Exercise"),
+          ...(ub?[ub]:[])),
+        el("div",{class:"tiny muted",style:"margin-top:2px"}, "Up next · "+tgt)),
+      el("span",{class:"chev"},ic("chevron",18))));
     return card;
   }
 
@@ -3069,7 +3138,8 @@ function viewMore(){
     el("p",{class:"small muted",style:"margin-top:-4px"},"It lives on this device — no account, no cloud. Export a backup anytime, then restore it after a reset or on a new phone."),
     el("button",{class:"btn secondary",onClick:()=>exportData("json")},ic("download"),"Export everything (backup)"),
     el("button",{class:"btn secondary",style:"margin-top:8px",onClick:importDataFromFile},ic("inbox"),"Restore from a backup"),
-    el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>exportData("csv")},ic("download"),"Export sets (CSV)")
+    el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>exportData("csv")},ic("download"),"Export sets (CSV)"),
+    ...(State.gyms.some(g=>g.demo)?[el("button",{class:"btn ghost",style:"margin-top:8px",onClick:removeDemoData},ic("x"),"Remove sample data")]:[])
   ));
   wrap.append(el("div",{class:"card"},
     el("h2",{},"About"),
