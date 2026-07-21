@@ -10015,7 +10015,7 @@
   },
   {
     "id": "Reverse_Machine_Flyes",
-    "name": "Reverse Machine Flyes",
+    "name": "Reverse Pec Deck (Machine Reverse Flyes)",
     "primaryMuscles": [
       "shoulders"
     ],
@@ -14560,6 +14560,46 @@
       "Leading with the elbow, raise the arm out to the side until the upper arm reaches shoulder height. Exhale and hold the contraction for a second.",
       "Lower under control back to the start as you inhale, keeping constant tension on the side delt.",
       "Repeat for the recommended reps, then switch sides. Tip: keep the movement strict — no swinging or shrugging."
+    ]
+  },
+  {
+    "id": "Machine_Assisted_Pull_Up",
+    "name": "Assisted Pull-Up (Machine)",
+    "primaryMuscles": [
+      "lats"
+    ],
+    "secondaryMuscles": [
+      "biceps",
+      "middle back"
+    ],
+    "equipment": "machine",
+    "category": "strength",
+    "instructions": [
+      "Select the amount of assistance on the stack — remember that MORE weight means MORE help, so a lower number is harder.",
+      "Kneel or stand on the platform and take an overhand grip on the wide bars, slightly wider than shoulder width. Let your arms extend fully and your shoulder blades rise. This is the starting position.",
+      "Pull your shoulder blades down and back, then drive your elbows down toward your ribs until your chin clears the bar. Exhale through the pull.",
+      "Lower under control to a full stretch as you inhale. Don't let the platform throw you back up.",
+      "Repeat for the recommended reps. To progress, reduce the assistance weight — then graduate to unassisted, and eventually to weighted pull-ups with a belt."
+    ]
+  },
+  {
+    "id": "Bulgarian_Split_Squat",
+    "name": "Bulgarian Split Squat (Rear-Foot-Elevated)",
+    "primaryMuscles": [
+      "quadriceps"
+    ],
+    "secondaryMuscles": [
+      "glutes",
+      "hamstrings"
+    ],
+    "equipment": "dumbbell",
+    "category": "strength",
+    "instructions": [
+      "Stand about two feet in front of a bench, holding a dumbbell in each hand at your sides.",
+      "Place the top of your rear foot on the bench behind you. Your front foot should be far enough forward that your knee stays over mid-foot at the bottom. This is the starting position.",
+      "Keeping your torso tall and your weight through the front heel and mid-foot, lower until your front thigh is roughly parallel to the floor and you feel a stretch in the rear hip. Inhale on the way down.",
+      "Drive through the front foot to stand back up, exhaling at the top. Keep the rear leg passive — it's for balance, not for pushing.",
+      "Complete all reps on one leg, then switch. Tip: a slight forward torso lean biases the glutes; staying upright biases the quads."
     ]
   }
 ]
