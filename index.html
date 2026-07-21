@@ -421,7 +421,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v80"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v81"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -560,8 +560,35 @@ function guessEquipment(name){
 }
 const isBW = ex => !!(ex && ex.equipment==="bodyweight");
 const isPlate = ex => !!(ex && ex.equipment==="plate");
+/* Assisted machines (assisted pull-up / dip / chin): the logged number is ASSISTANCE, so the
+   scale runs backwards — less weight = harder, and 0 = doing it unassisted. Every place that
+   assumes "higher = stronger" (progression, PRs, stalls, trends, tonnage) has to mirror. */
+const isInverted = ex => !!(ex && ex.invertProgress);
+function guessInvert(name){
+  const n=" "+(name||"").toLowerCase()+" ";
+  return n.includes("assist") && ["pull up","pull-up","pullup","chin up","chin-up","chinup","dip","muscle up"].some(k=>n.includes(k));
+}
+// the HARDEST setting in a set of logged sets — normally the heaviest, inverted the least assisted
+const workLoad = (ex, weights) => isInverted(ex) ? Math.min(...weights) : Math.max(...weights);
+// effective load actually moved on an assisted machine = bodyweight share MINUS the assistance
+function invEffectiveKg(ex, assist){
+  if(State.bodyweightKg==null) return null;
+  const c=bwCoef(ex.name)||1;
+  return Math.max(0, State.bodyweightKg*c - (+assist||0));
+}
+// trend/PR metric that always RISES as you get stronger, whatever the exercise's scale
+function exMetric(ex, weight, reps){
+  if(!(reps>0)) return 0;
+  if(isInverted(ex)){
+    const eff=invEffectiveKg(ex, weight);
+    return eff!=null ? epley(eff, reps) : (1+reps/30);   // no bodyweight on file → fall back to reps
+  }
+  if(isBW(ex)) return 1+reps/30;
+  return epley(+weight||0, reps);
+}
 // short display of a logged set — bodyweight: `weight` = ADDED load (0 = bodyweight); plate: 0 = sled only
 function fmtSetShort(ex,w,r){
+  if(isInverted(ex)) return (+w>0) ? `−${w}${ex.unit||"kg"}×${r}` : `${r} reps · unassisted`;
   if(isBW(ex)) return (+w>0) ? `+${w}${ex.unit||"kg"}×${r}` : `${r} reps`;
   if(isPlate(ex) && +w===0) return `${r} reps · sled only`;
   return `${w}${ex.unit||"kg"}×${r}`;
@@ -606,6 +633,10 @@ function levelKg(ex){
 // the progression engine works in each exercise's native units and never reads this.
 function setTonnage(ex, weight, reps){
   if(!ex || !(reps>0)) return null;
+  if(isInverted(ex)){                         // assisted: real work = your bodyweight MINUS the help
+    const eff=invEffectiveKg(ex, weight);
+    return eff!=null ? eff*reps : null;
+  }
   if(ex.unit==="lvl"){
     const kpl = levelKg(ex);
     return kpl!=null ? kpl*weight*reps : null;
@@ -691,6 +722,7 @@ async function loadState(){
       changed=true;
     }
     if(ex.restSec===undefined){ ex.restSec=suggestRest(ex); changed=true; }
+    if(ex.invertProgress===undefined){ ex.invertProgress=guessInvert(ex.name); changed=true; }   // assisted machines run backwards
     if(changed) await DB.put("exercises",ex);
   }
   // one-time migration: old dumbbell default increment was 2 kg — standardize to 2.5
@@ -796,7 +828,8 @@ async function stallCount(exerciseId){
   for(const s of sets){ if(s.reps>0)(bySession[s.sessionId]=bySession[s.sessionId]||[]).push(s); }
   const ordered = sessions.filter(se=>bySession[se.id])
     .sort((a,b)=>(b.date+b.startedAt).localeCompare(a.date+a.startedAt));
-  let topWeights = ordered.map(se=>Math.max(...bySession[se.id].map(x=>x.weight)));
+  const ex0=State.exercises.find(e=>e.id===exerciseId);
+  let topWeights = ordered.map(se=>workLoad(ex0, bySession[se.id].map(x=>x.weight)));   // inverted: least assistance
   let n=0; for(let i=1;i<topWeights.length;i++){ if(topWeights[i]===topWeights[0])n++; else break; }
   return n; // sessions before today at same top weight
 }
@@ -852,11 +885,17 @@ async function suggestNext(ex){
   const adj=await getMeta(adjKey);
   if(adj && adj.type==="deload"){
     await DB.del("meta",adjKey);
-    const top=Math.max(0, ...prev.sets.map(s=>+s.weight||0));
-    const dw=round(top*(1-(adj.pct||10)/100), inc);
+    const pct=(adj.pct||10)/100;
+    const top=workLoad(ex, prev.sets.map(s=>+s.weight||0));
+    // on an assisted machine "easier" means MORE help, so a deload moves the number up, not down
+    const dw=Math.max(0, round(isInverted(ex) ? top*(1+pct) : top*(1-pct), inc));
     return { plan: Array.from({length:sets},()=>({weight:dw,reps:repMin,target:repMin})),
-             note:"Deload you scheduled from Insights — rebuild from here.", kind:"deload", prev };
+             note: isInverted(ex)
+               ? `Deload you scheduled from Insights — more assistance (${fmtW(dw,ex)}) to rebuild from.`
+               : "Deload you scheduled from Insights — rebuild from here.", kind:"deload", prev };
   }
+  // assisted machines run on a backwards scale — their own mirrored double progression
+  if(isInverted(ex)) return invertedNext(ex, prev, {sets,repMin,repMax,inc});
   // pure bodyweight / sled-only (no working load → can't compute volume) keeps classic double progression
   const base = Math.max(0, ...prev.sets.map(s=>+s.weight||0));
   if(base<=0) return classicNext(ex, prev, {sets,repMin,repMax,inc});
@@ -947,6 +986,53 @@ async function classicNext(ex, prev, {sets,repMin,repMax,inc}){
       note = `${bw?`Stalled ${stalls+1} sessions at ${loadStr(workW)}. Drop to ${loadStr(dw)}`:`Stalled ${stalls+1} sessions at ${fmtW(workW,ex)}. Consider a deload to ${fmtW(dw,ex)}`} and rebuild.`;
       kind="deload";
       plan = Array.from({length:sets},()=>({weight:dw,reps:repMin,target:repMin}));
+    }
+  }
+  return {plan,note,kind,prev};
+}
+
+/* Mirrored double progression for assisted machines. The logged number is ASSISTANCE, so the
+   working set is the LEAST-assisted one and progress means taking that number DOWN toward 0.
+   Volume/tonnage is meaningless on this scale (less weight = more work), so — like bodyweight
+   and sled-only — this stays a pure reps-then-load ladder and returns no targetVol. */
+async function invertedNext(ex, prev, {sets,repMin,repMax,inc}){
+  const weights = prev.sets.map(s=>+s.weight||0);
+  const workW = Math.min(...weights);                 // least assistance used = the hard sets
+  const atWork = prev.sets.filter(s=>(+s.weight||0)===workW);
+  const repsAt = atWork.map(s=>s.reps);
+  const minReps = Math.min(...repsAt), maxReps = Math.max(...repsAt);
+  const allTop = repsAt.every(r=>r>=repMax);
+  const rpe = atWork.map(s=>s.rpe).filter(Boolean);
+  const allEasy = rpe.length===atWork.length && rpe.every(r=>r==="easy");
+  const anyGrind = rpe.some(r=>r==="grind");
+  const loadStr = w => (+w)>0 ? `${fmtW(w,ex)} assist` : "unassisted";
+  const mk = (w,r) => Array.from({length:sets},()=>({weight:w,reps:r,target:r}));
+  let plan, note, kind="rep";
+  if(allTop || (allEasy && minReps>=Math.floor((repMin+repMax)/2))){
+    if(workW<=0){
+      // already unassisted and hitting the top of the range — the machine has nothing left to give
+      const tgt = Math.min(maxReps+1, repMax);
+      plan = mk(0, tgt); kind="rep";
+      note = `You're doing these unassisted for ${repMax}+ reps — the machine's done its job. Move to real pull-ups, or start adding load with a belt.`;
+    } else {
+      const w = Math.max(0, round(workW-inc, inc));
+      plan = mk(w, repMin); kind="weight";
+      note = w>0
+        ? `Less help → ${loadStr(w)} × ${repMin}, down from ${loadStr(workW)} last time. You ${allTop?`hit ${repMax}+ on every set`:"left reps in the tank"}.`
+        : `Drop the assistance entirely — try these unassisted for ${repMin}. You ${allTop?`hit ${repMax}+ on every set`:"left reps in the tank"} at ${loadStr(workW)}.`;
+    }
+  } else if(minReps>=repMin){
+    const tgt = Math.min(maxReps+1, repMax);
+    plan = mk(workW, tgt);
+    note = `Same ${loadStr(workW)} → push for ${tgt} reps.${anyGrind?" (last set was a grind — only if it moves.)":""}`;
+  } else {
+    plan = mk(workW, repMin); kind="repeat";
+    note = `Repeat ${loadStr(workW)} for ${repMin} reps — you missed the bottom of the range last time.`;
+    const stalls = await stallCount(ex.id);
+    if(stalls>=2){
+      const dw = round(workW+inc, inc);               // easing off = MORE assistance
+      note = `Stalled ${stalls+1} sessions at ${loadStr(workW)}. Add a little help back (${loadStr(dw)}) and rebuild.`;
+      kind="deload"; plan = mk(dw, repMin);
     }
   }
   return {plan,note,kind,prev};
@@ -1407,6 +1493,9 @@ function sortForAdd(list){ return list.slice().sort((a,b)=> (b.fav?1:0)-(a.fav?1
 
 // glanceable progression cue vs last time (the note below carries the detail)
 function progBadge(item){
+  const iex=State.exercises.find(e=>e.id===item.exerciseId);
+  if(item.kind==="weight" && isInverted(iex)) return el("span",{class:"progpill up"},"↓ less assist");
+  if(item.kind==="deload" && isInverted(iex)) return el("span",{class:"progpill down"},"↑ more assist");
   if(item.kind==="weight") return el("span",{class:"progpill up"},"↑ heavier");
   if(item.kind==="rep")    return el("span",{class:"progpill up"},"↑ more reps");
   if(item.kind==="deload") return el("span",{class:"progpill down"},"↓ deload");
@@ -1491,7 +1580,8 @@ function loggerCard(item, isCurrent, ss){
     card.append(lt);
   }
   // what weight to log, for the two ambiguous cases
-  const logHint = ex && (ex.unit==="lvl" ? "Numbered stack — log the level you set (1, 2, 3…), not kg."
+  const logHint = ex && (isInverted(ex) ? "Log the assistance weight — less is harder, 0 = unassisted."
+                  : ex.unit==="lvl" ? "Numbered stack — log the level you set (1, 2, 3…), not kg."
                   : ex.equipment==="dumbbell" ? "Log one dumbbell — e.g. 20 for a 20 kg in each hand."
                   : isPlate(ex) ? "Log just the plates you add — not the sled." : "");
   if(logHint) card.append(el("div",{class:"tiny muted",style:"display:flex;align-items:center;gap:5px;margin:8px 2px 2px"}, ic("info",12), logHint));
@@ -1523,11 +1613,15 @@ function loggerCard(item, isCurrent, ss){
     card.append(row);
   });
 
-  // live volume vs last time — updates as you complete sets (the metric the progression targets)
-  if(item.last && item.last.sets.length){
+  // live volume vs last time — updates as you complete sets (the metric the progression targets).
+  // On an assisted machine raw weight×reps counts the HELP, so it falls as you get stronger —
+  // use the effective load instead, and skip the bar entirely if we can't know it.
+  const invVol = isInverted(ex);
+  if(item.last && item.last.sets.length && !(invVol && State.bodyweightKg==null)){
     const fmtV = n => Math.round(n).toLocaleString();
-    const lastVol = item.last.sets.reduce((t,s)=>t+(+s.weight||0)*(+s.reps||0),0);
-    const curVol = item.sets.reduce((t,s)=> t + (s.done?(+s.weight||0)*(+s.reps||0):0), 0);
+    const volOf = (w,r) => invVol ? (invEffectiveKg(ex,w)||0)*(+r||0) : (+w||0)*(+r||0);
+    const lastVol = item.last.sets.reduce((t,s)=>t+volOf(s.weight,s.reps),0);
+    const curVol = item.sets.reduce((t,s)=> t + (s.done?volOf(s.weight,s.reps):0), 0);
     const beat = curVol>0 && curVol>=lastVol;
     card.append(el("div",{style:"display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0 2px;padding:7px 11px;border-radius:10px;background:var(--surface-2);font-size:12.5px;font-weight:600;"+(beat?"border:1px solid rgba(34,197,94,.45);color:var(--accent-2)":"color:var(--text)")},
       el("span",{style:"font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:"+(beat?"var(--accent-2)":"var(--muted)")},"Volume"),
@@ -1940,6 +2034,15 @@ function openExerciseSheet(ex, opts={}){
       "Numbered stack (Precor-style): log the level you set — 1, 2, 3… — not kg. NextSet tracks progress on the level and steps you up one at a time.");
     const kplInp=el("input",{type:"number",step:"0.5",min:"0",value: +ex.kgPerLevel>0? String(ex.kgPerLevel):"",placeholder:"optional"});
     const kplField=el("label",{class:"field",style:"display:none"},el("span",{},"kg per level (if the stack shows it)"),kplInp);
+    // assisted machines: the number logged is help, so the whole scale runs backwards
+    let invVal = ex.invertProgress!==undefined ? !!ex.invertProgress : guessInvert(ex.name||opts.prefillName||"");
+    const invBtn=el("button",{type:"button",class:"btn "+(invVal?"":"secondary"),style:"margin:-4px 0 10px",
+      "aria-pressed":invVal?"true":"false",onClick:()=>{ invVal=!invVal;
+        invBtn.className="btn "+(invVal?"":"secondary"); invBtn.setAttribute("aria-pressed",invVal?"true":"false");
+        invBtn.replaceChildren(ic(invVal?"check":"minus",16), invVal?"Less weight = harder (assisted)":"Normal — more weight = harder");
+      }}, ic(invVal?"check":"minus",16), invVal?"Less weight = harder (assisted)":"Normal — more weight = harder");
+    const invNote=el("div",{class:"tiny muted",style:"margin:-6px 0 10px"},
+      "Turn on for assisted pull-up / dip machines, where the stack takes weight off you — progress then means logging a smaller number.");
     const syncUnit=()=>{ const lvl=unit.value==="lvl"; lvlHint.style.display = lvl ? "" : "none"; kplField.style.display = lvl ? "" : "none"; };
     const initEquip = ex.equipment!==undefined ? ex.equipment : guessEquipment(ex.name);
     const eqSel=equipSelect(initEquip);
@@ -1991,6 +2094,7 @@ function openExerciseSheet(ex, opts={}){
         el("label",{class:"field"},el("span",{},"Equipment"),eqSel),
         el("label",{class:"field"},el("span",{},"Weight unit"),unit)),
       lvlHint, kplField,
+      invBtn, invNote,
       gymField, linkHint, globalNote,
       el("div",{class:"grid2"},
         el("label",{class:"field"},el("span",{},"Smallest increment"),inc),
@@ -2012,7 +2116,8 @@ function openExerciseSheet(ex, opts={}){
       const base={name:name.value.trim(),equipment,unit:unit.value,increment:+inc.value||EQUIP[equipment].inc,
         sets:+sets.value||3,repMin:+rmin.value||8,repMax:+rmax.value||12,
         primary:pSel.value||null, secondary:sSel.value||null, restSec:+restSel.value||suggestRest({name:name.value,repMax:+rmax.value||12,primary:pSel.value}),
-        kgPerLevel:(unit.value==="lvl" && +kplInp.value>0)? +kplInp.value : null};
+        kgPerLevel:(unit.value==="lvl" && +kplInp.value>0)? +kplInp.value : null,
+        invertProgress: invVal};
       if(equipGymScoped(equipment)){
         let desired=gms.get(); if(!desired.length) desired=[State.currentGymId];
         const groupRecords = isNew?[]:linkedIds(ex.id).map(id=>State.exercises.find(e=>e.id===id)).filter(Boolean);
@@ -2608,7 +2713,7 @@ function overloadScore(sessions, sets){
     weeks.add(mondayOf(se.date));
     // bodyweight lifts: epley(1, reps) = 1+reps/30 puts a rep gain on the same % scale as a load
     // gain on a weighted lift (+1 rep ≈ +3%), so rep-based lifts can't inflate the magnitude term
-    const key=ex.linkId||ex.id, m=isBW(ex)?(1+x.reps/30):epley(x.weight,x.reps);
+    const key=ex.linkId||ex.id, m=exMetric(ex, x.weight, x.reps);
     (unit[key]=unit[key]||{})[se.date]=Math.max(unit[key][se.date]||0, m); }
   let up=0,hold=0,down=0; const gains=[];
   for(const k in unit){ const ks=Object.keys(unit[k]).sort(); if(ks.length<2)continue;
@@ -2830,7 +2935,7 @@ function viewInsights(){
     const stats=[];
     for(const key of Object.keys(unitMap)){
       const u=unitMap[key], ex=u.repEx, bw=isBW(ex);
-      const metric = bw ? (x=>x.reps) : (x=>epley(x.weight,x.reps));
+      const metric = x=>exMetric(ex, x.weight, x.reps);
       const bySession={}; u.sets.forEach(x=>{const se=sessions.find(s=>s.id===x.sessionId);if(!se)return;
         const k=se.date+se.startedAt; bySession[k]=Math.max(bySession[k]||0, metric(x));});
       const entries=Object.entries(bySession).sort((a,b)=>a[0].localeCompare(b[0]));
@@ -2839,7 +2944,7 @@ function viewInsights(){
       const dated=entries.map(([k,m])=>({d:k.slice(0,10), m}));   // for the normalized equiv-group chart
       const first=series[0],last=series[series.length-1];
       stats.push({ex,bw,series,dated,first,last,pct:first>0?((last-first)/first*100):0,
-        unitLbl: bw?"reps":"est 1RM", hasTrend:series.length>=2,
+        unitLbl: (bw || (isInverted(ex)&&State.bodyweightKg==null))?"reps":"est 1RM", hasTrend:series.length>=2,
         combined: u.exIds.size>1, gyms: u.gymIds.size});
     }
     let strengthCard=null;
@@ -3142,15 +3247,18 @@ async function exerciseHistory(exId){
   return sets.filter(s=>by[s.sessionId]).map(s=>({...s,date:by[s.sessionId].date})).sort((a,b)=>a.date.localeCompare(b.date));
 }
 function computePRs(sets, ex){
-  const bw=isBW(ex); let heaviest=0,best1rm=0,bestSetVol=0,maxReps=0; const repMax={},bySession={};
+  const bw=isBW(ex), inv=isInverted(ex);
+  let heaviest=0,best1rm=0,bestSetVol=0,maxReps=0,lightest=null; const repMax={},bySession={};
   for(const s of sets){ if(!(s.reps>0))continue; const w=+s.weight||0;
     heaviest=Math.max(heaviest,w); maxReps=Math.max(maxReps,s.reps);
-    if(!bw) best1rm=Math.max(best1rm,epley(w,s.reps));
+    lightest = lightest==null ? w : Math.min(lightest,w);        // inverted: least assistance ever used
+    if(!bw) best1rm=Math.max(best1rm, inv?exMetric(ex,w,s.reps):epley(w,s.reps));
     bestSetVol=Math.max(bestSetVol,w*s.reps);
-    if(!repMax[s.reps]||w>repMax[s.reps]) repMax[s.reps]=w;
+    // best-at-reps: normally the heaviest for that rep count, inverted the least-assisted
+    if(repMax[s.reps]==null || (inv ? w<repMax[s.reps] : w>repMax[s.reps])) repMax[s.reps]=w;
     bySession[s.sessionId]=(bySession[s.sessionId]||0)+w*s.reps; }
-  return {heaviest,best1rm:Math.round(best1rm),bestSetVol:Math.round(bestSetVol),
-    bestSessionVol:Math.round(Math.max(0,...Object.values(bySession),0)),maxReps,repMax,bw};
+  return {heaviest,lightest:lightest==null?0:lightest,best1rm:Math.round(best1rm),bestSetVol:Math.round(bestSetVol),
+    bestSessionVol:Math.round(Math.max(0,...Object.values(bySession),0)),maxReps,repMax,bw,inv};
 }
 /* ---- strength standards (rough bands) ----
    e1RM as a multiple of bodyweight, strengthlevel.com-style values, per movement family.
@@ -3187,6 +3295,12 @@ async function prCheck(ex,weight,reps){
   if(!ex||!(reps>0))return null; const hist=await exerciseHistory(ex.id); if(!hist.length)return null;
   const pr=computePRs(hist,ex);
   if(isBW(ex)) return reps>pr.maxReps? `New PR · ${reps} reps on ${ex.name}` : null;
+  if(isInverted(ex)){        // progress = LESS assistance; never celebrate dialing the help up
+    if(weight<pr.lightest) return `New PR · least assistance on ${ex.name} (${weight}${ex.unit||"kg"})`;
+    if(weight===pr.lightest && reps>pr.maxReps)
+      return `New PR · ${reps} reps at ${weight>0?`${weight}${ex.unit||"kg"} assist`:"unassisted"} on ${ex.name}`;
+    return null;
+  }
   if(epley(weight,reps)>pr.best1rm) return `New PR · best est. 1RM on ${ex.name}`;
   if(weight>pr.heaviest) return `New PR · heaviest ${ex.name} (${weight}${ex.unit||"kg"})`;
   return null;
@@ -3226,7 +3340,7 @@ function openExerciseProgress(exId){
       // your progress (only once there's logged history)
       if(hist.length){
         const pr=computePRs(hist,ex);
-        const bySession={}; hist.forEach(s=>{ if(s.reps>0){ const m=bw?s.reps:epley(s.weight,s.reps); bySession[s.date]=Math.max(bySession[s.date]||0,m);} });
+        const bySession={}; hist.forEach(s=>{ if(s.reps>0){ const m=bw?s.reps:exMetric(ex,s.weight,s.reps); bySession[s.date]=Math.max(bySession[s.date]||0,m);} });
         const dates=Object.keys(bySession).sort(), series=dates.map(d=>bySession[d]);
         const pct = series.length>=2&&series[0]>0? Math.round((series[series.length-1]-series[0])/series[0]*100):null;
         const pl=isPlate(ex);   // plate machine → 1RM is "added load" only (excludes the sled)
@@ -3433,7 +3547,7 @@ function libToExercise(le){
   else   primary = g.primary || null;
   let secondary = mS || g.secondary || null;
   if(secondary===primary) secondary=null;
-  return {name:le.name, equipment:libEquip(le.equipment, le.name), primary, secondary};
+  return {name:le.name, equipment:libEquip(le.equipment, le.name), primary, secondary, invertProgress:guessInvert(le.name)};
 }
 // already in the user's collection? (scoped equip -> current gym; free weights -> global)
 function libAlreadyAdded(le){
@@ -3445,7 +3559,7 @@ async function addLibraryExercise(le){
   const m=libToExercise(le), equipment=m.equipment;
   const rec={ id:uid(), gymId: equipGymScoped(equipment)?State.currentGymId:null, name:m.name, libId:le.id,
     unit:prefUnit(), increment:EQUIP[equipment].inc, sets:3, repMin:8, repMax:12,
-    primary:m.primary, secondary:m.secondary, equipment,
+    primary:m.primary, secondary:m.secondary, equipment, invertProgress:!!m.invertProgress,
     restSec:suggestRest({name:m.name, repMax:12, primary:m.primary}) };
   await DB.put("exercises", rec);
   State.exercises = await DB.all("exercises");
