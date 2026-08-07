@@ -425,7 +425,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v83"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v84"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2771,12 +2771,19 @@ function buildStrengthStats(sessions, allSets){
   }
   return stats;
 }
-// consistent ▲/▼ pill for a movement's trend (shared: card, explorer)
-function strengthPctEl(s){
-  return s.hasTrend
-    ? el("div",{class:"small",style:(s.pct>1?"color:var(--accent-2)":s.pct<-1?"color:var(--warn)":"color:var(--muted)")},
-        (s.pct>=0?"▲ ":"▼ ")+Math.abs(Math.round(s.pct))+"%")
-    : el("div",{class:"small muted"}, `${Math.round(s.last)} ${s.unitLbl}`);
+// windowed trend: % change of a metric across the sessions inside the window (null = <2 sessions).
+// All-time first→last is misleading after a layoff — every lift shows its full regain forever.
+function windowPct(s, valOf, cutDays){
+  const pts=s.dated.filter(e=>daysAgo(e.d)<=cutDays);
+  if(pts.length<2) return null;
+  const f=valOf(pts[0]), l=valOf(pts[pts.length-1]);
+  return f>0 ? (l-f)/f*100 : null;
+}
+// consistent ▲/▼ pill (shared: card, explorer); null → "new"
+function trendPill(pct, suffix){
+  if(pct==null) return el("div",{class:"small muted"},"new");
+  return el("div",{class:"small",style:(pct>1?"color:var(--accent-2)":pct<-1?"color:var(--warn)":"color:var(--muted)")},
+    (pct>=0?"▲ ":"▼ ")+Math.abs(Math.round(pct))+"%"+(suffix?` · ${suffix}`:""));
 }
 function viewInsights(){
   const wrap=el("div",{class:"insightsv"});
@@ -2978,7 +2985,9 @@ function viewInsights(){
     const stats=buildStrengthStats(sessions, allSets);
     let strengthCard=null;
     if(stats.length){
-      const ranked=stats.slice().sort((a,b)=>(b.hasTrend?Math.abs(b.pct):-1)-(a.hasTrend?Math.abs(a.pct):-1));
+      const p12=s=>windowPct(s, e=>e.m, 84);   // last 12 weeks — matches the explorer's default range
+      const ranked=stats.slice().sort((a,b)=>{ const pa=p12(a), pb=p12(b);
+        return (pb==null?-1:Math.abs(pb))-(pa==null?-1:Math.abs(pa)); });
       const top=ranked.slice(0,3), spark=top.find(s=>s.hasTrend);
       const card=el("div",{class:"card",role:"button",tabindex:"0","aria-label":"Open strength progression explorer",
         style:"cursor:pointer", onClick:openStrengthExplorer,
@@ -2991,8 +3000,8 @@ function viewInsights(){
       if(spark) card.append(sparkline(spark.series, `${spark.ex.name} trend`));
       top.forEach(s=>card.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line)"},
         el("div",{style:"font-weight:600;font-size:14px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, s.ex.name),
-        strengthPctEl(s))));
-      card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Biggest movers · tap for volume, reps & best-set trends for every movement"));
+        trendPill(p12(s),"12 wk"))));
+      card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Biggest movers · last 12 weeks · tap for volume, reps & best-set trends"));
       strengthCard=card;
     }
     // ---- Q2 assembled ----
@@ -3242,18 +3251,20 @@ function openStrengthExplorer(){
               (heroDelta>=0?"▲ ":"▼ ")+Math.abs(heroDelta)+"%")));
         }
         mount.append(chart, el("div",{class:"tiny muted",style:"margin-top:2px"},caption));
-        // ---- ranked movement list (each row = the insight; tap for full history & PRs) ----
+        // ---- ranked movement list: pills + order follow the SELECTED range & metric ----
         mount.append(el("div",{class:"divider"}), el("div",{class:"sectionhead",style:"margin-top:0"},"All movements"));
-        ranked.forEach(s=>{
+        const listRanked=stats.slice().sort((a,b)=>{ const pa=windowPct(a,valOf,cut), pb=windowPct(b,valOf,cut);
+          return (pb==null?-1:Math.abs(pb))-(pa==null?-1:Math.abs(pa)); });
+        listRanked.forEach(s=>{
           const lastD=s.dated[s.dated.length-1].d;
           mount.append(el("button",{class:"rowbtn",style:"margin:4px 0;width:100%",onClick:()=>openExerciseProgress(s.ex.id)},
             el("div",{class:"row between",style:"width:100%"},
               el("div",{style:"min-width:0;text-align:left"},
                 el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, s.ex.name),
                 el("div",{class:"tiny muted"}, `${s.dated.length} session${s.dated.length===1?"":"s"} · last ${fmtShortDate(lastD)}${s.combined?` · ${s.gyms} gyms`:""}`)),
-              el("div",{class:"row",style:"gap:6px;align-items:center;flex:none"}, strengthPctEl(s), el("span",{class:"chev"},ic("chevron",15))))));
+              el("div",{class:"row",style:"gap:6px;align-items:center;flex:none"}, trendPill(windowPct(s,valOf,cut)), el("span",{class:"chev"},ic("chevron",15))))));
         });
-        mount.append(el("div",{class:"tiny muted",style:"margin-top:6px"},"Biggest movers first — up or down · tap a movement for its full history & PRs."));
+        mount.append(el("div",{class:"tiny muted",style:"margin-top:6px"},`Biggest movers first — ${METRIC_LBL[_sxMetric].toLowerCase()} change over the selected range · tap a movement for its full history & PRs.`));
         requestAnimationFrame(()=>{ const sh=sheetEl(); if(sh) sh.scrollTop=sc; });
       }
       build();
