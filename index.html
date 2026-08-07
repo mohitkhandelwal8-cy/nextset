@@ -292,6 +292,10 @@
   .cal{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,1fr);gap:2px}
   .cal i{aspect-ratio:1;border-radius:2px;background:var(--surface-2)}
   .cal i.l1{background:rgba(34,197,94,.3)} .cal i.l2{background:rgba(34,197,94,.6)} .cal i.l3{background:var(--accent-2)}
+  .lg{width:9px;height:9px;border-radius:2px;background:var(--surface-2);display:inline-block}
+  .lg.l1{background:rgba(34,197,94,.3)} .lg.l2{background:rgba(34,197,94,.6)} .lg.l3{background:var(--accent-2)}
+  /* Insights is a reading surface — roomier cards there only; the logger stays dense */
+  .insightsv .card{padding:17px 15px;border-radius:18px}
 </style>
 </head>
 <body>
@@ -421,7 +425,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v82"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v83"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2733,8 +2737,49 @@ function overloadScore(sessions, sets){
 }
 function statTile(num,label,tone){ return el("div",{class:"stat"+(tone?" "+tone:"")}, el("div",{class:"num"},String(num)), el("div",{class:"lbl"},label)); }
 
+// pool sets into "units" (machines confirmed the same via linkId count as one) and compute
+// per-session series for each: best set (exMetric), session volume and total reps.
+// Shared by the Insights summary card and the Strength explorer.
+function buildStrengthStats(sessions, allSets){
+  const exById=id=>State.exercises.find(e=>e.id===id);
+  const sesById=Object.fromEntries(sessions.map(s=>[s.id,s]));
+  const unitMap={};
+  allSets.forEach(x=>{ const ex=exById(x.exerciseId); if(!ex)return;
+    const key=ex.linkId||ex.id;
+    const u=unitMap[key]||(unitMap[key]={key, repEx:ex, sets:[], gymIds:new Set(), exIds:new Set()});
+    u.sets.push(x); u.exIds.add(ex.id); if(ex.gymId) u.gymIds.add(ex.gymId);
+  });
+  const stats=[];
+  for(const key of Object.keys(unitMap)){
+    const u=unitMap[key], ex=u.repEx, bw=isBW(ex);
+    const agg={};
+    u.sets.forEach(x=>{ const se=sesById[x.sessionId]; if(!se||!(x.reps>0))return;
+      const k=se.date+se.startedAt;
+      const a=agg[k]||(agg[k]={m:0,vol:0,reps:0});
+      a.m=Math.max(a.m, exMetric(ex, x.weight, x.reps));
+      a.vol+= bw ? (+x.reps||0) : (+x.weight||0)*(+x.reps||0);   // bodyweight "volume" = total reps
+      a.reps+= +x.reps||0;
+    });
+    const entries=Object.entries(agg).sort((a,b)=>a[0].localeCompare(b[0]));
+    if(!entries.length)continue;
+    const series=entries.map(([,a])=>a.m);
+    const dated=entries.map(([k,a])=>({d:k.slice(0,10), m:a.m, vol:a.vol, reps:a.reps}));
+    const first=series[0],last=series[series.length-1];
+    stats.push({key,ex,bw,series,dated,first,last,pct:first>0?((last-first)/first*100):0,
+      unitLbl:(bw || (isInverted(ex)&&State.bodyweightKg==null))?"reps":"est 1RM", hasTrend:series.length>=2,
+      combined:u.exIds.size>1, gyms:u.gymIds.size});
+  }
+  return stats;
+}
+// consistent ▲/▼ pill for a movement's trend (shared: card, explorer)
+function strengthPctEl(s){
+  return s.hasTrend
+    ? el("div",{class:"small",style:(s.pct>1?"color:var(--accent-2)":s.pct<-1?"color:var(--warn)":"color:var(--muted)")},
+        (s.pct>=0?"▲ ":"▼ ")+Math.abs(Math.round(s.pct))+"%")
+    : el("div",{class:"small muted"}, `${Math.round(s.last)} ${s.unitLbl}`);
+}
 function viewInsights(){
-  const wrap=el("div",{});
+  const wrap=el("div",{class:"insightsv"});
   const mount=el("div",{}); wrap.append(mount);
   (async()=>{
     const sessions=await DB.all("sessions");
@@ -2836,8 +2881,13 @@ function viewInsights(){
     // ===== Progressive overload (Q2: Am I progressing?) =====
     const poCard=el("div",{class:"card"}); poCard.append(el("h2",{},"Progressive overload"));
     const poGrid=el("div",{class:"statgrid"});
+    // hero number + one-word verdict — you read the word, not the number
+    const vColor = ov.score==null?"var(--muted)":ov.score>=7?"var(--accent-2)":ov.score<=3?"var(--warn)":"var(--text)";
     poGrid.append(
-      statTile(ov.score==null?"—":ov.score+"/10", ov.score==null?"overload score":"overload score · "+ov.label, ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""),
+      el("div",{class:"stat"},
+        el("div",{class:"num",style:"font-size:40px"}, ov.score==null?"—":ov.score+"/10"),
+        el("div",{class:"lbl",style:`color:${vColor};font-weight:700`}, ov.score==null?"needs data":ov.label),
+        el("div",{class:"lbl"},"overload score")),
       statTile(ov.tracked?`${ov.up}/${ov.tracked}`:"—","lifts moving up"));
     poCard.append(poGrid, el("div",{class:"tiny muted",style:"margin-top:10px"},
       ov.tracked? `Trained ${ov.weeks} of the last 4 completed weeks · avg ${ov.avgGainPct>=0?"+":""}${ov.avgGainPct}% per lift. Based on completed weeks only (this week isn't counted until it ends).`
@@ -2863,7 +2913,7 @@ function viewInsights(){
     const calCard=el("div",{class:"card"});
     calCard.append(el("div",{class:"row between"}, el("h2",{style:"margin:0"},"Consistency"),
       el("span",{class:"small muted"}, `${daysThisYear} day${daysThisYear===1?"":"s"} in ${year}`)));
-    calCard.append(consistencyCard(dateCount), el("div",{class:"tiny muted",style:"margin-top:8px"},"Each square is a day · last 26 weeks · greener = more sets."));
+    calCard.append(consistencyCard(dateCount), el("div",{class:"tiny muted",style:"margin-top:6px"},"Each square is a day · last 26 weeks."));
 
     // ---- Q1 assembled: consistency first ----
     mount.append(el("div",{class:"sectionhead"},"Am I consistent?"), ovCard, calCard, volCard);
@@ -2924,89 +2974,25 @@ function viewInsights(){
       muscleCards.push(bcard);
     }
 
-    // ---- strength progress: grouped by movement, relative % so gyms read as one story ----
-    // pool sets into "units" — machines confirmed as the same (shared linkId) count as one
-    const unitMap={};
-    allSets.forEach(x=>{ const ex=exById(x.exerciseId); if(!ex)return;
-      const key=ex.linkId||ex.id;
-      const u=unitMap[key]||(unitMap[key]={repEx:ex, sets:[], gymIds:new Set(), exIds:new Set()});
-      u.sets.push(x); u.exIds.add(ex.id); if(ex.gymId) u.gymIds.add(ex.gymId);
-    });
-    const stats=[];
-    for(const key of Object.keys(unitMap)){
-      const u=unitMap[key], ex=u.repEx, bw=isBW(ex);
-      const metric = x=>exMetric(ex, x.weight, x.reps);
-      const bySession={}; u.sets.forEach(x=>{const se=sessions.find(s=>s.id===x.sessionId);if(!se)return;
-        const k=se.date+se.startedAt; bySession[k]=Math.max(bySession[k]||0, metric(x));});
-      const entries=Object.entries(bySession).sort((a,b)=>a[0].localeCompare(b[0]));
-      const series=entries.map(e=>e[1]);
-      if(!series.length)continue;
-      const dated=entries.map(([k,m])=>({d:k.slice(0,10), m}));   // for the normalized equiv-group chart
-      const first=series[0],last=series[series.length-1];
-      stats.push({ex,bw,series,dated,first,last,pct:first>0?((last-first)/first*100):0,
-        unitLbl: (bw || (isInverted(ex)&&State.bodyweightKg==null))?"reps":"est 1RM", hasTrend:series.length>=2,
-        combined: u.exIds.size>1, gyms: u.gymIds.size});
-    }
+    // ---- strength progress: summary card → full explorer (openStrengthExplorer) ----
+    const stats=buildStrengthStats(sessions, allSets);
     let strengthCard=null;
     if(stats.length){
-      const card=el("div",{class:"card"}); const blocks=[];   // {node, key} — sorted biggest movers first, top 5 shown
-      // equivalent-machine pairs render as ONE movement: a normalized (% of each machine's own
-      // start) combined trend, then the per-machine rows in raw units below it
-      const eqGroups={}, rest=[];
-      stats.forEach(s=>{ if(s.ex.equivId) (eqGroups[s.ex.equivId]=eqGroups[s.ex.equivId]||[]).push(s); else rest.push(s); });
-      const groups={}; rest.forEach(s=>{(groups[normName(s.ex.name)]=groups[normName(s.ex.name)]||[]).push(s);});
-      const pctEl = s => s.hasTrend
-        ? el("div",{class:"small",style:(s.pct>1?"color:var(--accent-2)":s.pct<-1?"color:var(--warn)":"color:var(--muted)")},
-            (s.pct>=0?"▲ ":"▼ ")+Math.abs(Math.round(s.pct))+"%")
-        : el("div",{class:"small muted"}, `${Math.round(s.last)} ${s.unitLbl}`);
-      Object.values(eqGroups).forEach(arr=>{
-        if(arr.length<2){ const s=arr[0]; (groups[normName(s.ex.name)]=groups[normName(s.ex.name)]||[]).push(s); return; }  // partner not logged yet
-        const block=el("div",{style:"margin-bottom:16px"});
-        block.append(el("div",{class:"row between",style:"margin-bottom:4px"},
-          el("div",{style:"font-weight:600;font-size:14px"}, arr[0].ex.name),
-          el("span",{class:"tiny muted"},"equivalent machines · normalized")));
-        const pts=[];
-        arr.forEach(s=>{ const f=s.dated.length?s.dated[0].m:0; if(f>0) s.dated.forEach(p=>pts.push({d:p.d, v:p.m/f*100})); });
-        pts.sort((a,b)=>a.d.localeCompare(b.d));
-        if(pts.length>=2) block.append(lineChart(pts.map(p=>p.v),{labels:pts.map(p=>fmtShortDate(p.d)), fmt:v=>Math.round(v)+"%"}));
-        block.append(el("div",{class:"tiny muted",style:"margin:2px 0 6px"},
-          `combined trend across ${arr.length} machines · ${[...new Set(arr.map(s=>gymNameOf(s.ex.gymId)).filter(Boolean))].join(", ")} · 100% = each machine's first session`));
-        arr.forEach(s=>block.append(el("button",{class:"rowbtn",style:"margin:4px 0",onClick:()=>openExerciseProgress(s.ex.id)},
-          el("div",{class:"row between",style:"width:100%"},
-            el("div",{class:"small muted"}, `${s.ex.name!==arr[0].ex.name? s.ex.name+" · ":""}${gymNameOf(s.ex.gymId)||""}`), pctEl(s)))));
-        blocks.push({node:block, key:Infinity});   // combined equivalent-machine trends always lead
-      });
-      Object.values(groups).forEach(arr=>{
-        const block=el("div",{style:"margin-bottom:16px"});
-        if(arr.length===1){
-          const s=arr[0];
-          block.append(el("button",{class:"rowbtn",style:"margin-bottom:4px",onClick:()=>openExerciseProgress(s.ex.id)},
-            el("div",{class:"row between",style:"width:100%"},
-              el("div",{class:"row",style:"gap:6px;align-items:center;min-width:0"}, el("div",{style:"font-weight:600;font-size:14px"}, s.ex.name), el("span",{class:"chev"},ic("chevron",15))),
-              pctEl(s))));
-          if(s.combined) block.append(el("div",{class:"tiny muted",style:"margin:-2px 0 6px"}, `combined across ${s.gyms} gyms`));
-          block.append(s.hasTrend ? sparkline(s.series, `${s.ex.name}: ${s.pct>=0?"up":"down"} ${Math.abs(Math.round(s.pct))}%`)
-                                  : el("div",{class:"tiny muted",style:"margin-top:4px"},"Log another session to see a trend"));
-        } else {
-          block.append(el("div",{class:"row between",style:"margin-bottom:6px"},
-            el("div",{style:"font-weight:600;font-size:14px"}, arr[0].ex.name),
-            el("span",{class:"tiny muted"}, `${arr.length} gyms · separate`)));
-          arr.forEach(s=>block.append(el("button",{class:"rowbtn",style:"margin:4px 0",onClick:()=>openExerciseProgress(s.ex.id)},
-            el("div",{class:"row between",style:"width:100%"}, el("div",{class:"small muted"}, gymNameOf(s.ex.gymId)||"Free weight"), pctEl(s)))));
-        }
-        blocks.push({node:block, key: Math.max(...arr.map(s=>s.hasTrend?Math.abs(s.pct):-1))});   // no-trend rows sink
-      });
-      blocks.sort((a,b)=>b.key-a.key);
-      card.append(el("div",{class:"row between",style:"margin-bottom:10px"},
+      const ranked=stats.slice().sort((a,b)=>(b.hasTrend?Math.abs(b.pct):-1)-(a.hasTrend?Math.abs(a.pct):-1));
+      const top=ranked.slice(0,3), spark=top.find(s=>s.hasTrend);
+      const card=el("div",{class:"card",role:"button",tabindex:"0","aria-label":"Open strength progression explorer",
+        style:"cursor:pointer", onClick:openStrengthExplorer,
+        onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openStrengthExplorer();}}});
+      card.append(el("div",{class:"row between",style:"margin-bottom:6px"},
         el("h2",{style:"margin:0"},"Strength progress"),
-        el("span",{class:"small muted"},`${blocks.length} movement${blocks.length===1?"":"s"}`)));
-      const SP=5, spShown=_showAllStrength?blocks:blocks.slice(0,SP);
-      spShown.forEach(b=>card.append(b.node));
-      if(blocks.length>SP) card.append(_showAllStrength
-        ? showAllBtn("Show fewer", ()=>{_showAllStrength=false;})
-        : showAllBtn(`Show all ${blocks.length} movements`, ()=>{_showAllStrength=true;}));
-      if(!_showAllStrength && blocks.length>SP)
-        card.insertBefore(el("div",{class:"tiny muted",style:"margin:-2px 0 8px"},"Biggest movers first — up or down."), card.children[1]);
+        el("div",{class:"row",style:"gap:2px;align-items:center"},
+          el("span",{class:"small muted"},`${stats.length} movement${stats.length===1?"":"s"}`),
+          el("span",{class:"chev"},ic("chevron",16)))));
+      if(spark) card.append(sparkline(spark.series, `${spark.ex.name} trend`));
+      top.forEach(s=>card.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line)"},
+        el("div",{style:"font-weight:600;font-size:14px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, s.ex.name),
+        strengthPctEl(s))));
+      card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Biggest movers · tap for volume, reps & best-set trends for every movement"));
       strengthCard=card;
     }
     // ---- Q2 assembled ----
@@ -3135,12 +3121,13 @@ function sparkline(series,label=""){
   const wrap=el("div",{class:"sparkwrap",role:"img","aria-label":label||"Progress trend"});
   wrap.innerHTML=`<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="width:100%;height:100%">
     <polyline fill="none" stroke="var(--data)" stroke-width="2" points="${pts.join(" ")}"/>
-    ${pts.length?`<circle cx="${pts[pts.length-1].split(",")[0]}" cy="${pts[pts.length-1].split(",")[1]}" r="3" fill="var(--data)"/>`:""}
+    ${pts.length?`<circle cx="${pts[pts.length-1].split(",")[0]}" cy="${pts[pts.length-1].split(",")[1]}" r="6.5" fill="var(--data)" opacity="0.22"/><circle cx="${pts[pts.length-1].split(",")[0]}" cy="${pts[pts.length-1].split(",")[1]}" r="3" fill="var(--data)"/>`:""}
   </svg>`;
   return wrap;
 }
 
 // a filled line chart (SVG, responsive). values = numbers; opts.labels = x-axis labels
+let _lcId=0;
 function lineChart(values, opts={}){
   const {labels=[], fmt=(v=>String(Math.round(v)))}=opts;
   const n=values.length, W=324,H=132,padL=6,padR=6,padT=14,padB=18;
@@ -3153,10 +3140,16 @@ function lineChart(values, opts={}){
   const fillPts=`${X(0).toFixed(1)},${base} ${line} ${X(li).toFixed(1)},${base}`;
   let xl=""; if(labels.length===n){ [0,Math.floor(li/2),li].forEach(i=>{ const a=i===0?"start":i===li?"end":"middle"; xl+=`<text x="${X(i).toFixed(1)}" y="${H-5}" fill="var(--muted)" font-size="9" text-anchor="${a}">${esc(labels[i])}</text>`; }); }
   const wrap=el("div",{class:"chart",role:"img","aria-label":"Trend chart"});
+  const gid="lcg"+(_lcId++);   // per-instance gradient id — several charts share the page
   wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="var(--data)" stop-opacity="0.28"/>
+      <stop offset="100%" stop-color="var(--data)" stop-opacity="0"/>
+    </linearGradient></defs>
     <line x1="${padL}" y1="${base}" x2="${W-padR}" y2="${base}" stroke="var(--line)"/>
-    <polygon points="${fillPts}" fill="var(--data)" opacity="0.10"/>
+    <polygon points="${fillPts}" fill="url(#${gid})"/>
     <polyline points="${line}" fill="none" stroke="var(--data)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${X(li).toFixed(1)}" cy="${Y(values[li]).toFixed(1)}" r="8" fill="var(--data)" opacity="0.22"/>
     <circle cx="${X(li).toFixed(1)}" cy="${Y(values[li]).toFixed(1)}" r="3.5" fill="var(--data)"/>
     <text x="${padL}" y="${(padT-3).toFixed(1)}" fill="var(--muted)" font-size="9">${esc(fmt(max))}</text>
     ${xl}
@@ -3179,6 +3172,92 @@ function openQueueRegionSheet(region){
         ...(ex.fav?[el("span",{style:"display:inline-flex;color:var(--accent)"},ic("starfill",13))]:[]),
         el("div",{style:"font-weight:600;font-size:14px"},ex.name)),
       el("span",{class:"tiny muted"}, equipLabel(ex.equipment)||"")))));
+  });
+}
+/* ---------- strength explorer: one chart, any movement (or all, normalized), three metrics ---------- */
+let _sxMetric="best", _sxSel="all", _sxRange="12w";   // session-scoped so reopening keeps your view
+function openStrengthExplorer(){
+  openSheet("Strength progression",(body)=>{
+    const mount=el("div",{}); body.append(mount);
+    (async()=>{
+      const sessions=await DB.all("sessions"), allSets=await DB.all("sets");
+      const stats=buildStrengthStats(sessions, allSets);
+      if(!stats.length){ mount.append(el("p",{class:"muted small"},"Log a few workouts first — every movement's trend shows up here.")); return; }
+      const ranked=stats.slice().sort((a,b)=>(b.hasTrend?Math.abs(b.pct):-1)-(a.hasTrend?Math.abs(a.pct):-1));
+      const eqG={}; stats.forEach(s=>{ if(s.ex.equivId)(eqG[s.ex.equivId]=eqG[s.ex.equivId]||[]).push(s); });
+      const eqKeys=Object.keys(eqG).filter(k=>eqG[k].length>=2);
+      const byKey=Object.fromEntries(stats.map(s=>[s.key,s]));
+      if(_sxSel!=="all" && !_sxSel.startsWith("eq:") && !byKey[_sxSel]) _sxSel="all";              // stale selection from a past session
+      if(_sxSel.startsWith("eq:") && !eqKeys.includes(_sxSel.slice(3))) _sxSel="all";
+      const sheetEl=()=>mount.closest(".sheet");
+      const DAYS={"4w":28,"12w":84,"6mo":182,"1y":365,"all":Infinity};
+      const METRIC_LBL={best:"Best set",vol:"Volume",reps:"Reps"};
+      const valOf=e=> _sxMetric==="vol"?e.vol : _sxMetric==="reps"?e.reps : e.m;
+      function build(){
+        const sc=sheetEl()?sheetEl().scrollTop:0;
+        mount.replaceChildren();
+        const chips=(pairs,cur,set)=>{ const row=el("div",{class:"filterchips"});
+          pairs.forEach(([k,l])=>row.append(el("button",{class:"fchip"+(cur===k?" on":""),onClick:()=>{set(k);build();}},l)));
+          return row; };
+        mount.append(chips([["best","Best set"],["vol","Volume"],["reps","Reps"]], _sxMetric, k=>_sxMetric=k));
+        const exPairs=[["all","All · normalized"]];
+        eqKeys.forEach(k=>exPairs.push(["eq:"+k, eqG[k][0].ex.name+" · combined"]));
+        ranked.forEach(s=>exPairs.push([s.key, s.ex.name]));
+        mount.append(chips(exPairs, _sxSel, k=>_sxSel=k));
+        mount.append(chips([["4w","4 wk"],["12w","12 wk"],["6mo","6 mo"],["1y","1 yr"],["all","All"]], _sxRange, k=>_sxRange=k));
+        // ---- chart + headline ----
+        const cut=DAYS[_sxRange], inRange=e=>daysAgo(e.d)<=cut;
+        let chart, caption, heroVal=null, heroDelta=null, heroSub="";
+        if(_sxSel==="all" || _sxSel.startsWith("eq:")){
+          const scope=_sxSel==="all"?stats:eqG[_sxSel.slice(3)];
+          // each movement as % of its own first session in range, averaged per week/month bucket —
+          // units (kg/lb/levels/bodyweight reps) never mix raw
+          const monthly=(_sxRange==="6mo"||_sxRange==="1y"||_sxRange==="all");
+          const buckets={}; let used=0;
+          scope.forEach(s=>{ const pts=s.dated.filter(inRange); const f=pts.length?valOf(pts[0]):0; if(!(f>0))return; used++;
+            pts.forEach(p=>{ const b=monthly?p.d.slice(0,7):mondayOf(p.d);
+              (buckets[b]=buckets[b]||[]).push(valOf(p)/f*100); }); });
+          const keys=Object.keys(buckets).sort();
+          const vals=keys.map(k=>buckets[k].reduce((t,v)=>t+v,0)/buckets[k].length);
+          chart = vals.length>=2 ? lineChart(vals,{labels:keys.map(k=>monthly?fmtMonthLbl(k):fmtWeekLbl(k)), fmt:v=>Math.round(v)+"%"})
+                : el("div",{class:"tiny muted",style:"padding:20px 0;text-align:center"},"Not enough data in this range — try a longer one.");
+          if(vals.length){ heroVal=Math.round(vals[vals.length-1])+"%"; heroDelta=Math.round(vals[vals.length-1]-100); heroSub="of starting strength"; }
+          caption=`${METRIC_LBL[_sxMetric]} · averaged across ${used} movement${used===1?"":"s"} · 100% = each movement's first session in range`;
+        } else {
+          const s=byKey[_sxSel], pts=s.dated.filter(inRange);
+          const unit = _sxMetric==="reps" ? "" : (s.bw||(_sxMetric==="best"&&s.unitLbl==="reps")) ? "" : (s.ex.unit||"kg");
+          chart = pts.length>=2 ? lineChart(pts.map(valOf),{labels:pts.map(p=>fmtShortDate(p.d)), fmt:v=>Math.round(v)+unit})
+                : el("div",{class:"tiny muted",style:"padding:20px 0;text-align:center"},"Not enough sessions in this range — try a longer one.");
+          if(pts.length){ const lastV=valOf(pts[pts.length-1]), firstV=valOf(pts[0]);
+            heroVal=Math.round(lastV).toLocaleString()+(unit?" "+unit:"");
+            heroDelta=firstV>0?Math.round((lastV-firstV)/firstV*100):null;
+            heroSub=_sxMetric==="best"?(s.unitLbl==="reps"?"best reps":"est 1RM"):_sxMetric==="vol"?(s.bw?"total reps":"session volume"):"total reps"; }
+          caption=`${METRIC_LBL[_sxMetric]} · ${s.ex.name}${s.combined?` · combined across ${s.gyms} gyms`:""}`;
+        }
+        if(heroVal!=null){
+          mount.append(el("div",{class:"row",style:"gap:8px;align-items:baseline;margin:4px 2px 0"},
+            el("div",{style:"font-family:'Barlow Condensed','Barlow',sans-serif;font-size:34px;font-weight:700;line-height:1"}, heroVal),
+            el("div",{class:"tiny muted"}, heroSub),
+            heroDelta==null?el("span"):el("span",{class:"small",style:"margin-left:auto;"+(heroDelta>1?"color:var(--accent-2)":heroDelta<-1?"color:var(--warn)":"color:var(--muted)")},
+              (heroDelta>=0?"▲ ":"▼ ")+Math.abs(heroDelta)+"%")));
+        }
+        mount.append(chart, el("div",{class:"tiny muted",style:"margin-top:2px"},caption));
+        // ---- ranked movement list (each row = the insight; tap for full history & PRs) ----
+        mount.append(el("div",{class:"divider"}), el("div",{class:"sectionhead",style:"margin-top:0"},"All movements"));
+        ranked.forEach(s=>{
+          const lastD=s.dated[s.dated.length-1].d;
+          mount.append(el("button",{class:"rowbtn",style:"margin:4px 0;width:100%",onClick:()=>openExerciseProgress(s.ex.id)},
+            el("div",{class:"row between",style:"width:100%"},
+              el("div",{style:"min-width:0;text-align:left"},
+                el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, s.ex.name),
+                el("div",{class:"tiny muted"}, `${s.dated.length} session${s.dated.length===1?"":"s"} · last ${fmtShortDate(lastD)}${s.combined?` · ${s.gyms} gyms`:""}`)),
+              el("div",{class:"row",style:"gap:6px;align-items:center;flex:none"}, strengthPctEl(s), el("span",{class:"chev"},ic("chevron",15))))));
+        });
+        mount.append(el("div",{class:"tiny muted",style:"margin-top:6px"},"Biggest movers first — up or down · tap a movement for its full history & PRs."));
+        requestAnimationFrame(()=>{ const sh=sheetEl(); if(sh) sh.scrollTop=sc; });
+      }
+      build();
+    })();
   });
 }
 // drill-down for one muscle: weekly sets/volume, focus %, overload, top exercises, tips
@@ -3261,7 +3340,7 @@ function openMuscleDetail(mk){
 let insightsRange="12w";
 let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
 let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
-let _showAllStrength=false, _showAllAlerts=false; // long-list expanders (Strength progress / What needs attention) — session-scoped
+let _showAllAlerts=false; // "What needs attention" expander — session-scoped
 // "Show all N" ghost button used by both long Insights sections; preserves scroll on re-render
 function showAllBtn(label, onTap){
   return el("button",{class:"btn ghost sm",style:"width:100%;margin-top:4px",onClick:()=>{ _insightsScroll=window.scrollY; onTap(); render(); }}, ic("chevron",14), label);
@@ -3534,11 +3613,25 @@ function bodyHeatmap(vol){
 // GitHub-style activity grid: last 17 weeks × 7 days, shaded by sets that day
 function consistencyCard(dateCount){
   const weeks=26, d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)-(weeks-1)*7);
+  const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  const months=el("div",{style:`display:grid;grid-template-columns:repeat(${weeks},1fr);gap:2px;margin-bottom:3px`});
   const grid=el("div",{class:"cal"});
-  for(let c=0;c<weeks;c++) for(let r=0;r<7;r++){ const cell=new Date(d); cell.setDate(d.getDate()+c*7+r);
-    const key=cell.toISOString().slice(0,10), n=dateCount[key]||0, lvl=n===0?0:n<7?1:n<13?2:3;
-    grid.append(el("i",{class:"l"+lvl,title:key+(n?` · ${n} sets`:"")})); }
-  return grid;
+  let prevM=-1;
+  for(let c=0;c<weeks;c++){
+    const colStart=new Date(d); colStart.setDate(d.getDate()+c*7);
+    const m=colStart.getMonth();
+    const lbl=el("span",{class:"tiny muted",style:"font-size:8.5px;white-space:nowrap;overflow:visible"});
+    if(m!==prevM && c<weeks-2){ lbl.textContent=MON[m]; prevM=m; }   // skip a label that would clip at the right edge
+    months.append(lbl);
+    for(let r=0;r<7;r++){ const cell=new Date(d); cell.setDate(d.getDate()+c*7+r);
+      const key=cell.toISOString().slice(0,10), n=dateCount[key]||0, lvl=n===0?0:n<7?1:n<13?2:3;
+      grid.append(el("i",{class:"l"+lvl,title:key+(n?` · ${n} sets`:"")})); }
+  }
+  const sw=l=>el("i",{class:"lg "+l});
+  const legend=el("div",{class:"row",style:"gap:4px;align-items:center;margin-top:7px;justify-content:flex-end"},
+    el("span",{class:"tiny muted",style:"margin-right:2px"},"fewer"), sw("l0"),sw("l1"),sw("l2"),sw("l3"),
+    el("span",{class:"tiny muted",style:"margin-left:2px"},"more sets"));
+  return el("div",{}, months, grid, legend);
 }
 
 /* ---------- exercise library (free-exercise-db, public domain / Unlicense) ----------
