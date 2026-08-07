@@ -421,7 +421,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v81"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v82"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2949,7 +2949,7 @@ function viewInsights(){
     }
     let strengthCard=null;
     if(stats.length){
-      const card=el("div",{class:"card"}); card.append(el("h2",{},"Strength progress"));
+      const card=el("div",{class:"card"}); const blocks=[];   // {node, key} — sorted biggest movers first, top 5 shown
       // equivalent-machine pairs render as ONE movement: a normalized (% of each machine's own
       // start) combined trend, then the per-machine rows in raw units below it
       const eqGroups={}, rest=[];
@@ -2974,7 +2974,7 @@ function viewInsights(){
         arr.forEach(s=>block.append(el("button",{class:"rowbtn",style:"margin:4px 0",onClick:()=>openExerciseProgress(s.ex.id)},
           el("div",{class:"row between",style:"width:100%"},
             el("div",{class:"small muted"}, `${s.ex.name!==arr[0].ex.name? s.ex.name+" · ":""}${gymNameOf(s.ex.gymId)||""}`), pctEl(s)))));
-        card.append(block);
+        blocks.push({node:block, key:Infinity});   // combined equivalent-machine trends always lead
       });
       Object.values(groups).forEach(arr=>{
         const block=el("div",{style:"margin-bottom:16px"});
@@ -2994,8 +2994,19 @@ function viewInsights(){
           arr.forEach(s=>block.append(el("button",{class:"rowbtn",style:"margin:4px 0",onClick:()=>openExerciseProgress(s.ex.id)},
             el("div",{class:"row between",style:"width:100%"}, el("div",{class:"small muted"}, gymNameOf(s.ex.gymId)||"Free weight"), pctEl(s)))));
         }
-        card.append(block);
+        blocks.push({node:block, key: Math.max(...arr.map(s=>s.hasTrend?Math.abs(s.pct):-1))});   // no-trend rows sink
       });
+      blocks.sort((a,b)=>b.key-a.key);
+      card.append(el("div",{class:"row between",style:"margin-bottom:10px"},
+        el("h2",{style:"margin:0"},"Strength progress"),
+        el("span",{class:"small muted"},`${blocks.length} movement${blocks.length===1?"":"s"}`)));
+      const SP=5, spShown=_showAllStrength?blocks:blocks.slice(0,SP);
+      spShown.forEach(b=>card.append(b.node));
+      if(blocks.length>SP) card.append(_showAllStrength
+        ? showAllBtn("Show fewer", ()=>{_showAllStrength=false;})
+        : showAllBtn(`Show all ${blocks.length} movements`, ()=>{_showAllStrength=true;}));
+      if(!_showAllStrength && blocks.length>SP)
+        card.insertBefore(el("div",{class:"tiny muted",style:"margin:-2px 0 8px"},"Biggest movers first — up or down."), card.children[1]);
       strengthCard=card;
     }
     // ---- Q2 assembled ----
@@ -3005,8 +3016,9 @@ function viewInsights(){
     mount.append(el("div",{class:"sectionhead"},"What should I change?"), mrChips, ...muscleCards);
 
     // ===== What needs attention — every insight carries a one-tap action =====
-    const alerts=el("div",{class:"card"}); alerts.append(el("h2",{},"What needs attention"));
-    let alertCount=0;
+    const alerts=el("div",{class:"card"});
+    // collect first, then render severity-first (act-now warns → falling behind → dormant → tips)
+    const alertItems=[]; const addAlert=(sev,node)=>alertItems.push({sev,node});
     const queued=new Set((await getMeta("queuedExercises"))||[]);
     const queueBtn=(ex)=>{ // "Add to next workout" — consumed by the next startSession at any gym
       const b=el("button",{class:"btn secondary sm",onClick:async()=>{
@@ -3027,7 +3039,6 @@ function viewInsights(){
       if(mute && daysAgo(mute)<14) continue;
       const adjKey="pendingAdjust:"+(ex.linkId||ex.id);
       const scheduled=!!(await getMeta(adjKey));
-      alertCount++;
       const btnRow=el("div",{class:"row",style:"gap:8px;margin-top:8px"});
       if(!isBW(ex)){                       // a −10% load deload means nothing on rep-driven bodyweight work
         const dBtn=el("button",{class:"btn secondary sm",onClick:async()=>{
@@ -3039,7 +3050,7 @@ function viewInsights(){
         btnRow.append(dBtn);
       }
       btnRow.append(el("button",{class:"btn ghost sm",onClick:async()=>{ await setMeta("muteAlert:stall:"+ex.id, todayISO()); _insightsScroll=window.scrollY; render(); }},"Ignore"));
-      alerts.append(el("div",{class:"insight warn"},
+      addAlert(0, el("div",{class:"insight warn"},
         el("div",{class:"t"},`${ex.name} has stalled`),
         el("div",{class:"d"},`Same top weight for ${st+1} sessions. ${isBW(ex)?"Try a different variation or rep range to break through.":"A short deload usually restarts progress."}`),
         btnRow));
@@ -3048,14 +3059,14 @@ function viewInsights(){
     const lastByEx={};
     for(const x of allSets){const se=sessions.find(s=>s.id===x.sessionId);if(!se)continue;
       if(!lastByEx[x.exerciseId]||se.date>lastByEx[x.exerciseId])lastByEx[x.exerciseId]=se.date;}
-    for(const[exId,d] of Object.entries(lastByEx)){
-      const ex=State.exercises.find(e=>e.id===exId);if(!ex)continue;
-      const ago=daysAgo(d);
-      if(ago>=14){alertCount++;alerts.append(el("div",{class:"insight"},
+    Object.entries(lastByEx)
+      .map(([exId,d])=>({ex:State.exercises.find(e=>e.id===exId), ago:daysAgo(d)}))
+      .filter(x=>x.ex && x.ago>=14 && x.ago<=60)   // >60 days = you dropped it on purpose; stop nagging
+      .sort((a,b)=>a.ago-b.ago)          // recently lapsed first — still worth rescuing; long-gone ones sink
+      .forEach(({ex,ago})=>{ addAlert(2, el("div",{class:"insight"},
         el("div",{class:"t"},`${ex.name} — ${ago} days since last time`),
         el("div",{class:"d"},"Worth getting back to before you lose ground."),
-        el("div",{class:"row",style:"gap:8px;margin-top:8px"}, queueBtn(ex))));}
-    }
+        el("div",{class:"row",style:"gap:8px;margin-top:8px"}, queueBtn(ex)))); });
     // body-region neglect → queue one of that region's exercises
     const lastByRegion={};
     for(const x of allSets){const se=sessions.find(s=>s.id===x.sessionId);if(!se)continue;
@@ -3065,7 +3076,7 @@ function viewInsights(){
     REGION_ORDER.forEach(r=>{
       if(r==="Other"||!regionsWithMachines.has(r))return;
       const last=lastByRegion[r]; const ago=last?daysAgo(last):999;
-      if(ago>=10){alertCount++;alerts.append(el("div",{class:"insight warn"},
+      if(ago>=10){addAlert(1, el("div",{class:"insight warn"},
         el("div",{class:"t"},`${r}${last?` — ${ago} days since trained`:" — not trained yet"}`),
         el("div",{class:"d"},"This region is falling behind — slot it into your next session."),
         el("div",{class:"row",style:"gap:8px;margin-top:8px"},
@@ -3076,7 +3087,7 @@ function viewInsights(){
     allSets.filter(x=>x.joint).forEach(x=>{ const k=x.exerciseId+"|"+x.sessionId; if(jointSeen.has(k))return; jointSeen.add(k); jointByEx[x.exerciseId]=(jointByEx[x.exerciseId]||0)+1; });
     for(const[exId,c] of Object.entries(jointByEx)){
       const ex=State.exercises.find(e=>e.id===exId);if(!ex)continue;
-      if(c>=2){alertCount++;alerts.append(el("div",{class:"insight warn"},
+      if(c>=2){addAlert(0, el("div",{class:"insight warn"},
         el("div",{class:"t"},`Joint flagged on ${ex.name}`),
         el("div",{class:"d"},`Flagged in ${c} workouts — recurring niggle. Consider lighter load, slower tempo, or swapping the movement.`),
         el("div",{class:"row",style:"gap:8px;margin-top:8px"},
@@ -3095,10 +3106,20 @@ function viewInsights(){
       const avgSets=fqSets[mk]/4, freq=fqDays[mk].size/4;
       if(avgSets>=6 && freq<1.5 && (!fq||avgSets>fq.avgSets)) fq={mk,avgSets};
     }
-    if(fq){ alertCount++; alerts.append(el("div",{class:"insight"},
+    if(fq){ addAlert(3, el("div",{class:"insight"},
       el("div",{class:"t"},`${muscleLabel(fq.mk)||fq.mk}: all ${Math.round(fq.avgSets)} weekly sets land in one day`),
       el("div",{class:"d"},"Splitting them across two days usually lets you do more quality sets."))); }
-    if(!alertCount) alerts.append(el("div",{class:"insight good"},el("div",{class:"t"},"All clear"),
+    // assemble: header w/ count, severity order, top 4 + expander
+    alertItems.sort((a,b)=>a.sev-b.sev);
+    alerts.append(el("div",{class:"row between",style:"margin-bottom:10px"},
+      el("h2",{style:"margin:0"},"What needs attention"),
+      alertItems.length?el("span",{class:"small muted"},`${alertItems.length} item${alertItems.length===1?"":"s"}`):el("span")));
+    const AP=4, apShown=_showAllAlerts?alertItems:alertItems.slice(0,AP);
+    apShown.forEach(a=>alerts.append(a.node));
+    if(alertItems.length>AP) alerts.append(_showAllAlerts
+      ? showAllBtn("Show fewer", ()=>{_showAllAlerts=false;})
+      : showAllBtn(`Show ${alertItems.length-AP} more`, ()=>{_showAllAlerts=true;}));
+    if(!alertItems.length) alerts.append(el("div",{class:"insight good"},el("div",{class:"t"},"All clear"),
       el("div",{class:"d"},"No plateaus or flags right now. Keep stacking sessions.")));
     mount.append(alerts);
     if(_insightsScroll!=null){ const y=_insightsScroll; _insightsScroll=null; requestAnimationFrame(()=>window.scrollTo(0,y)); }
@@ -3240,6 +3261,11 @@ function openMuscleDetail(mk){
 let insightsRange="12w";
 let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
 let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
+let _showAllStrength=false, _showAllAlerts=false; // long-list expanders (Strength progress / What needs attention) — session-scoped
+// "Show all N" ghost button used by both long Insights sections; preserves scroll on re-render
+function showAllBtn(label, onTap){
+  return el("button",{class:"btn ghost sm",style:"width:100%;margin-top:4px",onClick:()=>{ _insightsScroll=window.scrollY; onTap(); render(); }}, ic("chevron",14), label);
+}
 // committed sets for an exercise (pooled across linked machines), each stamped with its session date
 async function exerciseHistory(exId){
   let sets=[]; for(const id of linkedIds(exId)) sets=sets.concat(await DB.byIndex("sets","exerciseId",id));
