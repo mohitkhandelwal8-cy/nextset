@@ -306,6 +306,11 @@
   .lg.l1{background:rgba(34,197,94,.3)} .lg.l2{background:rgba(34,197,94,.6)} .lg.l3{background:var(--accent-2)}
   /* Insights is a reading surface — roomier cards there only; the logger stays dense */
   .insightsv .card{padding:17px 15px;border-radius:18px}
+  /* weekly recap: compact expandable banner (a note, not furniture) */
+  .recapbar{background:var(--surface);border:1px solid var(--sec-teal);border-radius:12px;padding:6px 8px 6px 12px;margin-bottom:12px}
+  .recaphead{flex:1;min-width:0;display:flex;align-items:center;gap:9px;background:none;border:none;color:var(--text);min-height:36px;cursor:pointer;text-align:left;padding:0}
+  .recap-eyebrow{font-size:10px;font-weight:800;color:var(--sec-teal);text-transform:uppercase;letter-spacing:.7px;flex:none}
+  .recapdet{padding:0 2px 8px}
   /* sticky section jump-nav on Insights */
   .secnav{position:sticky;top:0;z-index:15;display:flex;gap:6px;padding:8px 0 6px;margin:-8px -2px 6px;
     background:linear-gradient(var(--bg) 82%,transparent);overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -451,7 +456,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v97"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v98"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2985,16 +2990,25 @@ function viewInsights(){
           const short=t-(mVol[mk]||0);
           if(short>worstShort){ worstShort=short; fix={mk, got:mVol[mk]||0, t}; } }
         const DAYFIX={Chest:"one push day",Shoulders:"one push day",Back:"one pull day",Legs:"one leg day",Arms:"an arm finisher",Core:"a core finisher"};
-        const recap=el("div",{class:"statuscard",style:"border-color:var(--sec-teal)"});   // recap is a review, not a CTA — teal, not orange
-        recap.append(el("div",{class:"row between",style:"align-items:flex-start"},
-          el("div",{},
-            el("div",{class:"statuscard-eyebrow",style:"color:var(--sec-teal)"},"Weekly recap"),
-            el("div",{style:"font-weight:700;font-size:16px"},`${rSessions.length} workout${rSessions.length>1?"s":""} last week`)),
-          el("button",{class:"sheetclose","aria-label":"Dismiss recap",onClick:async()=>{ await setMeta("lastRecapWeek",curMon); recap.remove(); }},ic("x",18))));
-        recap.append(el("div",{class:"small",style:"margin-top:4px"},`${rSets.length} working sets${targetSum?` · weekly target ${targetSum}`:""}`));
-        if(bestMoment) recap.append(el("div",{class:"small",style:"margin-top:4px;color:var(--accent-2);font-weight:600"}, bestMoment));
-        if(fix) recap.append(el("div",{class:"small muted",style:"margin-top:4px"},
+        // a Monday note, not furniture: one glanceable line, tap to expand, X to dismiss
+        const recap=el("div",{class:"recapbar"});
+        const sum=`${rSessions.length} workout${rSessions.length>1?"s":""} · ${rSets.length} sets${bestMoment?" · ★":""}`;
+        const det=el("div",{class:"recapdet",style:_recapOpen?"":"display:none"});
+        det.append(el("div",{class:"small",style:"margin-top:2px"},`${rSets.length} working sets last week${targetSum?` · weekly target ${targetSum}`:""}`));
+        if(bestMoment) det.append(el("div",{class:"small",style:"margin-top:4px;color:var(--accent-2);font-weight:600"}, bestMoment));
+        if(fix) det.append(el("div",{class:"small muted",style:"margin-top:4px"},
           `One fix: ${muscleLabel(fix.mk)||fix.mk} landed ${fix.got%1?fix.got.toFixed(1):fix.got}/${fix.t} — ${DAYFIX[regionOf(fix.mk)]||"one focused session"} covers it.`));
+        const chev=el("span",{class:"chev",style:"transition:transform .15s;"+(_recapOpen?"transform:rotate(90deg)":"")},ic("chevron",16));
+        const head=el("button",{class:"recaphead","aria-expanded":_recapOpen?"true":"false",onClick:()=>{
+          _recapOpen=!_recapOpen; det.style.display=_recapOpen?"":"none";
+          chev.style.transform=_recapOpen?"rotate(90deg)":""; head.setAttribute("aria-expanded",_recapOpen?"true":"false");
+        }},
+          el("span",{class:"recap-eyebrow"},"Weekly recap"),
+          el("span",{class:"small",style:"font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},sum),
+          chev);
+        recap.append(el("div",{class:"row",style:"gap:6px;align-items:center"}, head,
+          el("button",{class:"sheetclose",style:"width:32px;height:32px;flex:none","aria-label":"Dismiss recap",
+            onClick:async()=>{ await setMeta("lastRecapWeek",curMon); recap.remove(); }},ic("x",15))), det);
         mount.append(recap);
       }
     }
@@ -3167,8 +3181,9 @@ function viewInsights(){
         "No PRs this week yet — beat last time on any lift and it lands here."));
     }
     // ---- Q2 assembled ----
-    secP.append(el("div",{class:"sectionhead",style:"margin-top:2px;border-left:3px solid var(--sec-green);padding-left:9px"},"Am I progressing?"), poCard, winsCard);
+    secP.append(el("div",{class:"sectionhead",style:"margin-top:2px;border-left:3px solid var(--sec-green);padding-left:9px"},"Am I progressing?"), poCard);
     if(strengthCard) secP.append(strengthCard);
+    secP.append(winsCard);
     // ---- Q3 assembled ----
     secM.append(el("div",{class:"sectionhead",style:"margin-top:2px;border-left:3px solid var(--sec-violet);padding-left:9px"},"What should I change?"), mrChips, ...muscleCards);
 
@@ -3579,6 +3594,7 @@ function openMuscleDetail(mk){
 /* ===== insights extras: PRs, per-exercise detail, body heatmap, ranged volume, calendar ===== */
 let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
 let insightsSection="consist";   // active Insights tab: consist | prog | mix | att — session-scoped
+let _recapOpen=false;            // weekly recap banner expanded — session-scoped
 let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
 let _showAllAlerts=false, _showAllMuscles=false, _showAllWins=false; // Insights long-list expanders — session-scoped
 // "Show all N" ghost button used by both long Insights sections; preserves scroll on re-render
