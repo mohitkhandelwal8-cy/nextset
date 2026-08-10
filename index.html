@@ -454,7 +454,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v99"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v100"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -3349,16 +3349,20 @@ function lineChart(values, opts={}){
   const sub=mkEl("text",{"font-size":"9",fill:"var(--muted)",stroke:"var(--surface)","stroke-width":"3","paint-order":"stroke"});
   const scrub=e=>{
     const r=svg.getBoundingClientRect(); if(!r.width) return;
-    const xv=(e.clientX-r.left)/r.width*W;
-    let i=0,best=Infinity; for(let k2=0;k2<n;k2++){ const d=Math.abs(X(k2)-xv); if(d<best){best=d;i=k2;} }
-    const x=X(i).toFixed(1), y=Y(values[i]).toFixed(1);
+    // smooth glide: the line follows the finger; the dot + value ride the drawn curve
+    // (linear interpolation between points — exactly what the polyline shows anyway)
+    const xr=Math.max(X(0), Math.min(X(n-1), (e.clientX-r.left)/r.width*W));
+    let i=0; while(i<n-2 && X(i+1)<xr) i++;
+    const span=(X(i+1)-X(i))||1, t=n<2?0:Math.max(0,Math.min(1,(xr-X(i))/span));
+    const v=n<2?values[0]:values[i]+(values[i+1]-values[i])*t;
+    const x=xr.toFixed(1), y=Y(v).toFixed(1), near=t>0.5?Math.min(i+1,n-1):i;
     vline.setAttribute("x1",x); vline.setAttribute("x2",x);
     halo.setAttribute("cx",x); halo.setAttribute("cy",y);
     dot.setAttribute("cx",x); dot.setAttribute("cy",y);
-    const flip=X(i)>W*0.6;   // near the right edge, label sits left of the line
-    [lbl,sub].forEach(t=>{ t.setAttribute("text-anchor",flip?"end":"start"); t.setAttribute("x",String(flip?X(i)-7:X(i)+7)); });
-    lbl.setAttribute("y",String(padT+8)); lbl.textContent=fmt(values[i]);
-    sub.setAttribute("y",String(padT+19)); sub.textContent=labels.length===n&&labels[i]?labels[i]:"";
+    const flip=xr>W*0.6;   // near the right edge, label sits left of the line
+    [lbl,sub].forEach(t2=>{ t2.setAttribute("text-anchor",flip?"end":"start"); t2.setAttribute("x",String(flip?xr-7:xr+7)); });
+    lbl.setAttribute("y",String(padT+8)); lbl.textContent=fmt(v);
+    sub.setAttribute("y",String(padT+19)); sub.textContent=labels.length===n&&labels[near]?labels[near]:"";
     [vline,halo,dot,lbl,sub].forEach(e3=>e3.style.display="");
   };
   let scrubbing=false;
