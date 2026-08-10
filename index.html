@@ -441,7 +441,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v93"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v94"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -3027,7 +3027,7 @@ function viewInsights(){
     const vDelta = (vPrev!=null&&vLast!=null&&vPrev>0)? Math.round((vLast-vPrev)/vPrev*100) : null;
     const volCard=el("div",{class:"card"});
     volCard.append(el("div",{class:"row between"},
-      el("h2",{style:"margin:0"},"Training volume"),
+      el("h2",{style:"margin:0"},"Working sets"),   // deliberately NOT load volume — sets are the only honest whole-body measure across mixed units (kg/lb/levels/bodyweight); per-movement load volume lives in the Strength explorer
       el("span",{class:"small",style: vDelta==null?"color:var(--muted)":vDelta>=0?"color:var(--accent-2)":"color:var(--warn)"},
         vDelta==null?"":`${vDelta>=0?"▲":"▼"} ${Math.abs(vDelta)}% · last full ${vs.unit}`)));
     const rchips=el("div",{class:"filterchips",style:"margin:8px 0 2px"});
