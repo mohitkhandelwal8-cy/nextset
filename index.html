@@ -82,6 +82,13 @@
     border:1px solid var(--line);border-radius:10px;padding:11px 12px;color:var(--text);outline:none;line-height:normal}
   input[type=text],input[type=number]{height:46px;-webkit-appearance:none;appearance:none}
   input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+  /* button that behaves like a <select>: shows the current pick, ▾ opens a picker sheet */
+  .selectbtn{width:100%;display:flex;align-items:center;gap:10px;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:10px;padding:12px 14px;min-height:48px;color:var(--text);cursor:pointer;text-align:left}
+  .selectbtn:active{border-color:var(--accent)}
+  .selectbtn .sel-ic{display:inline-flex;color:var(--muted);flex:none}
+  .selectbtn .sel-name{flex:1;min-width:0;font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .selectbtn .sel-caret{display:inline-flex;color:var(--muted);flex:none;transform:rotate(90deg)}
   label.field{display:block;margin-bottom:10px}
   label.field span{display:block;font-size:12px;color:var(--muted);margin-bottom:5px}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -425,7 +432,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v85"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v86"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -3242,20 +3249,18 @@ function openStrengthExplorer(){
           pairs.forEach(([k,l])=>row.append(el("button",{class:"fchip"+(cur===k?" on":""),onClick:()=>{set(k);build();}},l)));
           return row; };
         // metric = segmented control (a different shape per filter kind — no more three identical chip rows)
-        const seg=el("div",{class:"seg",style:"margin-bottom:8px"});
+        const seg=el("div",{class:"seg",style:"margin-bottom:12px"});
         [["best","Best set"],["vol","Volume"],["reps","Reps"]].forEach(([k,l])=>
           seg.append(el("button",{class:_sxMetric===k?"on":"","aria-pressed":_sxMetric===k?"true":"false",onClick:()=>{_sxMetric=k;build();}},l)));
         mount.append(seg);
-        // movement = selector button → searchable picker sheet
+        // movement = select-style trigger (dumbbell + name + ▾ reads as "pick from a list") → searchable picker sheet
         const selLabel = _sxSel==="all" ? "All movements · normalized"
           : _sxSel.startsWith("eq:") ? (eqG[_sxSel.slice(3)][0].ex.name+" · combined")
           : byKey[_sxSel].ex.name;
-        mount.append(el("button",{class:"rowbtn",style:"width:100%;margin:0 0 8px","aria-label":"Choose movement",onClick:openMovementPicker},
-          el("div",{class:"row between",style:"width:100%"},
-            el("div",{style:"min-width:0;text-align:left"},
-              el("div",{class:"tiny muted"},"Movement"),
-              el("div",{style:"font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, selLabel)),
-            el("span",{class:"chev"},ic("chevron",18)))));
+        mount.append(el("button",{class:"selectbtn",style:"margin:0 0 12px","aria-label":"Change exercise",onClick:openMovementPicker},
+          el("span",{class:"sel-ic"},ic("dumbbell",16)),
+          el("span",{class:"sel-name"}, selLabel),
+          el("span",{class:"sel-caret"},ic("chevron",16))));
         mount.append(chips([["4w","4 wk"],["12w","12 wk"],["6mo","6 mo"],["1y","1 yr"],["all","All"]], _sxRange, k=>_sxRange=k));
         // ---- chart + headline ----
         const cut=DAYS[_sxRange], inRange=e=>daysAgo(e.d)<=cut;
