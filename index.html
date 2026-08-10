@@ -248,8 +248,7 @@
   .setstep button{width:32px;height:42px;color:var(--accent);font-size:19px;font-weight:700;display:flex;align-items:center;justify-content:center}
   .setstep .setlbl{min-width:40px;text-align:center;font-size:10px;color:var(--muted);line-height:1.1;padding:0 2px}
   .setstep .setlbl strong{display:block;font-size:15px;color:var(--text);font-weight:700}
-  .miniarrow{width:28px;height:20px;border:1px solid var(--line);border-radius:6px;background:var(--surface-2);color:var(--muted);font-size:8px;display:flex;align-items:center;justify-content:center}
-  .miniarrow:disabled{opacity:.3}
+  .gripbtn{flex:none;width:34px;height:46px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);background:none;border:none;cursor:grab;touch-action:none}
   .progpill{display:inline-flex;align-items:center;font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;white-space:nowrap}
   .progpill.up{color:var(--accent-2);background:rgba(34,197,94,.12);border:1px solid rgba(34,197,94,.4)}
   .progpill.down{color:var(--warn);background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35)}
@@ -442,7 +441,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v92"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v93"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1626,7 +1625,8 @@ function loggerCard(item, isCurrent, ss){
           if(!nxt.wTouched) nxt.weight=set.weight;
           if(!nxt.rTouched) nxt.reps=set.reps;
         }
-        if(!drop) startRest(restOf(ex), ex?.name);   // drops go straight into the next mini-set — no rest
+        // drops go straight into the next mini-set; the exercise's LAST set ends it — no pointless timer
+        if(!drop){ if(item.sets.every(s2=>s2.done)) stopRest(); else startRest(restOf(ex), ex?.name); }
       } else stopRest();   // un-ticking cancels the rest you just started
       persistSession(); render();   // re-render so the row locks/unlocks
     }},ic("check",18));
@@ -1670,7 +1670,7 @@ function loggerCard(item, isCurrent, ss){
   ctl.append(
     el("button",{class:"btn success-ghost",style:"width:100%","aria-label":"Mark exercise done",onClick:()=>{
       item.sets.forEach(s=>{ if((+s.reps)>0) s.done=true; });
-      item.collapsed=true; persistSession(); render();
+      item.collapsed=true; stopRest(); persistSession(); render();
       toast(`${ex?.name||"Exercise"} done`);
     }},ic("check",16),"Done — log & minimize"),
     el("div",{class:"row",style:"gap:8px;margin-top:8px"},
@@ -1804,8 +1804,12 @@ async function commitSession(){
   }
   // persist what was PRESCRIBED so Insights can score "did you hit your targets" later
   const targets={}; s.items.forEach(it=>{ if(it.targetVol!=null) targets[it.exerciseId]=it.targetVol; });
-  await DB.put("sessions",{id:s.id,gymId:s.gymId,date:s.date,startedAt:s.startedAt,finishedAt:new Date().toISOString(),
-    ...(Object.keys(targets).length?{targets}:{})});
+  const sessionRec={id:s.id,gymId:s.gymId,date:s.date,startedAt:s.startedAt,finishedAt:new Date().toISOString(),
+    ...(Object.keys(targets).length?{targets}:{}),
+    ...(s.planId?{planId:s.planId, planName:s.planName}:{})};
+  await DB.put("sessions",sessionRec);
+  if(s.planId){ const plan=State.plans.find(p=>p.id===s.planId);   // plan usage: powers "done N days ago · M×"
+    if(plan){ plan.lastUsedAt=s.date; plan.useCount=(plan.useCount||0)+1; await DB.put("plans",plan); } }
   for(const st of done) await DB.put("sets",st);
   // miss-aware progression: did the logged volume hit the prescribed target? track the streak per exercise
   for(const it of s.items){
@@ -1836,8 +1840,10 @@ async function commitSession(){
   }
   _exStatus=null;   // training status changed
   State.activeSession=null; await setMeta("activeSession",null);
-  toast(`Saved ${done.length} sets`);
+  const mins=sessionMins(sessionRec);
+  toast(`Workout done · ${done.length} sets${mins?` · ${mins} min`:""}`);
   setTab("history");
+  openSessionDetail(sessionRec);   // the finished workout's summary IS the "done" notification
 }
 
 /* build an editable plan; suggestions are pre-filled but fully editable.
@@ -1891,7 +1897,8 @@ async function applyPlanToSession(plan){
 }
 async function startSessionFromPlan(plan){
   if(!curGym()){ openGymSheet(); return; }
-  State.activeSession={ id:uid(), gymId:State.currentGymId, date:todayISO(), started:false, startedAt:null, items:[] };
+  State.activeSession={ id:uid(), gymId:State.currentGymId, date:todayISO(), started:false, startedAt:null, items:[],
+    planId:plan.id, planName:plan.name };   // carried onto the session record at finish
   const {heavier,unresolved}=await applyPlanToSession(plan);
   await consumeQueuedExercises();
   await persistSession(); render();
@@ -2337,9 +2344,30 @@ function openAddExerciseSheet(afterClose){
       (libLeadsSearch(q, mine, libs) ? [libs.length&&libsSec, mine.length&&mineSec] : [mine.length&&mineSec, libs.length&&libsSec]).forEach(fn=>fn&&fn());
       foot.append(el("div",{class:"tiny muted",style:"margin:10px 2px 0"},"Not the one you want?"), customBtn());
     }
+    // exercises you actually did recently, resolved to this gym — the likeliest next adds
+    let recentEx=[];
+    (async()=>{
+      const [ses, sets]=await Promise.all([DB.all("sessions"), DB.all("sets")]);
+      const keyOf=e=>e.linkId||e.id;
+      const ownByKey={}; own().forEach(e=>{ ownByKey[keyOf(e)]=e; });
+      const byDate=Object.fromEntries(ses.map(s=>[s.id,s.date]));
+      const ordered=sets.slice().sort((a,b)=>(byDate[b.sessionId]||"").localeCompare(byDate[a.sessionId]||""));
+      const seen=new Set();
+      for(const x of ordered){
+        const ex=State.exercises.find(e=>e.id===x.exerciseId); if(!ex)continue;
+        const o=ownByKey[keyOf(ex)]; if(!o||seen.has(o.id))continue;
+        seen.add(o.id); recentEx.push(o);
+        if(recentEx.length>=8) break;
+      }
+      if(recentEx.length && !normName(search.value)) rerender();
+    })();
     function renderGroups(){
       results.replaceChildren(); foot.replaceChildren();
       const taken=ownNames();
+      if(recentEx.length){
+        results.append(el("div",{class:"regionhead"},"Recent"));
+        recentEx.forEach(e=>results.append(ownRow(e)));
+      }
       REGION_ORDER.forEach(region=>{
         const mine=sortForAdd(own().filter(e=>exRegion(e)===region));
         const libs=(LIB||[]).filter(e=>e.region===region && !taken.has(normName(e.name)));
@@ -2365,15 +2393,36 @@ function openAddExerciseSheet(afterClose){
 }
 
 /* a saved plan, shown on the start screen */
+function planUsageLbl(plan){
+  if(!plan.lastUsedAt) return "";
+  const d=daysAgo(plan.lastUsedAt);
+  const when=d<=0?"today":d===1?"yesterday":`${d} days ago`;
+  return `done ${when}${plan.useCount>1?` · ${plan.useCount}×`:""}`;
+}
 function planCard(plan){
-  const n=plan.items.length, regs=planRegions(plan);
+  const n=plan.items.length, regs=planRegions(plan), usage=planUsageLbl(plan);
   const grow=el("div",{class:"grow"},
     el("div",{class:"name"},plan.name),
     el("div",{class:"small muted"}, `${n} exercise${n>1?"s":""}${regs.length?" · "+regs.slice(0,3).join(", "):""} · ~${templateMinutes(plan)} min`));
+  if(usage) grow.append(el("div",{class:"tiny",style:"color:var(--accent-2);margin-top:2px"}, usage));
   return el("div",{class:"listitem",style:"cursor:default"},
     grow,
     el("button",{class:"btn sm",onClick:()=>startSessionFromPlan(plan)},ic("play",15),"Start"),
-    el("button",{class:"sheetclose",style:"margin-left:8px","aria-label":`Edit ${plan.name}`,onClick:()=>openPlanEditor(plan)},ic("more",18)));
+    el("button",{class:"sheetclose",style:"margin-left:8px","aria-label":`Options for ${plan.name}`,onClick:()=>openPlanMenu(plan)},ic("more",18)));
+}
+// quick actions for a plan — the ⋯ button opens choices instead of dropping you into the editor
+function openPlanMenu(plan){
+  openSheet(plan.name,(body,close)=>{
+    const usage=planUsageLbl(plan);
+    if(usage) body.append(el("p",{class:"small muted",style:"margin:-6px 0 10px"},usage));
+    body.append(
+      el("button",{class:"btn",onClick:()=>{ close(); startSessionFromPlan(plan); }},ic("play"),"Start this plan"),
+      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>{ close(); openPlanEditor(plan); }},ic("clipboard"),"Edit plan"),
+      el("button",{class:"btn danger",style:"margin-top:8px",onClick:async()=>{
+        if(!confirm(`Delete plan "${plan.name}"? Your logged history stays.`))return;
+        await deletePlan(plan.id); close(); render(); toast("Plan deleted");
+      }},ic("x"),"Delete plan"));
+  });
 }
 // full editor: rename, reorder, change set counts, add/remove exercises, start, delete
 function openPlanEditor(plan){
@@ -2401,10 +2450,8 @@ function openPlanEditor(plan){
       plan.items.forEach((it,i)=>{
         const ex=State.exercises.find(e=>e.id===it.exerciseId);
         const removeBtn=el("button",{class:"sheetclose",style:"width:38px;height:38px;flex:none","aria-label":"Remove from plan",onClick:async()=>{ plan.items.splice(i,1); await persist(); refresh(); render(); }},ic("x",18));
-        if(!ex){ listEl.append(el("div",{class:"listitem",style:"gap:8px"}, el("div",{class:"grow"},el("div",{class:"name muted"},"(deleted exercise)")), removeBtn)); return; }
-        const move=el("div",{style:"display:flex;flex-direction:column;gap:3px;flex:none"},
-          el("button",{class:"miniarrow",disabled:i===0,"aria-label":"Move up",onClick:async()=>{ [plan.items[i-1],plan.items[i]]=[plan.items[i],plan.items[i-1]]; await persist(); refresh(); }},"▲"),
-          el("button",{class:"miniarrow",disabled:i===plan.items.length-1,"aria-label":"Move down",onClick:async()=>{ [plan.items[i+1],plan.items[i]]=[plan.items[i],plan.items[i+1]]; await persist(); refresh(); }},"▼"));
+        const grip=el("button",{class:"gripbtn","data-grip":"1","aria-label":"Drag to reorder"},ic("grip",18));
+        if(!ex){ listEl.append(el("div",{class:"listitem","data-sort":"1",style:"gap:8px"}, grip, el("div",{class:"grow"},el("div",{class:"name muted"},"(deleted exercise)")), removeBtn)); return; }
         const grow=el("div",{class:"grow"},
           exDetailName(ex),
           el("div",{class:"small muted"}, `${fmtRest(restOf(ex))} rest · ~${exMinutes(ex,it.sets)} min`));
@@ -2413,8 +2460,9 @@ function openPlanEditor(plan){
           el("button",{type:"button","aria-label":"Fewer sets",onClick:async()=>{ if(it.sets>1){ it.sets--; await persist(); refresh(); }}},"−"),
           el("div",{class:"setlbl"}, el("strong",{},String(it.sets)), "sets"),
           el("button",{type:"button","aria-label":"More sets",onClick:async()=>{ it.sets++; await persist(); refresh(); }},"+"));
-        listEl.append(el("div",{class:"listitem",style:"gap:8px;cursor:default"}, move, grow, setCtl, removeBtn));
+        listEl.append(el("div",{class:"listitem","data-sort":"1",style:"gap:8px;cursor:default"}, grip, grow, setCtl, removeBtn));
       });
+      makeSortable(listEl, async(from,to)=>{ const [m]=plan.items.splice(from,1); plan.items.splice(to,0,m); await persist(); refresh(); });
       // add exercises not already in the plan — drawn from the gym you're currently at
       addEl.innerHTML="";
       const inPlan=new Set(plan.items.map(it=>it.exerciseId));
@@ -2427,7 +2475,6 @@ function openPlanEditor(plan){
           addEl.append(el("div",{class:"regionhead"},region));
           inRegion.forEach(ex=> addEl.append(addExerciseCard(ex, async()=>{ plan.items.push({exerciseId:ex.id, sets:ex.sets||3}); await persist(); refresh(); render(); })));
         });
-        addEl.append(el("button",{class:"btn secondary",style:"margin-top:6px",onClick:()=>{close();openExerciseSheet(null,{onCreate: async ex=>{ plan.items.push({exerciseId:ex.id, sets:ex.sets||3}); plan.updatedAt=new Date().toISOString(); await DB.put("plans",plan); openPlanEditor(plan); }});}},"+ Create a new exercise"));
         decorateAddStatus();
       } else {
         addEl.append(el("p",{class:"muted small"},"Every exercise at this gym is already in the plan."));
@@ -2534,6 +2581,7 @@ function viewHistory(){
         el("div",{class:"grow"},
           el("div",{class:"row",style:"gap:7px;align-items:center;flex-wrap:wrap"},
             el("div",{style:"font-weight:700"}, rel||fmtDate(se.date)),
+            ...(se.planName?[el("span",{class:"pill",style:"font-size:11px;padding:2px 9px;min-height:0;color:var(--accent);border:1px solid rgba(249,115,22,.45);border-radius:999px"}, se.planName)]:[]),
             el("span",{class:"gdot",style:`background:${gymHue(se.gymId)}`}),
             el("span",{class:"tiny muted"}, (rel?fmtDate(se.date)+" · ":"")+(gymNameOf(se.gymId)||"")),
             ...(joint?[el("span",{style:"color:var(--warn);display:inline-flex"},ic("alert",13))]:[])),
@@ -2556,7 +2604,7 @@ function openSessionDetail(se, editing=false){
       const exById=id=>State.exercises.find(e=>e.id===id);
       const sets=(await DB.all("sets")).filter(x=>x.sessionId===se.id);
       const byEx={}; sets.forEach(x=>{(byEx[x.exerciseId]=byEx[x.exerciseId]||[]).push(x);});
-      mount.append(el("div",{class:"small muted",style:"margin:-6px 0 8px"}, `${fmtDate(se.date)} · ${gymNameOf(se.gymId)||"—"}`));
+      mount.append(el("div",{class:"small muted",style:"margin:-6px 0 8px"}, `${fmtDate(se.date)} · ${gymNameOf(se.gymId)||"—"}${se.planName?` · ${se.planName}`:""}`));
       mount.append(el("button",{class:"btn"+(ed?"":" secondary"),style:"margin-bottom:12px",onClick:()=>{ ed=!ed; if(!ed) render(); build(); }},
         ic(ed?"check":"clipboard",16), ed?"Done editing":"Edit workout"));
       if(!ed){
