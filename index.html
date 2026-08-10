@@ -432,7 +432,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v88"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v89"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2764,10 +2764,9 @@ function buildStrengthStats(sessions, allSets){
     const loadOf=x=> isInverted(ex) ? (invEffectiveKg(ex, x.weight) ?? 0) : (+x.weight||0);
     u.sets.forEach(x=>{ const se=sesById[x.sessionId]; if(!se||!(x.reps>0))return;
       const k=se.date+se.startedAt;
-      const a=agg[k]||(agg[k]={m:0,vol:0,reps:0,thr:{}});
+      const a=agg[k]||(agg[k]={m:0,vol:0,thr:{}});
       a.m=Math.max(a.m, exMetric(ex, x.weight, x.reps));
       a.vol+= bw ? (+x.reps||0) : (+x.weight||0)*(+x.reps||0);   // bodyweight "volume" = total reps
-      a.reps+= +x.reps||0;
       // heaviest handled for AT LEAST n reps this session (skips sessions with no qualifying set)
       const w=loadOf(x);
       if(w>0) for(const n of [3,5,8,12]) if(x.reps>=n) a.thr[n]=Math.max(a.thr[n]||0, w);
@@ -2775,7 +2774,7 @@ function buildStrengthStats(sessions, allSets){
     const entries=Object.entries(agg).sort((a,b)=>a[0].localeCompare(b[0]));
     if(!entries.length)continue;
     const series=entries.map(([,a])=>a.m);
-    const dated=entries.map(([k,a])=>({d:k.slice(0,10), m:a.m, vol:a.vol, reps:a.reps, thr:a.thr}));
+    const dated=entries.map(([k,a])=>({d:k.slice(0,10), m:a.m, vol:a.vol, thr:a.thr}));
     const first=series[0],last=series[series.length-1];
     stats.push({key,ex,bw,series,dated,first,last,pct:first>0?((last-first)/first*100):0,
       unitLbl:(bw || (isInverted(ex)&&State.bodyweightKg==null))?"reps":"est 1RM", hasTrend:series.length>=2,
@@ -3214,8 +3213,9 @@ function openStrengthExplorer(){
       const DAYS={"4w":28,"12w":84,"6mo":182,"1y":365,"all":Infinity};
       // Est. 1RM = range-agnostic Epley index; Rep Strength = ACTUAL heaviest weight handled for ≥n reps
       const thrOn=()=> _sxMetric==="thr";
-      const mLabel=()=> _sxMetric==="vol"?"Volume" : _sxMetric==="reps"?"Reps" : thrOn()?`${_sxThr}+ rep strength`:"Est. 1RM";
-      const valOf=e=> _sxMetric==="vol"?e.vol : _sxMetric==="reps"?e.reps : thrOn()?((e.thr&&e.thr[_sxThr])||0) : e.m;
+      if(_sxMetric==="reps") _sxMetric="best";   // Reps view removed — reps is volume for bodyweight, noise for loaded lifts
+      const mLabel=()=> _sxMetric==="vol"?"Volume" : thrOn()?`${_sxThr}+ rep strength`:"Est. 1RM";
+      const valOf=e=> _sxMetric==="vol"?e.vol : thrOn()?((e.thr&&e.thr[_sxThr])||0) : e.m;
       // searchable movement picker — an unbounded chip row buries the selection off-screen;
       // a selector button always shows what's active, and the sheet adds search + context
       function openMovementPicker(){
@@ -3256,9 +3256,9 @@ function openStrengthExplorer(){
           pairs.forEach(([k,l])=>row.append(el("button",{class:"fchip"+(cur===k?" on":""),onClick:()=>{set(k);build();}},l)));
           return row; };
         // metric = segmented control (a different shape per filter kind — no more identical chip rows)
-        const seg=el("div",{class:"seg",style:"margin-bottom:"+(thrOn()?"8px":"12px")+";font-size:13px"});
-        [["best","Est. 1RM"],["thr","Rep Strength"],["vol","Volume"],["reps","Reps"]].forEach(([k,l])=>
-          seg.append(el("button",{class:_sxMetric===k?"on":"","aria-pressed":_sxMetric===k?"true":"false",style:"font-size:13px;padding:11px 2px",onClick:()=>{_sxMetric=k;build();}},l)));
+        const seg=el("div",{class:"seg",style:"margin-bottom:"+(thrOn()?"8px":"12px")});
+        [["best","Est. 1RM"],["thr","Rep Strength"],["vol","Volume"]].forEach(([k,l])=>
+          seg.append(el("button",{class:_sxMetric===k?"on":"","aria-pressed":_sxMetric===k?"true":"false",onClick:()=>{_sxMetric=k;build();}},l)));
         mount.append(seg);
         // Rep Strength: at a given rep threshold, the heaviest weight you successfully handled.
         // If these aren't climbing, strength isn't building.
@@ -3294,8 +3294,7 @@ function openStrengthExplorer(){
           caption=`${mLabel()} · averaged across ${used} movement${used===1?"":"s"} · 100% = each movement's first session in range`;
         } else {
           const s=byKey[_sxSel], pts=s.dated.filter(p=>inRange(p)&&valOf(p)>0);
-          const unit = _sxMetric==="reps" ? ""
-            : _sxMetric==="best" ? (s.unitLbl==="reps" ? "" : (s.ex.unit||"kg"))
+          const unit = _sxMetric==="best" ? (s.unitLbl==="reps" ? "" : (s.ex.unit||"kg"))
             : _sxMetric==="vol" ? (s.bw ? "" : (s.ex.unit||"kg"))
             : (s.ex.unit||"kg");   // rep strength: actual load (for bodyweight = added load)
           chart = pts.length>=2 ? lineChart(pts.map(valOf),{labels:pts.map(p=>fmtShortDate(p.d)), fmt:v=>Math.round(v)+unit})
@@ -3306,7 +3305,7 @@ function openStrengthExplorer(){
             heroDelta=firstV>0?Math.round((lastV-firstV)/firstV*100):null;
             heroSub=thrOn()?`heaviest for ${_sxThr}+ reps`
               : _sxMetric==="best"?(s.unitLbl==="reps"?"best reps":"est 1RM")
-              : _sxMetric==="vol"?(s.bw?"total reps":"session volume"):"total reps"; }
+              : (s.bw?"total reps":"session volume"); }
           caption=`${thrOn()?`Heaviest weight handled for ${_sxThr}+ reps`
             : _sxMetric==="best"?"Est. 1RM from your hardest set each session (Epley)":mLabel()} · ${s.ex.name}${s.combined?` · combined across ${s.gyms} gyms`:""}`;
         }
