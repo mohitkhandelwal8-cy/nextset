@@ -307,7 +307,9 @@
   .secnav button{flex:none;font-size:12px;padding:6px 12px;min-height:34px;border-radius:999px;
     background:var(--surface-2);border:1px solid var(--line);color:var(--muted);cursor:pointer}
   .secnav button:active{color:var(--text);border-color:var(--accent)}
-  .insightsv .sectionhead,[id^="sx-"]{scroll-margin-top:52px}
+  .secnav button.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:700}
+  .navbadge{background:var(--warn);color:#111827;border-radius:999px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:6px;display:inline-block}
+  .secnav button.on .navbadge{background:var(--on-accent);color:var(--accent)}
   .cal i.tap{cursor:pointer}
   .chart-read{font-size:12px;color:var(--text);background:var(--surface-2);border:1px solid var(--line);
     border-radius:8px;padding:4px 10px;display:inline-block;margin-top:4px}
@@ -440,7 +442,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v95"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v96"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2909,10 +2911,8 @@ function viewInsights(){
     const allSets=await DB.all("sets");
     if(!allSets.length){ mount.append(el("div",{class:"empty"},el("div",{class:"big"},ic("bulb",42)),
       el("p",{class:"muted"},"Log a few workouts and you'll get trends, a streak, a progressive-overload score and muscle breakdowns here.")));return;}
-    // sticky jump-nav — Insights is a 4-screen scroll
-    mount.append(el("div",{class:"secnav"},
-      ...[["sx-consist","Consistency"],["sx-prog","Progress"],["sx-mix","Training mix"],["sx-att","Attention"]].map(([id,l])=>
-        el("button",{onClick:()=>document.getElementById(id)?.scrollIntoView({behavior:"smooth",block:"start"})},l))));
+    // one section on screen at a time — the four questions are separate screens, not one long scroll
+    const secC=el("div",{}), secP=el("div",{}), secM=el("div",{}), secA=el("div",{});
     const exById=id=>State.exercises.find(e=>e.id===id);
     const gymName=id=>State.gyms.find(g=>g.id===id)?.name||"";
     const sesById=Object.fromEntries(sessions.map(s=>[s.id,s]));
@@ -3040,7 +3040,7 @@ function viewInsights(){
       el("div",{class:"tiny muted",style:"margin-top:6px"},"Each square is a day · last 26 weeks · tap a day to open that workout."));
 
     // ---- Q1 assembled: consistency first ----
-    mount.append(el("div",{class:"sectionhead",id:"sx-consist"},"Am I consistent?"), ovCard, calCard);
+    secC.append(el("div",{class:"sectionhead",style:"margin-top:2px"},"Am I consistent?"), ovCard, calCard);
 
     // ===== Muscle targets + breakdown (Q3: What should I change?) =====
     const inMR = d => muscleRange==="week" ? mondayOf(d)===thisWeek : daysAgo(d) <= ({"4wk":28,"12wk":84,"6mo":182}[muscleRange]||28);
@@ -3158,13 +3158,13 @@ function viewInsights(){
         "No PRs this week yet — beat last time on any lift and it lands here."));
     }
     // ---- Q2 assembled ----
-    mount.append(el("div",{class:"sectionhead",id:"sx-prog"},"Am I progressing?"), poCard, winsCard);
-    if(strengthCard) mount.append(strengthCard);
+    secP.append(el("div",{class:"sectionhead",style:"margin-top:2px"},"Am I progressing?"), poCard, winsCard);
+    if(strengthCard) secP.append(strengthCard);
     // ---- Q3 assembled ----
-    mount.append(el("div",{class:"sectionhead",id:"sx-mix"},"What should I change?"), mrChips, ...muscleCards);
+    secM.append(el("div",{class:"sectionhead",style:"margin-top:2px"},"What should I change?"), mrChips, ...muscleCards);
 
     // ===== What needs attention — every insight carries a one-tap action =====
-    const alerts=el("div",{class:"card",id:"sx-att"});
+    const alerts=el("div",{class:"card"});
     // collect first, then render severity-first (act-now warns → falling behind → dormant → tips)
     const alertItems=[]; const addAlert=(sev,node)=>alertItems.push({sev,node});
     const queued=new Set((await getMeta("queuedExercises"))||[]);
@@ -3259,9 +3259,8 @@ function viewInsights(){
       el("div",{class:"d"},"Splitting them across two days usually lets you do more quality sets."))); }
     // assemble: header w/ count, severity order, top 4 + expander
     alertItems.sort((a,b)=>a.sev-b.sev);
-    alerts.append(el("div",{class:"row between",style:"margin-bottom:10px"},
-      el("h2",{style:"margin:0"},"What needs attention"),
-      alertItems.length?el("span",{class:"small muted"},`${alertItems.length} item${alertItems.length===1?"":"s"}`):el("span")));
+    if(alertItems.length) alerts.append(el("div",{class:"small muted",style:"margin-bottom:8px"},
+      `${alertItems.length} item${alertItems.length===1?"":"s"} · most urgent first`));
     const AP=4, apShown=_showAllAlerts?alertItems:alertItems.slice(0,AP);
     apShown.forEach(a=>alerts.append(a.node));
     if(alertItems.length>AP) alerts.append(_showAllAlerts
@@ -3269,7 +3268,18 @@ function viewInsights(){
       : showAllBtn(`Show ${alertItems.length-AP} more`, ()=>{_showAllAlerts=true;}));
     if(!alertItems.length) alerts.append(el("div",{class:"insight good"},el("div",{class:"t"},"All clear"),
       el("div",{class:"d"},"No plateaus or flags right now. Keep stacking sessions.")));
-    mount.append(alerts);
+    secA.append(el("div",{class:"sectionhead",style:"margin-top:2px"},"What needs attention?"), alerts);
+    // ---- section tabs: sticky, one panel visible, alert count on Attention ----
+    const SECS={consist:["Consistency",secC], prog:["Progress",secP], mix:["Training mix",secM], att:["Attention",secA]};
+    if(!SECS[insightsSection]) insightsSection="consist";
+    const nav=el("div",{class:"secnav"});
+    Object.entries(SECS).forEach(([k,[lbl]])=>{
+      const b=el("button",{class:insightsSection===k?"on":"","aria-pressed":insightsSection===k?"true":"false",
+        onClick:()=>{ insightsSection=k; render(); window.scrollTo({top:0}); }}, lbl);
+      if(k==="att" && alertItems.length) b.append(el("span",{class:"navbadge"},String(alertItems.length)));
+      nav.append(b);
+    });
+    mount.append(nav, SECS[insightsSection][1]);
     if(_insightsScroll!=null){ const y=_insightsScroll; _insightsScroll=null; requestAnimationFrame(()=>window.scrollTo(0,y)); }
   })();
   return wrap;
@@ -3559,6 +3569,7 @@ function openMuscleDetail(mk){
 
 /* ===== insights extras: PRs, per-exercise detail, body heatmap, ranged volume, calendar ===== */
 let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
+let insightsSection="consist";   // active Insights tab: consist | prog | mix | att — session-scoped
 let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
 let _showAllAlerts=false, _showAllMuscles=false, _showAllWins=false; // Insights long-list expanders — session-scoped
 // "Show all N" ghost button used by both long Insights sections; preserves scroll on re-render
