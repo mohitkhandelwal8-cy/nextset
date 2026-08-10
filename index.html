@@ -442,7 +442,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v90"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v91"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2828,13 +2828,16 @@ function recentWins(sessions, allSets){
       if(!first){
         if(inv && topW<bestW) label=topW>0?`least assistance · −${topW}${u.ex.unit||"kg"}`:"first unassisted";
         else if(!inv && !bw && topW>bestW) label=`heaviest · ${topW}${u.ex.unit||"kg"}`;
-        else if(topM>bestM) label=bw?`most reps · ${Math.max(...s2.sets.map(x=>+x.reps||0))}`:"best est. 1RM";
+        else if(topM>bestM){
+          const reps=Math.max(...s2.sets.map(x=>+x.reps||0));
+          label=(bw||(inv&&State.bodyweightKg==null)) ? `most reps · ${reps}` : `est. 1RM · ${Math.round(topM)}${u.ex.unit||"kg"}`;
+        }
       }
       if(label) wins.push({date:s2.date, name:u.ex.name, label});
       bestW=inv?Math.min(bestW,topW):Math.max(bestW,topW); bestM=Math.max(bestM,topM); first=false;
     }
   }
-  return wins.filter(w=>daysAgo(w.date)<=28).sort((a,b)=>b.date.localeCompare(a.date));
+  return wins.filter(w=>daysAgo(w.date)<=7).sort((a,b)=>b.date.localeCompare(a.date));
 }
 // consistent ▲/▼ pill (shared: card, explorer); null → "new"
 function trendPill(pct, suffix){
@@ -3094,14 +3097,16 @@ function viewInsights(){
       winsCard=el("div",{class:"card"});
       winsCard.append(el("div",{class:"row between",style:"margin-bottom:2px"},
         el("h2",{style:"margin:0"},"Recent wins"),
-        el("span",{class:"small muted"},"last 4 weeks")));
-      wins.slice(0,6).forEach(w=>winsCard.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line);gap:8px"},
+        el("span",{class:"small muted"},"last 7 days")));
+      (_showAllWins?wins:wins.slice(0,6)).forEach(w=>winsCard.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line);gap:8px"},
         el("div",{style:"min-width:0"},
           el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},w.name),
           el("div",{class:"tiny muted"},fmtDate(w.date))),
         el("div",{class:"small",style:"color:var(--accent-2);font-weight:600;flex:none;display:inline-flex;align-items:center;gap:5px"},
           ic("starfill",12), w.label))));
-      if(wins.length>6) winsCard.append(el("div",{class:"tiny muted",style:"margin-top:6px"},`+${wins.length-6} more this month`));
+      if(wins.length>6) winsCard.append(_showAllWins
+        ? showAllBtn("Show fewer", ()=>{_showAllWins=false;})
+        : showAllBtn(`Show all ${wins.length} wins`, ()=>{_showAllWins=true;}));
     }
     // ---- Q2 assembled ----
     mount.append(el("div",{class:"sectionhead",id:"sx-prog"},"Am I progressing?"), poCard);
@@ -3520,7 +3525,7 @@ function openMuscleDetail(mk){
 let insightsRange="12w";
 let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
 let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
-let _showAllAlerts=false, _showAllMuscles=false; // Insights long-list expanders — session-scoped
+let _showAllAlerts=false, _showAllMuscles=false, _showAllWins=false; // Insights long-list expanders — session-scoped
 // "Show all N" ghost button used by both long Insights sections; preserves scroll on re-render
 function showAllBtn(label, onTap){
   return el("button",{class:"btn ghost sm",style:"width:100%;margin-top:4px",onClick:()=>{ _insightsScroll=window.scrollY; onTap(); render(); }}, ic("chevron",14), label);
