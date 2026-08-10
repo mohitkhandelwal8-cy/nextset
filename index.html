@@ -454,7 +454,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v101"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v102"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1377,7 +1377,9 @@ function viewToday(){
         el("p",{class:"muted small",style:"margin:8px 0 14px"},
           gx.length? `${gx.length} exercise${gx.length>1?"s":""} available here.`
                    : "No exercises here yet — you can add them as you go."),
-        el("button",{class:plans.length?"btn secondary":"btn",onClick:startSession},ic("play"),plans.length?"Start an empty workout":"Start today's workout")
+        el("button",{class:plans.length?"btn secondary":"btn",onClick:async()=>{   // "Start" means START — straight into logging, no second Start tap
+          await startSession(); if(State.activeSession) await startWorkout();
+        }},ic("play"),plans.length?"Start an empty workout":"Start today's workout")
       )
     );
     if(plans.length){
@@ -1955,7 +1957,7 @@ function openSheet(title, buildBody, opts={}){
   const host=$("#sheetHost");
   const bg=el("div",{class:"sheet-bg"}); if(stacked) bg.style.zIndex="55";
   let onKey;
-  const close=()=>{ document.removeEventListener("keydown",onKey); if(stacked){ bg.remove(); } else { host.innerHTML=""; document.body.classList.remove("modal-open"); } };
+  const close=()=>{ document.removeEventListener("keydown",onKey); if(stacked){ bg.remove(); } else { host.innerHTML=""; document.body.classList.remove("modal-open"); } if(opts.onClose) opts.onClose(); };   // onClose runs on EVERY close path (✕, backdrop, Esc, programmatic)
   onKey=e=>{ if(e.key!=="Escape") return; const bgs=document.querySelectorAll(".sheet-bg"); if(bgs.length && bgs[bgs.length-1]===bg) close(); };  // Esc closes the topmost sheet
   document.addEventListener("keydown",onKey);
   bg.addEventListener("click",e=>{ if(e.target===bg) close(); });
@@ -2288,13 +2290,11 @@ function openPlanSheet(){
 // part (collapsible), add with one tap; fall back to creating a custom exercise if it's not there.
 function openAddExerciseSheet(afterClose){
   openSheet("Add exercise",(body,close)=>{
-    const done=()=>{ close(); afterClose&&afterClose(); };
     body.append(el("p",{class:"small muted",style:"margin:-6px 0 8px"},
       "Search or browse by body part. Machines & cables save to ", el("b",{}, curGym()?curGym().name:"this gym"),
       "; free-weight moves are shared across your gyms."));
     const search=el("input",{type:"text",placeholder:"Search all exercises…","aria-label":"Search exercises"});
     body.append(el("div",{style:"margin-bottom:6px"}, search));
-    body.append(el("button",{class:"btn secondary",style:"margin:0 0 12px",onClick:done}, ic("check",16), "Done"));
     const results=el("div",{}), foot=el("div",{});
     body.append(results, foot);
 
@@ -2402,7 +2402,7 @@ function openAddExerciseSheet(afterClose){
     search.addEventListener("input", rerender);
     rerender();
     loadLibrary().then(rerender).catch(()=>rerender());   // library is a bonus; your collection works regardless
-  }, {stacked:true});
+  }, {stacked:true, onClose:()=>{ afterClose&&afterClose(); }});   // adds are instant; ✕ closes and refreshes — no Done needed
 }
 
 /* a saved plan, shown on the start screen */
