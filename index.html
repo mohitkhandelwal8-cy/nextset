@@ -442,7 +442,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v91"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v92"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -3092,12 +3092,11 @@ function viewInsights(){
     }
     // ---- Recent wins: PRs recomputed from history so they don't vanish with the toast ----
     const wins=recentWins(sessions, allSets);
-    let winsCard=null;
+    const winsCard=el("div",{class:"card"});
+    winsCard.append(el("div",{class:"row between",style:"margin-bottom:2px"},
+      el("h2",{style:"margin:0"},"Recent wins"),
+      el("span",{class:"small muted"},"last 7 days")));
     if(wins.length){
-      winsCard=el("div",{class:"card"});
-      winsCard.append(el("div",{class:"row between",style:"margin-bottom:2px"},
-        el("h2",{style:"margin:0"},"Recent wins"),
-        el("span",{class:"small muted"},"last 7 days")));
       (_showAllWins?wins:wins.slice(0,6)).forEach(w=>winsCard.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line);gap:8px"},
         el("div",{style:"min-width:0"},
           el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},w.name),
@@ -3107,10 +3106,12 @@ function viewInsights(){
       if(wins.length>6) winsCard.append(_showAllWins
         ? showAllBtn("Show fewer", ()=>{_showAllWins=false;})
         : showAllBtn(`Show all ${wins.length} wins`, ()=>{_showAllWins=true;}));
+    } else {
+      winsCard.append(el("p",{class:"muted small",style:"margin:8px 0 0"},
+        "No PRs this week yet — beat last time on any lift and it lands here."));
     }
     // ---- Q2 assembled ----
-    mount.append(el("div",{class:"sectionhead",id:"sx-prog"},"Am I progressing?"), poCard);
-    if(winsCard) mount.append(winsCard);
+    mount.append(el("div",{class:"sectionhead",id:"sx-prog"},"Am I progressing?"), poCard, winsCard);
     if(strengthCard) mount.append(strengthCard);
     // ---- Q3 assembled ----
     mount.append(el("div",{class:"sectionhead",id:"sx-mix"},"What should I change?"), mrChips, ...muscleCards);
