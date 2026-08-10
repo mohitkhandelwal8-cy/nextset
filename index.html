@@ -325,8 +325,6 @@
   .navbadge{background:var(--warn);color:#111827;border-radius:999px;font-size:10px;font-weight:800;padding:1px 6px;margin-left:6px;display:inline-block}
   .secnav button.on .navbadge{background:var(--on-sec);color:var(--sec-amber)}
   .cal i.tap{cursor:pointer}
-  .chart-read{font-size:12px;color:var(--text);background:var(--surface-2);border:1px solid var(--line);
-    border-radius:8px;padding:4px 10px;display:inline-block;margin-top:4px}
 </style>
 </head>
 <body>
@@ -456,7 +454,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v98"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v99"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -3337,21 +3335,38 @@ function lineChart(values, opts={}){
     <text x="${padL}" y="${(padT-3).toFixed(1)}" fill="var(--muted)" font-size="9">${esc(fmt(max))}</text>
     ${xl}
   </svg>`;
-  // tap a point to inspect it — hover doesn't exist on phones
+  // scrubbable crosshair — touch/drag anywhere on the chart: a vertical line snaps to the
+  // nearest point and the value + date render ON the chart at the line (hover doesn't exist
+  // on phones, and a readout below the chart goes unseen). Persists where you release.
   const svg=wrap.querySelector("svg");
-  const mark=document.createElementNS("http://www.w3.org/2000/svg","circle");
-  mark.setAttribute("r","5.5"); mark.setAttribute("fill","none"); mark.setAttribute("stroke","var(--data)"); mark.setAttribute("stroke-width","2"); mark.style.display="none";
-  svg.append(mark);
-  const read=el("div",{class:"chart-read",style:"display:none","aria-live":"polite"});
-  wrap.append(read);
-  wrap.addEventListener("click",e=>{
-    e.stopPropagation();   // inside a tappable card, inspecting a point must not trigger the card
+  svg.style.touchAction="pan-y";   // horizontal drags scrub; vertical still scrolls the page
+  const NS="http://www.w3.org/2000/svg";
+  const mkEl=(t,at)=>{ const e2=document.createElementNS(NS,t); for(const k2 in at) e2.setAttribute(k2,at[k2]); e2.style.display="none"; svg.append(e2); return e2; };
+  const vline=mkEl("line",{y1:String(padT-2),y2:base,stroke:"var(--muted)","stroke-width":"1","stroke-dasharray":"3,3"});
+  const halo=mkEl("circle",{r:"7",fill:"var(--data)",opacity:"0.25"});
+  const dot=mkEl("circle",{r:"3.5",fill:"var(--data)",stroke:"var(--bg)","stroke-width":"1"});
+  const lbl=mkEl("text",{"font-size":"11","font-weight":"700",fill:"var(--text)",stroke:"var(--surface)","stroke-width":"3","paint-order":"stroke"});
+  const sub=mkEl("text",{"font-size":"9",fill:"var(--muted)",stroke:"var(--surface)","stroke-width":"3","paint-order":"stroke"});
+  const scrub=e=>{
     const r=svg.getBoundingClientRect(); if(!r.width) return;
     const xv=(e.clientX-r.left)/r.width*W;
-    let i=0,best=Infinity; for(let k=0;k<n;k++){ const d=Math.abs(X(k)-xv); if(d<best){best=d;i=k;} }
-    mark.setAttribute("cx",X(i).toFixed(1)); mark.setAttribute("cy",Y(values[i]).toFixed(1)); mark.style.display="";
-    read.style.display=""; read.textContent=`${labels.length===n&&labels[i]?labels[i]+" · ":""}${fmt(values[i])}`;
-  });
+    let i=0,best=Infinity; for(let k2=0;k2<n;k2++){ const d=Math.abs(X(k2)-xv); if(d<best){best=d;i=k2;} }
+    const x=X(i).toFixed(1), y=Y(values[i]).toFixed(1);
+    vline.setAttribute("x1",x); vline.setAttribute("x2",x);
+    halo.setAttribute("cx",x); halo.setAttribute("cy",y);
+    dot.setAttribute("cx",x); dot.setAttribute("cy",y);
+    const flip=X(i)>W*0.6;   // near the right edge, label sits left of the line
+    [lbl,sub].forEach(t=>{ t.setAttribute("text-anchor",flip?"end":"start"); t.setAttribute("x",String(flip?X(i)-7:X(i)+7)); });
+    lbl.setAttribute("y",String(padT+8)); lbl.textContent=fmt(values[i]);
+    sub.setAttribute("y",String(padT+19)); sub.textContent=labels.length===n&&labels[i]?labels[i]:"";
+    [vline,halo,dot,lbl,sub].forEach(e3=>e3.style.display="");
+  };
+  let scrubbing=false;
+  svg.addEventListener("pointerdown",e=>{ scrubbing=true; try{svg.setPointerCapture(e.pointerId);}catch(_){} scrub(e); });
+  svg.addEventListener("pointermove",e=>{ if(scrubbing) scrub(e); });
+  const endScrub=()=>{ scrubbing=false; };
+  svg.addEventListener("pointerup",endScrub); svg.addEventListener("pointercancel",endScrub);
+  wrap.addEventListener("click",e=>e.stopPropagation());   // inside a tappable card, scrubbing must not trigger the card
   return wrap;
 }
 // pick one of a region's exercises to queue for the next workout (from a region-neglect alert)
@@ -3403,13 +3418,13 @@ function openStrengthExplorer(){
           const listEl=el("div",{}); pbody.append(listEl);
           const cut=DAYS[_sxRange];
           const pick=k=>{ _sxSel=k; pclose(); build(); };
-          const row=(k,title,sub,pill)=>el("button",{class:"rowbtn",style:"margin:4px 0;width:100%"+(k===_sxSel?";border:1px solid var(--accent)":""),onClick:()=>pick(k)},
+          const row=(k,title,sub,pill)=>el("button",{class:"rowbtn",style:"margin:4px 0;width:100%"+(k===_sxSel?";background:rgba(139,92,246,.14)":""),onClick:()=>pick(k)},
             el("div",{class:"row between",style:"width:100%"},
               el("div",{style:"min-width:0;text-align:left"},
                 el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},title),
                 sub?el("div",{class:"tiny muted"},sub):el("span")),
               el("div",{class:"row",style:"gap:6px;align-items:center;flex:none"}, pill||el("span"),
-                k===_sxSel?el("span",{style:"color:var(--accent);display:inline-flex"},ic("check",16)):el("span"))));
+                k===_sxSel?el("span",{style:"color:var(--sel);display:inline-flex"},ic("check",16)):el("span"))));
           const renderList=()=>{
             listEl.replaceChildren();
             const q=search.value.trim();
