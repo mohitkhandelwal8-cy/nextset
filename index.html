@@ -425,7 +425,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v84"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v85"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -3202,17 +3202,60 @@ function openStrengthExplorer(){
       const DAYS={"4w":28,"12w":84,"6mo":182,"1y":365,"all":Infinity};
       const METRIC_LBL={best:"Best set",vol:"Volume",reps:"Reps"};
       const valOf=e=> _sxMetric==="vol"?e.vol : _sxMetric==="reps"?e.reps : e.m;
+      // searchable movement picker — an unbounded chip row buries the selection off-screen;
+      // a selector button always shows what's active, and the sheet adds search + context
+      function openMovementPicker(){
+        openSheet("Choose a movement",(pbody,pclose)=>{
+          const search=el("input",{type:"text",placeholder:"Search movements…","aria-label":"Search movements"});
+          pbody.append(el("div",{style:"margin-bottom:8px"},search));
+          const listEl=el("div",{}); pbody.append(listEl);
+          const cut=DAYS[_sxRange];
+          const pick=k=>{ _sxSel=k; pclose(); build(); };
+          const row=(k,title,sub,pill)=>el("button",{class:"rowbtn",style:"margin:4px 0;width:100%"+(k===_sxSel?";border:1px solid var(--accent)":""),onClick:()=>pick(k)},
+            el("div",{class:"row between",style:"width:100%"},
+              el("div",{style:"min-width:0;text-align:left"},
+                el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},title),
+                sub?el("div",{class:"tiny muted"},sub):el("span")),
+              el("div",{class:"row",style:"gap:6px;align-items:center;flex:none"}, pill||el("span"),
+                k===_sxSel?el("span",{style:"color:var(--accent);display:inline-flex"},ic("check",16)):el("span"))));
+          const renderList=()=>{
+            listEl.replaceChildren();
+            const q=search.value.trim();
+            if(!q){
+              listEl.append(row("all","All movements","averaged · % of each movement's own start"));
+              eqKeys.forEach(k=>listEl.append(row("eq:"+k, eqG[k][0].ex.name+" · combined", `${eqG[k].length} equivalent machines`)));
+            }
+            const list=q?rankByMatch(q, ranked, s=>s.ex.name):ranked;
+            list.forEach(s=>listEl.append(row(s.key, s.ex.name,
+              `${s.dated.length} session${s.dated.length===1?"":"s"} · last ${fmtShortDate(s.dated[s.dated.length-1].d)}`,
+              trendPill(windowPct(s, e=>_sxMetric==="vol"?e.vol:_sxMetric==="reps"?e.reps:e.m, cut)))));
+            if(q&&!list.length) listEl.append(el("p",{class:"muted small",style:"margin:8px 2px"},"No movement matches."));
+          };
+          search.addEventListener("input",renderList);
+          renderList();
+        },{stacked:true});
+      }
       function build(){
         const sc=sheetEl()?sheetEl().scrollTop:0;
         mount.replaceChildren();
         const chips=(pairs,cur,set)=>{ const row=el("div",{class:"filterchips"});
           pairs.forEach(([k,l])=>row.append(el("button",{class:"fchip"+(cur===k?" on":""),onClick:()=>{set(k);build();}},l)));
           return row; };
-        mount.append(chips([["best","Best set"],["vol","Volume"],["reps","Reps"]], _sxMetric, k=>_sxMetric=k));
-        const exPairs=[["all","All · normalized"]];
-        eqKeys.forEach(k=>exPairs.push(["eq:"+k, eqG[k][0].ex.name+" · combined"]));
-        ranked.forEach(s=>exPairs.push([s.key, s.ex.name]));
-        mount.append(chips(exPairs, _sxSel, k=>_sxSel=k));
+        // metric = segmented control (a different shape per filter kind — no more three identical chip rows)
+        const seg=el("div",{class:"seg",style:"margin-bottom:8px"});
+        [["best","Best set"],["vol","Volume"],["reps","Reps"]].forEach(([k,l])=>
+          seg.append(el("button",{class:_sxMetric===k?"on":"","aria-pressed":_sxMetric===k?"true":"false",onClick:()=>{_sxMetric=k;build();}},l)));
+        mount.append(seg);
+        // movement = selector button → searchable picker sheet
+        const selLabel = _sxSel==="all" ? "All movements · normalized"
+          : _sxSel.startsWith("eq:") ? (eqG[_sxSel.slice(3)][0].ex.name+" · combined")
+          : byKey[_sxSel].ex.name;
+        mount.append(el("button",{class:"rowbtn",style:"width:100%;margin:0 0 8px","aria-label":"Choose movement",onClick:openMovementPicker},
+          el("div",{class:"row between",style:"width:100%"},
+            el("div",{style:"min-width:0;text-align:left"},
+              el("div",{class:"tiny muted"},"Movement"),
+              el("div",{style:"font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, selLabel)),
+            el("span",{class:"chev"},ic("chevron",18)))));
         mount.append(chips([["4w","4 wk"],["12w","12 wk"],["6mo","6 mo"],["1y","1 yr"],["all","All"]], _sxRange, k=>_sxRange=k));
         // ---- chart + headline ----
         const cut=DAYS[_sxRange], inRange=e=>daysAgo(e.d)<=cut;
