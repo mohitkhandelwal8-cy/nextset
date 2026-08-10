@@ -432,7 +432,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v86"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v87"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -2760,17 +2760,22 @@ function buildStrengthStats(sessions, allSets){
   for(const key of Object.keys(unitMap)){
     const u=unitMap[key], ex=u.repEx, bw=isBW(ex);
     const agg={};
+    // load a set "counts as" for the ×n+ views: real weight; assisted machines → effective kg
+    const loadOf=x=> isInverted(ex) ? (invEffectiveKg(ex, x.weight) ?? 0) : (+x.weight||0);
     u.sets.forEach(x=>{ const se=sesById[x.sessionId]; if(!se||!(x.reps>0))return;
       const k=se.date+se.startedAt;
-      const a=agg[k]||(agg[k]={m:0,vol:0,reps:0});
+      const a=agg[k]||(agg[k]={m:0,vol:0,reps:0,thr:{}});
       a.m=Math.max(a.m, exMetric(ex, x.weight, x.reps));
       a.vol+= bw ? (+x.reps||0) : (+x.weight||0)*(+x.reps||0);   // bodyweight "volume" = total reps
       a.reps+= +x.reps||0;
+      // heaviest handled for AT LEAST n reps this session (skips sessions with no qualifying set)
+      const w=loadOf(x);
+      if(w>0) for(const n of [3,5,8,12]) if(x.reps>=n) a.thr[n]=Math.max(a.thr[n]||0, w);
     });
     const entries=Object.entries(agg).sort((a,b)=>a[0].localeCompare(b[0]));
     if(!entries.length)continue;
     const series=entries.map(([,a])=>a.m);
-    const dated=entries.map(([k,a])=>({d:k.slice(0,10), m:a.m, vol:a.vol, reps:a.reps}));
+    const dated=entries.map(([k,a])=>({d:k.slice(0,10), m:a.m, vol:a.vol, reps:a.reps, thr:a.thr}));
     const first=series[0],last=series[series.length-1];
     stats.push({key,ex,bw,series,dated,first,last,pct:first>0?((last-first)/first*100):0,
       unitLbl:(bw || (isInverted(ex)&&State.bodyweightKg==null))?"reps":"est 1RM", hasTrend:series.length>=2,
@@ -2781,7 +2786,7 @@ function buildStrengthStats(sessions, allSets){
 // windowed trend: % change of a metric across the sessions inside the window (null = <2 sessions).
 // All-time first→last is misleading after a layoff — every lift shows its full regain forever.
 function windowPct(s, valOf, cutDays){
-  const pts=s.dated.filter(e=>daysAgo(e.d)<=cutDays);
+  const pts=s.dated.filter(e=>daysAgo(e.d)<=cutDays && valOf(e)>0);   // ×n+ views skip sessions with no qualifying set
   if(pts.length<2) return null;
   const f=valOf(pts[0]), l=valOf(pts[pts.length-1]);
   return f>0 ? (l-f)/f*100 : null;
@@ -3191,7 +3196,7 @@ function openQueueRegionSheet(region){
   });
 }
 /* ---------- strength explorer: one chart, any movement (or all, normalized), three metrics ---------- */
-let _sxMetric="best", _sxSel="all", _sxRange="12w";   // session-scoped so reopening keeps your view
+let _sxMetric="best", _sxSel="all", _sxRange="12w", _sxStrMode="e1rm";   // session-scoped so reopening keeps your view; _sxStrMode: "e1rm" | 3 | 5 | 8 | 12
 function openStrengthExplorer(){
   openSheet("Strength progression",(body)=>{
     const mount=el("div",{}); body.append(mount);
@@ -3207,8 +3212,10 @@ function openStrengthExplorer(){
       if(_sxSel.startsWith("eq:") && !eqKeys.includes(_sxSel.slice(3))) _sxSel="all";
       const sheetEl=()=>mount.closest(".sheet");
       const DAYS={"4w":28,"12w":84,"6mo":182,"1y":365,"all":Infinity};
-      const METRIC_LBL={best:"Best set",vol:"Volume",reps:"Reps"};
-      const valOf=e=> _sxMetric==="vol"?e.vol : _sxMetric==="reps"?e.reps : e.m;
+      // "Strength" = est. 1RM by default, or the ACTUAL heaviest weight handled for ≥n reps (×n+)
+      const thrOn=()=> _sxMetric==="best" && _sxStrMode!=="e1rm";
+      const mLabel=()=> _sxMetric==="vol"?"Volume" : _sxMetric==="reps"?"Reps" : thrOn()?`Heaviest ×${_sxStrMode}+`:"Est. 1RM";
+      const valOf=e=> _sxMetric==="vol"?e.vol : _sxMetric==="reps"?e.reps : thrOn()?((e.thr&&e.thr[_sxStrMode])||0) : e.m;
       // searchable movement picker — an unbounded chip row buries the selection off-screen;
       // a selector button always shows what's active, and the sheet adds search + context
       function openMovementPicker(){
@@ -3235,7 +3242,7 @@ function openStrengthExplorer(){
             const list=q?rankByMatch(q, ranked, s=>s.ex.name):ranked;
             list.forEach(s=>listEl.append(row(s.key, s.ex.name,
               `${s.dated.length} session${s.dated.length===1?"":"s"} · last ${fmtShortDate(s.dated[s.dated.length-1].d)}`,
-              trendPill(windowPct(s, e=>_sxMetric==="vol"?e.vol:_sxMetric==="reps"?e.reps:e.m, cut)))));
+              trendPill(windowPct(s, valOf, cut)))));
             if(q&&!list.length) listEl.append(el("p",{class:"muted small",style:"margin:8px 2px"},"No movement matches."));
           };
           search.addEventListener("input",renderList);
@@ -3249,10 +3256,14 @@ function openStrengthExplorer(){
           pairs.forEach(([k,l])=>row.append(el("button",{class:"fchip"+(cur===k?" on":""),onClick:()=>{set(k);build();}},l)));
           return row; };
         // metric = segmented control (a different shape per filter kind — no more three identical chip rows)
-        const seg=el("div",{class:"seg",style:"margin-bottom:12px"});
-        [["best","Best set"],["vol","Volume"],["reps","Reps"]].forEach(([k,l])=>
+        const seg=el("div",{class:"seg",style:"margin-bottom:"+(_sxMetric==="best"?"8px":"12px")});
+        [["best","Strength"],["vol","Volume"],["reps","Reps"]].forEach(([k,l])=>
           seg.append(el("button",{class:_sxMetric===k?"on":"","aria-pressed":_sxMetric===k?"true":"false",onClick:()=>{_sxMetric=k;build();}},l)));
         mount.append(seg);
+        // Strength sub-view: est. 1RM (range-agnostic index) or actual heaviest for ≥n reps.
+        // "×8+" = the top weight you handled for 8 or more reps — if these aren't climbing, strength isn't building.
+        if(_sxMetric==="best")
+          mount.append(chips([["e1rm","est 1RM"],[3,"×3+"],[5,"×5+"],[8,"×8+"],[12,"×12+"]], _sxStrMode, k=>_sxStrMode=k));
         // movement = select-style trigger (dumbbell + name + ▾ reads as "pick from a list") → searchable picker sheet
         const selLabel = _sxSel==="all" ? "All movements · normalized"
           : _sxSel.startsWith("eq:") ? (eqG[_sxSel.slice(3)][0].ex.name+" · combined")
@@ -3271,25 +3282,30 @@ function openStrengthExplorer(){
           // units (kg/lb/levels/bodyweight reps) never mix raw
           const monthly=(_sxRange==="6mo"||_sxRange==="1y"||_sxRange==="all");
           const buckets={}; let used=0;
-          scope.forEach(s=>{ const pts=s.dated.filter(inRange); const f=pts.length?valOf(pts[0]):0; if(!(f>0))return; used++;
+          scope.forEach(s=>{ const pts=s.dated.filter(p=>inRange(p)&&valOf(p)>0); const f=pts.length?valOf(pts[0]):0; if(!(f>0))return; used++;
             pts.forEach(p=>{ const b=monthly?p.d.slice(0,7):mondayOf(p.d);
               (buckets[b]=buckets[b]||[]).push(valOf(p)/f*100); }); });
           const keys=Object.keys(buckets).sort();
           const vals=keys.map(k=>buckets[k].reduce((t,v)=>t+v,0)/buckets[k].length);
           chart = vals.length>=2 ? lineChart(vals,{labels:keys.map(k=>monthly?fmtMonthLbl(k):fmtWeekLbl(k)), fmt:v=>Math.round(v)+"%"})
-                : el("div",{class:"tiny muted",style:"padding:20px 0;text-align:center"},"Not enough data in this range — try a longer one.");
+                : el("div",{class:"tiny muted",style:"padding:20px 0;text-align:center"},
+                    thrOn()?`No movements with ${_sxStrMode}+ rep sets in this range yet.`:"Not enough data in this range — try a longer one.");
           if(vals.length){ heroVal=Math.round(vals[vals.length-1])+"%"; heroDelta=Math.round(vals[vals.length-1]-100); heroSub="of starting strength"; }
-          caption=`${METRIC_LBL[_sxMetric]} · averaged across ${used} movement${used===1?"":"s"} · 100% = each movement's first session in range`;
+          caption=`${mLabel()} · averaged across ${used} movement${used===1?"":"s"} · 100% = each movement's first session in range`;
         } else {
-          const s=byKey[_sxSel], pts=s.dated.filter(inRange);
-          const unit = _sxMetric==="reps" ? "" : (s.bw||(_sxMetric==="best"&&s.unitLbl==="reps")) ? "" : (s.ex.unit||"kg");
+          const s=byKey[_sxSel], pts=s.dated.filter(p=>inRange(p)&&valOf(p)>0);
+          const unit = _sxMetric==="reps" ? "" : (s.bw||(_sxMetric==="best"&&!thrOn()&&s.unitLbl==="reps")) ? "" : (s.ex.unit||"kg");
           chart = pts.length>=2 ? lineChart(pts.map(valOf),{labels:pts.map(p=>fmtShortDate(p.d)), fmt:v=>Math.round(v)+unit})
-                : el("div",{class:"tiny muted",style:"padding:20px 0;text-align:center"},"Not enough sessions in this range — try a longer one.");
+                : el("div",{class:"tiny muted",style:"padding:20px 0;text-align:center"},
+                    thrOn()?`No sessions with a ${_sxStrMode}+ rep set on ${s.ex.name} in this range yet.`:"Not enough sessions in this range — try a longer one.");
           if(pts.length){ const lastV=valOf(pts[pts.length-1]), firstV=valOf(pts[0]);
             heroVal=Math.round(lastV).toLocaleString()+(unit?" "+unit:"");
             heroDelta=firstV>0?Math.round((lastV-firstV)/firstV*100):null;
-            heroSub=_sxMetric==="best"?(s.unitLbl==="reps"?"best reps":"est 1RM"):_sxMetric==="vol"?(s.bw?"total reps":"session volume"):"total reps"; }
-          caption=`${METRIC_LBL[_sxMetric]} · ${s.ex.name}${s.combined?` · combined across ${s.gyms} gyms`:""}`;
+            heroSub=thrOn()?`heaviest for ${_sxStrMode}+ reps`
+              : _sxMetric==="best"?(s.unitLbl==="reps"?"best reps":"est 1RM")
+              : _sxMetric==="vol"?(s.bw?"total reps":"session volume"):"total reps"; }
+          caption=`${thrOn()?`Heaviest weight handled for ${_sxStrMode}+ reps`
+            : _sxMetric==="best"?"Est. 1RM from your hardest set each session (Epley)":mLabel()} · ${s.ex.name}${s.combined?` · combined across ${s.gyms} gyms`:""}`;
         }
         if(heroVal!=null){
           mount.append(el("div",{class:"row",style:"gap:8px;align-items:baseline;margin:4px 2px 0"},
@@ -3312,7 +3328,7 @@ function openStrengthExplorer(){
                 el("div",{class:"tiny muted"}, `${s.dated.length} session${s.dated.length===1?"":"s"} · last ${fmtShortDate(lastD)}${s.combined?` · ${s.gyms} gyms`:""}`)),
               el("div",{class:"row",style:"gap:6px;align-items:center;flex:none"}, trendPill(windowPct(s,valOf,cut)), el("span",{class:"chev"},ic("chevron",15))))));
         });
-        mount.append(el("div",{class:"tiny muted",style:"margin-top:6px"},`Biggest movers first — ${METRIC_LBL[_sxMetric].toLowerCase()} change over the selected range · tap a movement for its full history & PRs.`));
+        mount.append(el("div",{class:"tiny muted",style:"margin-top:6px"},`Biggest movers first — ${mLabel().toLowerCase()} change over the selected range · tap a movement for its full history & PRs.`));
         requestAnimationFrame(()=>{ const sh=sheetEl(); if(sh) sh.scrollTop=sc; });
       }
       build();
