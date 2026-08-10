@@ -303,6 +303,16 @@
   .lg.l1{background:rgba(34,197,94,.3)} .lg.l2{background:rgba(34,197,94,.6)} .lg.l3{background:var(--accent-2)}
   /* Insights is a reading surface — roomier cards there only; the logger stays dense */
   .insightsv .card{padding:17px 15px;border-radius:18px}
+  /* sticky section jump-nav on Insights */
+  .secnav{position:sticky;top:0;z-index:15;display:flex;gap:6px;padding:8px 0 6px;margin:-8px -2px 6px;
+    background:linear-gradient(var(--bg) 82%,transparent);overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .secnav button{flex:none;font-size:12px;padding:6px 12px;min-height:34px;border-radius:999px;
+    background:var(--surface-2);border:1px solid var(--line);color:var(--muted);cursor:pointer}
+  .secnav button:active{color:var(--text);border-color:var(--accent)}
+  .insightsv .sectionhead,[id^="sx-"]{scroll-margin-top:52px}
+  .cal i.tap{cursor:pointer}
+  .chart-read{font-size:12px;color:var(--text);background:var(--surface-2);border:1px solid var(--line);
+    border-radius:8px;padding:4px 10px;display:inline-block;margin-top:4px}
 </style>
 </head>
 <body>
@@ -432,7 +442,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v89"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v90"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1792,7 +1802,10 @@ async function commitSession(){
     if(!confirm("No completed sets to save. Discard this workout?")) return;
     State.activeSession=null; await setMeta("activeSession",null); render(); return;
   }
-  await DB.put("sessions",{id:s.id,gymId:s.gymId,date:s.date,startedAt:s.startedAt,finishedAt:new Date().toISOString()});
+  // persist what was PRESCRIBED so Insights can score "did you hit your targets" later
+  const targets={}; s.items.forEach(it=>{ if(it.targetVol!=null) targets[it.exerciseId]=it.targetVol; });
+  await DB.put("sessions",{id:s.id,gymId:s.gymId,date:s.date,startedAt:s.startedAt,finishedAt:new Date().toISOString(),
+    ...(Object.keys(targets).length?{targets}:{})});
   for(const st of done) await DB.put("sets",st);
   // miss-aware progression: did the logged volume hit the prescribed target? track the streak per exercise
   for(const it of s.items){
@@ -2790,6 +2803,39 @@ function windowPct(s, valOf, cutDays){
   const f=valOf(pts[0]), l=valOf(pts[pts.length-1]);
   return f>0 ? (l-f)/f*100 : null;
 }
+// PRs are detected live but vanish as 2-second toasts — replay history per movement so recent
+// wins stay visible. Skips each movement's first session (day one, everything is a "PR").
+function recentWins(sessions, allSets){
+  const exById=id=>State.exercises.find(e=>e.id===id);
+  const sesById=Object.fromEntries(sessions.map(s=>[s.id,s]));
+  const units={};
+  allSets.forEach(x=>{ const ex=exById(x.exerciseId); if(!ex||!(x.reps>0))return;
+    const se=sesById[x.sessionId]; if(!se)return;
+    const key=ex.linkId||ex.id;
+    const u=units[key]||(units[key]={ex, bySes:{}});
+    (u.bySes[se.date+se.startedAt]=u.bySes[se.date+se.startedAt]||{date:se.date,sets:[]}).sets.push(x);
+  });
+  const wins=[];
+  for(const key in units){
+    const u=units[key], inv=isInverted(u.ex), bw=isBW(u.ex);
+    const sess=Object.values(u.bySes).sort((a,b)=>a.date.localeCompare(b.date));
+    let bestW=inv?Infinity:0, bestM=0, first=true;
+    for(const s2 of sess){
+      const ws=s2.sets.map(x=>+x.weight||0);
+      const topW=inv?Math.min(...ws):Math.max(...ws);
+      const topM=Math.max(...s2.sets.map(x=>exMetric(u.ex,x.weight,x.reps)));
+      let label=null;
+      if(!first){
+        if(inv && topW<bestW) label=topW>0?`least assistance · −${topW}${u.ex.unit||"kg"}`:"first unassisted";
+        else if(!inv && !bw && topW>bestW) label=`heaviest · ${topW}${u.ex.unit||"kg"}`;
+        else if(topM>bestM) label=bw?`most reps · ${Math.max(...s2.sets.map(x=>+x.reps||0))}`:"best est. 1RM";
+      }
+      if(label) wins.push({date:s2.date, name:u.ex.name, label});
+      bestW=inv?Math.min(bestW,topW):Math.max(bestW,topW); bestM=Math.max(bestM,topM); first=false;
+    }
+  }
+  return wins.filter(w=>daysAgo(w.date)<=28).sort((a,b)=>b.date.localeCompare(a.date));
+}
 // consistent ▲/▼ pill (shared: card, explorer); null → "new"
 function trendPill(pct, suffix){
   if(pct==null) return el("div",{class:"small muted"},"new");
@@ -2804,6 +2850,10 @@ function viewInsights(){
     const allSets=await DB.all("sets");
     if(!allSets.length){ mount.append(el("div",{class:"empty"},el("div",{class:"big"},ic("bulb",42)),
       el("p",{class:"muted"},"Log a few workouts and you'll get trends, a streak, a progressive-overload score and muscle breakdowns here.")));return;}
+    // sticky jump-nav — Insights is a 4-screen scroll
+    mount.append(el("div",{class:"secnav"},
+      ...[["sx-consist","Consistency"],["sx-prog","Progress"],["sx-mix","Training mix"],["sx-att","Attention"]].map(([id,l])=>
+        el("button",{onClick:()=>document.getElementById(id)?.scrollIntoView({behavior:"smooth",block:"start"})},l))));
     const exById=id=>State.exercises.find(e=>e.id===id);
     const gymName=id=>State.gyms.find(g=>g.id===id)?.name||"";
     const sesById=Object.fromEntries(sessions.map(s=>[s.id,s]));
@@ -2910,6 +2960,14 @@ function viewInsights(){
     poCard.append(poGrid, el("div",{class:"tiny muted",style:"margin-top:10px"},
       ov.tracked? `Trained ${ov.weeks} of the last 4 completed weeks · avg ${ov.avgGainPct>=0?"+":""}${ov.avgGainPct}% per lift. Based on completed weeks only (this week isn't counted until it ends).`
                 : "Log the same lifts across a couple of weeks and your overload score shows up here."));
+    // target hit-rate — from prescriptions saved with each finished session (accrues going forward)
+    { let pres=0, hits=0;
+      for(const se of sessions){ if(!se.targets||daysAgo(se.date)>28)continue;
+        for(const [exId,tv] of Object.entries(se.targets)){ if(!(tv>0))continue;
+          const got=allSets.reduce((t,x)=>x.sessionId===se.id&&x.exerciseId===exId?t+(+x.weight||0)*(+x.reps||0):t,0);
+          pres++; if(got>=tv*0.98) hits++; } }
+      if(pres>=5) poCard.append(el("div",{class:"small",style:"margin-top:8px;font-weight:600;color:"+(hits/pres>=0.7?"var(--accent-2)":"var(--warn)")},
+        `Hit your prescribed target in ${hits} of ${pres} lifts · last 4 weeks (${Math.round(hits/pres*100)}%)`)); }
 
     // ===== Training volume trend (range-filterable) =====
     const vs=volumeSeries(allSets, dateOf, insightsRange);
@@ -2931,10 +2989,11 @@ function viewInsights(){
     const calCard=el("div",{class:"card"});
     calCard.append(el("div",{class:"row between"}, el("h2",{style:"margin:0"},"Consistency"),
       el("span",{class:"small muted"}, `${daysThisYear} day${daysThisYear===1?"":"s"} in ${year}`)));
-    calCard.append(consistencyCard(dateCount), el("div",{class:"tiny muted",style:"margin-top:6px"},"Each square is a day · last 26 weeks."));
+    calCard.append(consistencyCard(dateCount, d=>{ const se=sessions.find(x=>x.date===d); if(se) openSessionDetail(se); }),
+      el("div",{class:"tiny muted",style:"margin-top:6px"},"Each square is a day · last 26 weeks · tap a day to open that workout."));
 
     // ---- Q1 assembled: consistency first ----
-    mount.append(el("div",{class:"sectionhead"},"Am I consistent?"), ovCard, calCard, volCard);
+    mount.append(el("div",{class:"sectionhead",id:"sx-consist"},"Am I consistent?"), ovCard, calCard, volCard);
 
     // ===== Muscle targets + breakdown (Q3: What should I change?) =====
     const inMR = d => muscleRange==="week" ? mondayOf(d)===thisWeek : daysAgo(d) <= ({"4wk":28,"12wk":84,"6mo":182}[muscleRange]||28);
@@ -2944,6 +3003,13 @@ function viewInsights(){
       if(ex.primary) vol[ex.primary]=(vol[ex.primary]||0)+1;
       if(ex.secondary) vol[ex.secondary]=(vol[ex.secondary]||0)+0.5; }
     const volEntries=Object.entries(vol).sort((a,b)=>b[1]-a[1]);
+    // vs the PREVIOUS equal window — "did my program change actually shift anything?"
+    const prevDays={"4wk":28,"12wk":84,"6mo":182}[muscleRange];
+    const prevVol={};
+    if(prevDays) for(const x of allSets){ const d=dateOf(x); if(!d)continue; const ago=daysAgo(d);
+      if(!(ago>prevDays&&ago<=2*prevDays))continue; const ex=exById(x.exerciseId); if(!ex)continue;
+      if(ex.primary) prevVol[ex.primary]=(prevVol[ex.primary]||0)+1;
+      if(ex.secondary) prevVol[ex.secondary]=(prevVol[ex.secondary]||0)+0.5; }
     if(muscleRange==="week"){          // muscles with a target but no sets yet still show (0/10)
       for(const mk of trained8){ if(!(mk in vol) && targetOf(mk)!=null) volEntries.push([mk,0]); }
     }
@@ -2957,18 +3023,24 @@ function viewInsights(){
       // Muscle groups (tap for detail; in week view the bars fill toward your weekly target)
       const vcard=el("div",{class:"card"}); vcard.append(el("h2",{},muscleRange==="week"?"Muscle targets":"Muscle groups"));
       const vmax=Math.max(...volEntries.map(e=>e[1]),1);
-      volEntries.forEach(([k,v])=>{
+      const shownEntries=_showAllMuscles?volEntries:volEntries.slice(0,8);
+      shownEntries.forEach(([k,v])=>{
         const tgt = muscleRange==="week" ? targetOf(k) : null;
         const over = tgt!=null && v>tgt*1.3;
         const pct = tgt!=null ? Math.min(v/tgt,1) : v/vmax;
         const fmtv = v%1?v.toFixed(1):String(v);
+        const dv = prevDays!=null ? Math.round(v-(prevVol[k]||0)) : null;   // sets vs previous window
         vcard.append(el("button",{class:"vbar tappable","aria-label":`${muscleLabel(k)||k} detail`,onClick:()=>openMuscleDetail(k)},
           el("div",{class:"lbl"}, muscleLabel(k)||k),
           el("div",{class:"track"}, el("div",{class:"fill",style:`width:${Math.round(pct*100)}%;background:${regionHue(regionOf(k))}`})),
           el("div",{class:"val",style:(tgt!=null?"width:46px;":"")+(over?"color:var(--warn);font-weight:700":""),
             ...(over?{title:"above the typical 10–20 productive range"}:{})}, tgt!=null?`${fmtv}/${tgt}`:fmtv),
+          ...(dv!=null&&Math.abs(dv)>=1?[el("span",{class:"tiny",style:"flex:none;font-weight:700;color:"+(dv>0?"var(--accent-2)":"var(--warn)")},(dv>0?"▲":"▼")+Math.abs(dv))]:[]),
           el("span",{class:"chev"},ic("chevron",16))));
       });
+      if(volEntries.length>8) vcard.append(_showAllMuscles
+        ? showAllBtn("Show fewer", ()=>{_showAllMuscles=false;})
+        : showAllBtn(`Show all ${volEntries.length} muscles`, ()=>{_showAllMuscles=true;}));
       vcard.append(el("div",{class:"tiny muted",style:"margin-top:4px"}, muscleRange==="week"
         ? "Working sets vs your weekly target · secondary muscles count ½ · tap a muscle to change its target."
         : `Working sets · ${mrLabel} · secondary muscles count as ½ · tap for detail.`));
@@ -3015,14 +3087,31 @@ function viewInsights(){
       card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Biggest movers · last 12 weeks · tap for volume, reps & best-set trends"));
       strengthCard=card;
     }
+    // ---- Recent wins: PRs recomputed from history so they don't vanish with the toast ----
+    const wins=recentWins(sessions, allSets);
+    let winsCard=null;
+    if(wins.length){
+      winsCard=el("div",{class:"card"});
+      winsCard.append(el("div",{class:"row between",style:"margin-bottom:2px"},
+        el("h2",{style:"margin:0"},"Recent wins"),
+        el("span",{class:"small muted"},"last 4 weeks")));
+      wins.slice(0,6).forEach(w=>winsCard.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line);gap:8px"},
+        el("div",{style:"min-width:0"},
+          el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},w.name),
+          el("div",{class:"tiny muted"},fmtDate(w.date))),
+        el("div",{class:"small",style:"color:var(--accent-2);font-weight:600;flex:none;display:inline-flex;align-items:center;gap:5px"},
+          ic("starfill",12), w.label))));
+      if(wins.length>6) winsCard.append(el("div",{class:"tiny muted",style:"margin-top:6px"},`+${wins.length-6} more this month`));
+    }
     // ---- Q2 assembled ----
-    mount.append(el("div",{class:"sectionhead"},"Am I progressing?"), poCard);
+    mount.append(el("div",{class:"sectionhead",id:"sx-prog"},"Am I progressing?"), poCard);
+    if(winsCard) mount.append(winsCard);
     if(strengthCard) mount.append(strengthCard);
     // ---- Q3 assembled ----
-    mount.append(el("div",{class:"sectionhead"},"What should I change?"), mrChips, ...muscleCards);
+    mount.append(el("div",{class:"sectionhead",id:"sx-mix"},"What should I change?"), mrChips, ...muscleCards);
 
     // ===== What needs attention — every insight carries a one-tap action =====
-    const alerts=el("div",{class:"card"});
+    const alerts=el("div",{class:"card",id:"sx-att"});
     // collect first, then render severity-first (act-now warns → falling behind → dormant → tips)
     const alertItems=[]; const addAlert=(sev,node)=>alertItems.push({sev,node});
     const queued=new Set((await getMeta("queuedExercises"))||[]);
@@ -3174,6 +3263,20 @@ function lineChart(values, opts={}){
     <text x="${padL}" y="${(padT-3).toFixed(1)}" fill="var(--muted)" font-size="9">${esc(fmt(max))}</text>
     ${xl}
   </svg>`;
+  // tap a point to inspect it — hover doesn't exist on phones
+  const svg=wrap.querySelector("svg");
+  const mark=document.createElementNS("http://www.w3.org/2000/svg","circle");
+  mark.setAttribute("r","5.5"); mark.setAttribute("fill","none"); mark.setAttribute("stroke","var(--data)"); mark.setAttribute("stroke-width","2"); mark.style.display="none";
+  svg.append(mark);
+  const read=el("div",{class:"chart-read",style:"display:none","aria-live":"polite"});
+  wrap.append(read);
+  wrap.addEventListener("click",e=>{
+    const r=svg.getBoundingClientRect(); if(!r.width) return;
+    const xv=(e.clientX-r.left)/r.width*W;
+    let i=0,best=Infinity; for(let k=0;k<n;k++){ const d=Math.abs(X(k)-xv); if(d<best){best=d;i=k;} }
+    mark.setAttribute("cx",X(i).toFixed(1)); mark.setAttribute("cy",Y(values[i]).toFixed(1)); mark.style.display="";
+    read.style.display=""; read.textContent=`${labels.length===n&&labels[i]?labels[i]+" · ":""}${fmt(values[i])}`;
+  });
   return wrap;
 }
 // pick one of a region's exercises to queue for the next workout (from a region-neglect alert)
@@ -3417,7 +3520,7 @@ function openMuscleDetail(mk){
 let insightsRange="12w";
 let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
 let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
-let _showAllAlerts=false; // "What needs attention" expander — session-scoped
+let _showAllAlerts=false, _showAllMuscles=false; // Insights long-list expanders — session-scoped
 // "Show all N" ghost button used by both long Insights sections; preserves scroll on re-render
 function showAllBtn(label, onTap){
   return el("button",{class:"btn ghost sm",style:"width:100%;margin-top:4px",onClick:()=>{ _insightsScroll=window.scrollY; onTap(); render(); }}, ic("chevron",14), label);
@@ -3688,7 +3791,7 @@ function bodyHeatmap(vol){
   return wrap;
 }
 // GitHub-style activity grid: last 17 weeks × 7 days, shaded by sets that day
-function consistencyCard(dateCount){
+function consistencyCard(dateCount, onDay){
   const weeks=26, d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)-(weeks-1)*7);
   const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const months=el("div",{style:`display:grid;grid-template-columns:repeat(${weeks},1fr);gap:2px;margin-bottom:3px`});
@@ -3702,7 +3805,11 @@ function consistencyCard(dateCount){
     months.append(lbl);
     for(let r=0;r<7;r++){ const cell=new Date(d); cell.setDate(d.getDate()+c*7+r);
       const key=cell.toISOString().slice(0,10), n=dateCount[key]||0, lvl=n===0?0:n<7?1:n<13?2:3;
-      grid.append(el("i",{class:"l"+lvl,title:key+(n?` · ${n} sets`:"")})); }
+      const sq=el("i",{class:"l"+lvl+(n&&onDay?" tap":""),title:key+(n?` · ${n} sets`:"")});
+      if(n&&onDay){ sq.setAttribute("role","button"); sq.setAttribute("tabindex","0"); sq.setAttribute("aria-label",`Open workout on ${key}`);
+        sq.addEventListener("click",()=>onDay(key));
+        sq.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();onDay(key);}}); }
+      grid.append(sq); }
   }
   const sw=l=>el("i",{class:"lg "+l});
   const legend=el("div",{class:"row",style:"gap:4px;align-items:center;margin-top:7px;justify-content:flex-end"},
