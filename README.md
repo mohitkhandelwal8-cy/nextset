@@ -29,6 +29,7 @@ python3 -m http.server 4178 --directory NextSet
 - **Insights** — per-exercise est-1RM trend, plateau alerts, "haven't trained X in N days", and joint-flag patterns.
 - **Joint/pain flag** — flag a tweaky set; recurring flags surface in Insights.
 - **Export** — full CSV / JSON anytime. Your data, no lock-in.
+- **Cloud backup (optional)** — connect Google Drive and a backup lands in your own Drive's private app folder after every workout; restore it on a new phone. No NextSet server, off until you connect. (Needs a one-time OAuth setup per deploy — see `SETUP-GOOGLE-SYNC.md`.)
 
 ## Tech
 

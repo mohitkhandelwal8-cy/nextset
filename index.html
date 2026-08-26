@@ -454,7 +454,7 @@ function renderRest(){
 }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v102"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v103"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -463,6 +463,8 @@ const ICONS = {
   zap:'<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
   clipboard:'<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
   download:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
+  upload:'<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>',
+  cloud:'<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>',
   plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
   minus:'<path d="M5 12h14"/>',
   more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
@@ -1857,6 +1859,7 @@ async function commitSession(){
   State.activeSession=null; await setMeta("activeSession",null);
   const mins=sessionMins(sessionRec);
   toast(`Workout done · ${done.length} sets${mins?` · ${mins} min`:""}`);
+  gdriveAutoKick();
   setTab("history");
   openSessionDetail(sessionRec);   // the finished workout's summary IS the "done" notification
 }
@@ -4291,12 +4294,13 @@ function viewMore(){
   wrap.append(progCard);
   wrap.append(el("div",{class:"card"},
     el("h2",{},"Your data"),
-    el("p",{class:"small muted",style:"margin-top:-4px"},"It lives on this device — no account, no cloud. Export a backup anytime, then restore it after a reset or on a new phone."),
+    el("p",{class:"small muted",style:"margin-top:-4px"},"It lives on this device — nothing leaves it unless you say so. Export a backup anytime, then restore it after a reset or on a new phone."),
     el("button",{class:"btn secondary",onClick:()=>exportData("json")},ic("download"),"Export everything (backup)"),
     el("button",{class:"btn secondary",style:"margin-top:8px",onClick:importDataFromFile},ic("inbox"),"Restore from a backup"),
     el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>exportData("csv")},ic("download"),"Export sets (CSV)"),
     ...(State.gyms.some(g=>g.demo)?[el("button",{class:"btn ghost",style:"margin-top:8px",onClick:removeDemoData},ic("x"),"Remove sample data")]:[])
   ));
+  wrap.append(gdriveCard());
   wrap.append(el("div",{class:"card"},
     el("h2",{},"About"),
     el("p",{class:"small muted",style:"margin:-4px 0 0"},
@@ -4307,13 +4311,21 @@ function viewMore(){
   return wrap;
 }
 
+// device-local meta keys: never leave this device in a backup (a restored backup must not
+// carry another phone's identity or cloud-backup bookkeeping)
+const DEVICE_META=new Set(["activeSession","deviceId","gdriveLastBackup","gdrivePending","gdriveSeenRemote","gdriveAuto"]);
+async function buildBackupData(){
+  const [gyms,exercises,sessions,sets,plans,meta]=await Promise.all(
+    ["gyms","exercises","sessions","sets","plans","meta"].map(s=>DB.all(s)));
+  return {app:"nextset",version:APP_VERSION,gyms,exercises,sessions,sets,plans,
+          meta:meta.filter(m=>!DEVICE_META.has(m.k))};
+}
 async function exportData(kind){
-  const [gyms,exercises,sessions,sets,meta]=await Promise.all(
-    ["gyms","exercises","sessions","sets","meta"].map(s=>DB.all(s)));
+  const data=await buildBackupData();
+  const {gyms,exercises,sessions,sets}=data;
   let blob,fname;
   if(kind==="json"){
-    const metaOut=meta.filter(m=>m.k!=="activeSession");   // settings & progression streaks, minus the transient session
-    blob=new Blob([JSON.stringify({app:"nextset",version:APP_VERSION,gyms,exercises,sessions,sets,meta:metaOut},null,2)],{type:"application/json"});
+    blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"});
     fname="nextset-export.json";
   } else {
     const exName=id=>exercises.find(e=>e.id===id)?.name||"";
@@ -4334,8 +4346,9 @@ async function exportData(kind){
 }
 
 /* ---------- import / restore from a backup ---------- */
-const IMPORT_STORES=["gyms","exercises","sessions","sets"];
-function isValidBackup(d){ return !!d && typeof d==="object" && IMPORT_STORES.every(s=>Array.isArray(d[s])); }
+const IMPORT_STORES=["gyms","exercises","sessions","sets","plans"];
+const REQUIRED_STORES=["gyms","exercises","sessions","sets"];   // plans is newer — old backups lack it
+function isValidBackup(d){ return !!d && typeof d==="object" && REQUIRED_STORES.every(s=>Array.isArray(d[s])); }
 // write a backup into the DB. "replace" wipes the core stores first; "merge" upserts by id.
 async function applyImport(data, mode){
   if(mode==="replace"){
@@ -4346,7 +4359,7 @@ async function applyImport(data, mode){
     let n=0; for(const r of (data[s]||[])){ if(r&&r.id!=null){ await DB.put(s, r); n++; } }
     counts[s]=n;
   }
-  if(Array.isArray(data.meta)){ for(const m of data.meta){ if(m&&m.k&&m.k!=="activeSession") await DB.put("meta", m); } }
+  if(Array.isArray(data.meta)){ for(const m of data.meta){ if(m&&m.k&&!DEVICE_META.has(m.k)) await DB.put("meta", m); } }
   return counts;
 }
 async function runImport(data, mode){
@@ -4358,15 +4371,15 @@ async function runImport(data, mode){
   render();
   toast(`Restored ${data.sessions.length} workout${data.sessions.length!==1?"s":""}`);
 }
-function openImportConfirm(data){
+function openImportConfirm(data, onDone){
   const f=(n,one)=>`${n} ${n===1?one:one+"s"}`;
   const summary=`${f(data.gyms.length,"gym")}, ${f(data.exercises.length,"exercise")}, ${f(data.sessions.length,"workout")}, ${data.sets.length} sets`;
   openSheet("Restore backup",(body,close)=>{
     body.append(
       el("p",{class:"small",style:"margin:-2px 0 4px;font-weight:600"},`This backup holds ${summary}.`),
       el("p",{class:"small muted"},"Merge keeps what's on this device and adds anything new (matching entries get updated — nothing is deleted). Replace erases everything here first, then loads the backup — use that when restoring onto a fresh install."),
-      el("button",{class:"btn",style:"margin-top:10px",onClick:async()=>{ close(); try{ await runImport(data,"merge"); }catch(e){ alert("Import failed: "+(e.message||e)); } }},ic("inbox",16),"Merge with my data"),
-      el("button",{class:"btn danger",style:"margin-top:10px",onClick:async()=>{ if(!confirm("Replace ALL data on this device with the backup? Anything currently here will be erased.")) return; close(); try{ await runImport(data,"replace"); }catch(e){ alert("Import failed: "+(e.message||e)); } }},ic("alert",16),"Replace everything"),
+      el("button",{class:"btn",style:"margin-top:10px",onClick:async()=>{ close(); try{ await runImport(data,"merge"); if(onDone) await onDone("merge"); }catch(e){ alert("Import failed: "+(e.message||e)); } }},ic("inbox",16),"Merge with my data"),
+      el("button",{class:"btn danger",style:"margin-top:10px",onClick:async()=>{ if(!confirm("Replace ALL data on this device with the backup? Anything currently here will be erased.")) return; close(); try{ await runImport(data,"replace"); if(onDone) await onDone("replace"); }catch(e){ alert("Import failed: "+(e.message||e)); } }},ic("alert",16),"Replace everything"),
       el("button",{class:"btn secondary",style:"margin-top:10px",onClick:close},"Cancel")
     );
   });
@@ -4384,6 +4397,234 @@ function importDataFromFile(){
     openImportConfirm(data);
   });
   inp.click();
+}
+
+
+/* ---------- optional cloud backup — the user's OWN Google Drive ----------
+   Off until the user connects. Data goes to Drive's hidden per-app folder
+   (scope drive.appdata): NextSet can only see its own single backup file,
+   never the rest of the Drive, and no NextSet server exists — the phone
+   talks straight to Google. Disconnecting changes nothing on-device. */
+const GOOGLE_CLIENT_ID = "PASTE-YOUR-CLIENT-ID.apps.googleusercontent.com";   // per-deploy config — see SETUP-GOOGLE-SYNC.md
+const GDRIVE_SCOPE = "https://www.googleapis.com/auth/drive.appdata https://www.googleapis.com/auth/userinfo.email";
+const GDRIVE_FILE = "nextset-backup.json";
+const gdriveConfigured = () => !GOOGLE_CLIENT_ID.startsWith("PASTE-") && /apps\.googleusercontent\.com$/.test(GOOGLE_CLIENT_ID);
+
+// --- auth state: {token, exp, email} in localStorage; tokens live ~1h, email marks "connected"
+function gAuthState(){ try{ return JSON.parse(localStorage.getItem("nextset-gauth")||"null")||{}; }catch(e){ return {}; } }
+function gAuthSave(patch){ try{ localStorage.setItem("nextset-gauth", JSON.stringify({...gAuthState(),...patch})); }catch(e){} }
+function gTokGet(){ const a=gAuthState(); return (a.token && a.exp>Date.now()+6e4) ? a.token : null; }
+function gTokDrop(){ gAuthSave({token:null, exp:0}); }
+const gAccountEmail = () => gAuthState().email || null;
+const gConnected = () => !!gAccountEmail();
+function gDisconnect(){
+  const a=gAuthState();
+  try{ if(a.token && window.google?.accounts?.oauth2?.revoke) google.accounts.oauth2.revoke(a.token, ()=>{}); }catch(e){}
+  try{ localStorage.removeItem("nextset-gauth"); }catch(e){}
+}
+let _deviceId=null;
+async function ensureDeviceId(){ if(!_deviceId){ _deviceId=await getMeta("deviceId"); if(!_deviceId){ _deviceId=uid(); await setMeta("deviceId",_deviceId); } } return _deviceId; }
+
+let _gisLoading=null;
+function loadGIS(){
+  if(window.google?.accounts?.oauth2) return Promise.resolve();
+  if(_gisLoading) return _gisLoading;
+  _gisLoading=new Promise((res,rej)=>{
+    const s=el("script",{src:"https://accounts.google.com/gsi/client"});
+    s.addEventListener("load",()=>res());
+    s.addEventListener("error",()=>{ _gisLoading=null; rej(new Error("Couldn't reach Google — check your connection")); });
+    document.head.append(s);
+  });
+  return _gisLoading;
+}
+// interactive=true may show Google's popup; false attempts a quiet re-grant and fails fast
+function gGetToken(interactive){
+  const cached=gTokGet();
+  if(cached) return Promise.resolve(cached);
+  if(!navigator.onLine) return Promise.reject(new Error("You're offline — will back up later"));
+  return loadGIS().then(()=>new Promise((res,rej)=>{
+    let settled=false;
+    const done=(fn,v)=>{ if(!settled){ settled=true; fn(v); } };
+    try{
+      const tc=google.accounts.oauth2.initTokenClient({
+        client_id:GOOGLE_CLIENT_ID, scope:GDRIVE_SCOPE,
+        callback:async r=>{
+          if(r && r.access_token){
+            let email=gAccountEmail();
+            if(!email){ try{ const u=await fetch("https://www.googleapis.com/oauth2/v3/userinfo",{headers:{Authorization:"Bearer "+r.access_token}}); email=(await u.json()).email||null; }catch(e){} }
+            gAuthSave({token:r.access_token, exp:Date.now()+(+r.expires_in||3600)*1000, email});
+            done(res, r.access_token);
+          } else done(rej, new Error(r?.error||"Sign-in didn't finish"));
+        },
+        error_callback:e=>done(rej, new Error(e?.type==="popup_closed"?"Sign-in was closed":(e?.message||"Sign-in failed"))),
+      });
+      tc.requestAccessToken({prompt:""});
+      if(!interactive) setTimeout(()=>done(rej, new Error("needs sign-in")), 8000);   // a quiet attempt must never hang
+    }catch(e){ done(rej, e); }
+  }));
+}
+
+async function gFetch(url, opts, tok){
+  const r=await fetch(url, {...opts, headers:{...(opts.headers||{}), Authorization:"Bearer "+tok}});
+  if(r.status===401 || r.status===403){ gTokDrop(); const e=new Error("Google sign-in expired — try again"); e.auth=true; throw e; }
+  if(!r.ok) throw new Error("Google Drive error ("+r.status+")");
+  return r;
+}
+async function gdriveFind(tok){
+  const q=encodeURIComponent(`name='${GDRIVE_FILE}'`);
+  const r=await gFetch(`https://www.googleapis.com/drive/v3/files?spaces=appDataFolder&q=${q}&fields=files(id,modifiedTime,appProperties)`,{},tok);
+  return (await r.json()).files?.[0]||null;
+}
+function gMultipart(meta, content){
+  const b="nextset_"+uid().replace(/[^a-z0-9]/gi,"");
+  return { type:`multipart/related; boundary=${b}`,
+    body:`--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json\r\n\r\n${content}\r\n--${b}--` };
+}
+// the latest remote state this device has either written or knowingly pulled in
+async function gdriveSeenAt(){
+  const a=Date.parse(await getMeta("gdriveLastBackup")||"")||0;
+  const b=Date.parse(await getMeta("gdriveSeenRemote")||"")||0;
+  return Math.max(a,b);
+}
+
+let _gBackupBusy=false;
+/* Back up this device's full data as THE backup file (whole-file last-write-wins).
+   Guard: if Drive holds something newer written by a DIFFERENT device, don't clobber it —
+   manual → offer merge-first / overwrite; auto → mark pending and wait for the user. */
+async function gdriveBackup({manual=false, force=false}={}){
+  if(!gdriveConfigured()) throw new Error("Cloud backup isn't set up in this build");
+  if(_gBackupBusy) return "busy";
+  _gBackupBusy=true;
+  try{
+    const tok=await gGetToken(manual);
+    const f=await gdriveFind(tok);
+    const dev=await ensureDeviceId();
+    if(f && !force){
+      const remoteAt=f.appProperties?.updatedAt || f.modifiedTime;
+      const other=f.appProperties?.deviceId && f.appProperties.deviceId!==dev;
+      if(other && remoteAt && Date.parse(remoteAt) > (await gdriveSeenAt())+2000){
+        if(manual) openGdriveConflictSheet(remoteAt); else await setMeta("gdrivePending", true);
+        return "conflict";
+      }
+    }
+    const updatedAt=new Date().toISOString();
+    const payload={...await buildBackupData(), deviceId:dev, updatedAt};
+    const meta=f ? {appProperties:{deviceId:dev, updatedAt}}
+                 : {name:GDRIVE_FILE, parents:["appDataFolder"], appProperties:{deviceId:dev, updatedAt}};
+    const mp=gMultipart(meta, JSON.stringify(payload));
+    await gFetch(`https://www.googleapis.com/upload/drive/v3/files${f?"/"+f.id:""}?uploadType=multipart&fields=id`,
+      {method:f?"PATCH":"POST", headers:{"Content-Type":mp.type}, body:mp.body}, tok);
+    await setMeta("gdriveLastBackup", updatedAt);
+    await setMeta("gdrivePending", false);
+    return "ok";
+  } finally { _gBackupBusy=false; }
+}
+async function gdriveRestore(){
+  const tok=await gGetToken(true);
+  const f=await gdriveFind(tok);
+  if(!f){ toast("No backup in your Drive yet"); return; }
+  toast("Fetching your Drive backup…");
+  const data=await (await gFetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`,{},tok)).json();
+  if(!isValidBackup(data)){ toast("That backup file looks damaged"); return; }
+  const remoteAt=f.appProperties?.updatedAt || f.modifiedTime || new Date().toISOString();
+  openImportConfirm(data, async()=>{ await setMeta("gdriveSeenRemote", remoteAt); });
+}
+function openGdriveConflictSheet(remoteAt){
+  openSheet("Newer backup in Drive",(body,close)=>{
+    body.append(
+      el("p",{class:"small muted",style:"margin-top:-6px"},
+        `Your Drive backup was written by another device${remoteAt?" · "+fmtAgo(remoteAt):""}. Bring that data in first so nothing gets lost, or overwrite it with this phone's data.`),
+      el("button",{class:"btn",onClick:async()=>{ close(); try{ await gdriveRestore(); }catch(e){ toast(e.message||"Couldn't fetch the backup"); } }},ic("inbox",16),"Bring that data in first"),
+      el("button",{class:"btn danger",style:"margin-top:10px",onClick:async()=>{
+        if(!confirm("Overwrite the Drive backup with only this phone's data?")) return;
+        close();
+        try{ await gdriveBackup({manual:true, force:true}); toast("Backed up to your Drive"); render(); }
+        catch(e){ toast(e.message||"Backup failed"); }
+      }},ic("alert",16),"Overwrite the backup"),
+      el("button",{class:"btn secondary",style:"margin-top:10px",onClick:close},"Cancel"));
+  });
+}
+// fire-and-forget: called after a workout is saved; never interrupts, never throws
+function gdriveAutoKick(){
+  if(!gdriveConfigured() || !gConnected()) return;
+  (async()=>{
+    if(await getMeta("gdriveAuto")===false) return;
+    try{ await gdriveBackup({}); }
+    catch(e){ try{ await setMeta("gdrivePending", true); }catch(_){} }
+  })().catch(()=>{});
+}
+// on launch: quietly flush a pending/stale backup, but only with a still-valid token (no surprise popups)
+async function gdriveBoot(){
+  try{
+    if(!gdriveConfigured() || !gConnected() || !navigator.onLine) return;
+    if(await getMeta("gdriveAuto")===false) return;
+    const last=await getMeta("gdriveLastBackup");
+    const stale=!last || (Date.now()-Date.parse(last)) > 24*36e5;
+    if((await getMeta("gdrivePending") || stale) && gTokGet()) await gdriveBackup({});
+  }catch(e){}
+}
+function fmtAgo(iso){
+  const ms=Date.now()-new Date(iso).getTime();
+  if(!(ms>=0)) return "just now";
+  if(ms<90e3) return "just now";
+  const m=Math.round(ms/6e4); if(m<60) return m+" min ago";
+  const h=Math.round(m/60); if(h<36) return h+" hr ago";
+  const d=Math.round(h/24); return d+(d===1?" day ago":" days ago");
+}
+function gdriveCard(){
+  const card=el("div",{class:"card"});
+  card.append(el("h2",{},"Cloud backup"));
+  const body=el("div");
+  card.append(body);
+  const paint=async()=>{
+    body.innerHTML="";
+    if(!gdriveConfigured()){
+      body.append(el("p",{class:"small muted",style:"margin:-4px 0 0"},"Not available in this build."));
+      return;
+    }
+    if(!gConnected()){
+      body.append(
+        el("p",{class:"small muted",style:"margin:-4px 0 0"},
+          "Connect Google Drive and NextSet saves a backup there automatically after every workout — so a lost or new phone can't cost you your history. It lives in a private app folder in YOUR Drive that only NextSet can see. No NextSet server, no account with us."),
+        el("button",{class:"btn secondary",style:"margin-top:10px",onClick:async()=>{
+          try{
+            await gGetToken(true);
+            toast("Connected"); paint();
+            const r=await gdriveBackup({manual:true});
+            if(r==="ok") toast("First backup saved to your Drive");
+            paint();
+          }catch(e){ toast(e.message||"Couldn't connect"); }
+        }},ic("cloud"),"Connect Google Drive"));
+      return;
+    }
+    const [last,pending,auto]=await Promise.all([getMeta("gdriveLastBackup"),getMeta("gdrivePending"),getMeta("gdriveAuto")]);
+    body.append(
+      el("p",{class:"small muted",style:"margin:-4px 0 0"},"Connected · "+gAccountEmail()),
+      el("p",{class:"small",style:"margin:6px 0 0;font-weight:600"},
+        pending ? "Backup pending — tap Back up now" : (last ? "Last backed up "+fmtAgo(last) : "No backup yet")));
+    const seg=el("div",{class:"seg",style:"margin-top:10px"});
+    const isOn=auto!==false;
+    [[true,"Auto after workouts"],[false,"Manual only"]].forEach(([v,lbl])=>
+      seg.append(el("button",{class:"segbtn"+((v===isOn)?" on":""),"aria-pressed":v===isOn?"true":"false",
+        onClick:async()=>{ await setMeta("gdriveAuto", v); paint(); }}, lbl)));
+    body.append(seg,
+      el("button",{class:"btn secondary",style:"margin-top:10px",onClick:async()=>{
+        try{
+          const r=await gdriveBackup({manual:true});
+          if(r==="ok") toast("Backed up to your Drive");
+          paint();
+        }catch(e){ toast(e.message||"Backup failed"); paint(); }
+      }},ic("upload"),"Back up now"),
+      el("button",{class:"btn secondary",style:"margin-top:8px",onClick:async()=>{
+        try{ await gdriveRestore(); }catch(e){ toast(e.message||"Couldn't fetch the backup"); }
+      }},ic("inbox"),"Restore from Drive"),
+      el("button",{class:"btn ghost",style:"margin-top:8px",onClick:()=>{
+        if(!confirm("Disconnect Google Drive? Your data stays on this phone; the backup stays in your Drive.")) return;
+        gDisconnect(); toast("Disconnected"); paint();
+      }},ic("x"),"Disconnect"));
+  };
+  paint();
+  return card;
 }
 
 /* ---------- wire up + boot ---------- */
@@ -4414,7 +4655,7 @@ async function checkForUpdates(){
 (async function boot(){
   applyTheme();
   try{ if(window.matchMedia) matchMedia("(prefers-color-scheme: light)").addEventListener("change",()=>{ if(getTheme()==="system"){ applyTheme(); render(); } }); }catch(e){}
-  try{ await DB.open(); await loadState(); render(); }
+  try{ await DB.open(); await loadState(); render(); gdriveBoot(); }
   catch(e){ $("#view").innerHTML="<div class='empty'><div class='big'><svg viewBox='0 0 24 24' width='42' height='42' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'/><path d='M12 9v4'/><path d='M12 17h.01'/></svg></div><p>Couldn't open local storage.</p><p class='muted small'>"+esc(e.message||e)+"</p></div>"; }
   if("serviceWorker" in navigator && location.protocol.startsWith("http")){
     // updateViaCache:"none" → the sw.js script is never served from the HTTP cache on update
