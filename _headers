@@ -1,0 +1,60 @@
+# Cloudflare Pages HTTP headers — https://developers.cloudflare.com/pages/configuration/headers/
+# (GitHub Pages cannot set headers at all; this file is the reason Cloudflare is worth the move.)
+
+/*
+  # --- security ---
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Content-Security-Policy: frame-ancestors 'none'
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()
+  # HSTS: no includeSubDomains/preload while we're on *.pages.dev — revisit on the custom domain.
+  Strict-Transport-Security: max-age=31536000
+
+# --- caching ---
+# Nothing here is content-hashed, so anything the service worker refreshes must
+# revalidate on every request (a 304 is ~free). Long max-age on an unhashed file
+# is how a PWA gets permanently stuck on an old build.
+
+/sw.js
+  # Critical: a cached service worker script = updates never reach anyone again.
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Cache-Control: no-cache
+
+/exercise-library.json
+  Cache-Control: no-cache
+
+# Icons change only on a rebrand, and the SW precaches them anyway.
+/icon.svg
+  Cache-Control: public, max-age=86400
+/icon-180.png
+  Cache-Control: public, max-age=86400
+/icon-192.png
+  Cache-Control: public, max-age=86400
+/icon-512.png
+  Cache-Control: public, max-age=86400
+
+# --- FULL CSP: deliberately NOT enabled yet ---
+# The app is one file of inline <script>/<style>, so script-src needs 'unsafe-inline'
+# regardless — but a host allowlist still blocks injected THIRD-PARTY script loads,
+# which is real protection. Origins the app actually talks to:
+#   script  self(inline) + accounts.google.com (GIS client)
+#   style   self(inline) + fonts.googleapis.com
+#   font    fonts.gstatic.com
+#   img     self + cdn.jsdelivr.net (exercise photos) + data:
+#   connect self + www.googleapis.com + accounts.google.com + oauth2.googleapis.com
+#   frame   accounts.google.com (OAuth token flow)
+# Turn this on ONLY after GOOGLE_CLIENT_ID is set and Drive connect is tested on a
+# real iPhone — Google Identity Services is the flakiest thing here and a wrong CSP
+# would break a feature that currently can't be tested at all.
+#
+# /*
+#   Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://cdn.jsdelivr.net; connect-src 'self' https://www.googleapis.com https://accounts.google.com https://oauth2.googleapis.com; frame-src https://accounts.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'none'
