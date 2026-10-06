@@ -521,8 +521,11 @@
 "use strict";
 // installed from the iPhone/iPad home screen? (navigator.standalone is iOS-only) → keep content clear
 // of iOS 26's edge blur (see :root.ios-app in the CSS)
-try{ if(window.navigator.standalone===true || (/iPhone|iPad|iPod/.test(navigator.userAgent) && matchMedia("(display-mode: standalone)").matches))
-  document.documentElement.classList.add("ios-app"); }catch(e){}
+const TOP_GAP_DEFAULT=44;   // px below the status bar; tunable per device in Settings → Top spacing
+try{ if(window.navigator.standalone===true || (/iPhone|iPad|iPod/.test(navigator.userAgent) && matchMedia("(display-mode: standalone)").matches)){
+  document.documentElement.classList.add("ios-app");
+  const g=parseInt(localStorage.getItem("nextset-topgap"),10);
+  if(Number.isFinite(g)) document.documentElement.style.setProperty("--top-gap", Math.max(0,Math.min(60,g))+"px"); } }catch(e){}
 /* ---------- theme (System / Light / Dark) ---------- */
 const prefersLight = () => { try{ return window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches; }catch(e){ return false; } };
 const getTheme = () => { try{ return localStorage.getItem("nextset-theme") || "dark"; }catch(e){ return "dark"; } };
@@ -669,7 +672,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v108"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v109"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -5364,6 +5367,27 @@ function viewSettings(){
     seg.append(el("button",{class:"segbtn"+(cur===k?" on":""),"aria-pressed":cur===k?"true":"false",onClick:()=>setTheme(k)}, lbl)));
   themeCard.append(seg, el("div",{class:"tiny muted",style:"margin-top:8px"},"Dark by default · System follows your phone."));
   wrap.append(themeCard);
+  // ----- Top spacing: installed iPhone app only — find the smallest gap iOS's top-edge blur allows -----
+  if(document.documentElement.classList.contains("ios-app")){
+    const getGap=()=>{ try{ const g=parseInt(localStorage.getItem("nextset-topgap"),10); return Number.isFinite(g)?g:TOP_GAP_DEFAULT; }catch(e){ return TOP_GAP_DEFAULT; } };
+    const probe=el("div",{style:"position:fixed;top:0;left:0;width:1px;height:0;visibility:hidden;padding-top:env(safe-area-inset-top)"});
+    document.body.append(probe); const inset=Math.round(probe.getBoundingClientRect().height); probe.remove();
+    const val=el("span",{class:"numcell",style:"display:flex;align-items:center;justify-content:center"});
+    const apply=(g,save)=>{ g=Math.max(0,Math.min(60,g)); val.textContent=`${g} px`;
+      if(save){ try{ localStorage.setItem("nextset-topgap",String(g)); }catch(e){} }
+      document.documentElement.style.setProperty("--top-gap",g+"px");
+      const tb=document.querySelector("header.topbar"); if(tb) document.documentElement.style.setProperty("--tb", tb.offsetHeight+"px"); };
+    const sb=(d,label)=>el("button",{type:"button",class:"sbtn","aria-label":label,onClick:()=>apply(getGap()+d,true)}, ic(d<0?"minus":"plus",18));
+    const card=el("div",{class:"card"});
+    card.append(el("h2",{},"Top spacing (iPhone)"),
+      el("p",{class:"small muted",style:"margin:-6px 0 10px"},"iOS blurs the top of home-screen apps. Tap − to move the header up until its text starts to look soft, then + once. Check a workout screen too."),
+      el("div",{class:"row",style:"gap:12px;align-items:center"},
+        el("div",{class:"stepcell",style:"width:170px;flex:none"}, sb(-2,"Move content up"), val, sb(2,"Move content down")),
+        el("button",{class:"linkbtn sm",onClick:()=>{ try{ localStorage.removeItem("nextset-topgap"); }catch(e){} apply(TOP_GAP_DEFAULT,false); }},"Reset")),
+      el("div",{class:"tiny muted",style:"margin-top:8px"}, `Gap below the status bar (${inset}px on this phone) · default ${TOP_GAP_DEFAULT}px.`));
+    apply(getGap(),false);
+    wrap.append(card);
+  }
   // ----- Units: default weight unit -----
   const unitCard=el("div",{class:"card"}); unitCard.append(el("h2",{},"Units"));
   const uSeg=el("div",{class:"seg"});
