@@ -658,7 +658,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v105"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v106"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1148,7 +1148,7 @@ const linkedIds = exerciseId => {
 };
 // KEY LIFTS — the starred handful you care most about (stored as ex.fav, shared by the same machine
 // at your other gyms). They lead Progress, the Up next card and the workout summary.
-const KEY_MAX=8;   // enough for a 4-day split's main lifts; past that "key" stops meaning anything
+const KEY_MAX=10;   // a 4-day split's main lifts plus a couple you're bringing up
 const isKeyLift = ex => !!ex && linkedIds(ex.id).some(id=>State.exercises.find(e=>e.id===id)?.fav);
 function keyLiftExercises(){ const seen=new Set(), out=[];
   for(const e of State.exercises){ if(!e.fav) continue; const k=e.linkId||e.id; if(seen.has(k)) continue; seen.add(k); out.push(e); }
@@ -3711,7 +3711,7 @@ function buildStrengthStats(sessions, allSets){
 }
 // the "best set" number a movement is charted on: est. 1RM for compounds, the heaviest set's
 // weight for accessories (no fake 1RM), the reps index for bodyweight
-const bestValOf = s => e => s.acc ? e.top : e.m;
+const bestValOf = s => e => s.acc ? e.top : s.unitLbl==="reps" ? e.maxReps : e.m;
 // one-line headline for a movement's latest session: "est. 1RM 85kg" / "12.5kg × 12" / "12 reps"
 function liftHeadline(s){ const e=s.dated[s.dated.length-1]; if(!e) return "";
   if(s.unitLbl==="reps") return `best ${e.maxReps} reps`;
@@ -3873,6 +3873,24 @@ function tagImpactCard(sessions, stats){
   });
   if(!shown) card.append(el("p",{class:"small muted",style:"margin:4px 0 0"},"Keep tagging — a tag shows here once it's on 2+ workouts (and you have 3+ untagged ones to compare with)."));
   else card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Each workout is scored by how your lifts did vs their last normal session. Small numbers — a hint, not a verdict."));
+  return card;
+}
+// "Strength chart" — the direct way in: a live 12-week preview of one lift (whatever you last looked at
+// in the full chart, else your first key lift, else your most-trained) and a button into the full chart
+function strengthChartCard(stats){
+  const byKey=Object.fromEntries(stats.map(s=>[s.key,s]));
+  const keyFirst=keyLiftExercises().map(e=>e.linkId||e.id).find(k=>byKey[k]);
+  const s=byKey[_sxSel] || byKey[keyFirst] || stats.slice().sort((a,b)=>b.dated.length-a.dated.length)[0];
+  const vo=bestValOf(s), pts=s.dated.filter(e=>daysAgo(e.d)<=84 && vo(e)>0);
+  const what = s.unitLbl==="reps" ? "most reps in a set" : s.acc ? "heaviest set" : "est. 1RM";
+  const fmt = v => s.unitLbl==="reps" ? `${Math.round(v)} reps` : s.acc ? fmtW(v,s.ex) : Math.round(v)+(s.ex.unit||"kg");
+  const card=el("div",{class:"card"});
+  card.append(el("div",{class:"row between",style:"margin-bottom:2px"}, el("h2",{style:"margin:0"},"Strength chart"), el("span",{class:"small muted"},"last 12 weeks")),
+    el("div",{class:"small",style:"margin-bottom:6px"}, el("b",{}, s.ex.name), el("span",{class:"muted"}, " · "+what)),
+    pts.length>=2 ? lineChart(pts.map(vo),{labels:pts.map(p=>fmtShortDate(p.d)), fmt, flags:pts.map(p=>p.rough)})
+      : el("div",{class:"small muted",style:"padding:16px 0;text-align:center"},"Not enough sessions in the last 12 weeks — the full chart has longer ranges."),
+    el("button",{class:"btn secondary",style:"width:100%;margin-top:10px",onClick:()=>openStrengthExplorer(s.key)}, "Open strength chart", ic("chevron",16)),
+    el("div",{class:"tiny muted",style:"margin-top:6px;text-align:center"},"Switch lifts · rep strength · volume · any date range"));
   return card;
 }
 function openKeyLiftPicker(stats){
@@ -4138,21 +4156,19 @@ function viewInsights(){
       const ranked=stats.filter(s=>!isKeyLift(s.ex)).sort((a,b)=>{ const pa=p12(a), pb=p12(b);
         return (pb==null?-1:Math.abs(pb))-(pa==null?-1:Math.abs(pa)); });
       const top=ranked.slice(0,3);
-      const card=el("div",{class:"card",role:"button",tabindex:"0","aria-label":"Open strength progression explorer",
-        style:"cursor:pointer", onClick:()=>openStrengthExplorer(),
-        onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openStrengthExplorer();}}});
-      card.append(el("div",{class:"row between",style:"margin-bottom:6px"},
-        el("h2",{style:"margin:0"},"Biggest movers"),
-        el("div",{class:"row",style:"gap:2px;align-items:center"},
-          el("span",{class:"small muted"},`all ${stats.length} movement${stats.length===1?"":"s"}`),
-          el("span",{class:"chev"},ic("chevron",16)))));
-      top.forEach(s=>card.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line);gap:8px"},
-        el("div",{style:"min-width:0"},
-          el("div",{style:"font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, s.ex.name),
+      // the way into every movement is an explicit button at the end — a whole-card tap target with a
+      // tiny "all N movements" in the corner was easy to miss. A lift row opens that lift's own page,
+      // like everywhere else in the app; the explorer is the "compare everything" view.
+      const card=el("div",{class:"card"});
+      card.append(el("div",{class:"row between",style:"margin-bottom:2px"},
+        el("h2",{style:"margin:0"},"Biggest movers"), el("span",{class:"small muted"},"last 12 weeks")));
+      top.forEach(s=>card.append(el("button",{class:"keyrow","aria-label":`${s.ex.name} — open its progress`,onClick:()=>openExerciseProgress(s.ex.id)},
+        el("div",{class:"grow"}, el("div",{class:"kr-name"}, s.ex.name),
           el("div",{class:"small muted"}, [liftHeadline(s), gymTag(s.ex)].filter(Boolean).join(" · "))),
-        trendPill(p12(s),"12 wk"))));
-      if(!top.length) card.append(el("div",{class:"small muted"},"Open to compare every movement you've logged."));
-      card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Last 12 weeks · tap for every movement, rep strength and volume"));
+        el("div",{class:"kr-pill"}, trendPill(p12(s))), el("span",{class:"chev"},ic("chevron",16)))));
+      if(!top.length) card.append(el("p",{class:"small muted",style:"margin:4px 0 0"},"Every movement you've logged is a key lift — compare them all below."));
+      card.append(el("button",{class:"btn secondary",style:"width:100%;margin-top:12px",onClick:()=>openStrengthExplorer()},
+        `See all ${stats.length} movement${stats.length===1?"":"s"}`, ic("chevron",16)));
       strengthCard=card;
     }
     // ---- Recent wins: PRs recomputed from history so they don't vanish with the toast ----
@@ -4178,6 +4194,7 @@ function viewInsights(){
     // ---- Q2 assembled ----
     secP.append(el("div",{class:"sectionhead qhead",style:"--qc:var(--sec-green)"},"Am I progressing?"));
     if(keyCard) secP.append(keyCard);
+    if(stats.length) secP.append(strengthChartCard(stats));
     secP.append(poCard);
     if(sessions.length>=4) secP.append(tagImpactCard(sessions, stats));
     if(strengthCard) secP.append(strengthCard);
@@ -4560,7 +4577,7 @@ function openStrengthExplorer(selKey){
       }
       build();
     })();
-  });
+  },{stacked:!!document.querySelector(".sheet-bg"), onClose:()=>{ if(currentTab==="insights" && !document.querySelector(".sheet-bg")){ _insightsScroll=window.scrollY; render(); } }});
 }
 // drill-down for one muscle: weekly sets/volume, focus %, overload, top exercises, tips
 function openMuscleDetail(mk){
@@ -4773,6 +4790,8 @@ function openExerciseProgress(exId){
           flags: dates.map(d=>!!roughBy[d])}));
         if(dates.some(d=>roughBy[d])) mount.append(el("div",{class:"tiny",style:"margin-top:2px;display:flex;align-items:center;gap:6px;color:var(--muted)"},
           el("span",{style:"width:8px;height:8px;border-radius:50%;background:var(--warn);flex:none"}), "Rough days you tagged — they don't count against your targets."));
+        mount.append(el("button",{class:"linkbtn sm",style:"min-height:36px;padding:0",onClick:()=>openStrengthExplorer(ex.linkId||ex.id)},
+          "Rep strength, volume & date ranges", ic("chevron",14)));
         if(acc) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Your heaviest set each session. Accessory lifts don't get an estimated 1RM — it isn't meaningful for raises, curls or flies."));
         else if(!bw) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Estimated 1RM via the Epley formula — weight × (1 + reps/30). Most accurate at ≤10 reps."+(pl?" Plate machine: added load only — excludes the sled/base, so it reads lower than the total moved.":"")));
         // forecast: straight-line pace to the next milestone. Shown only for loaded kg/lb lifts
