@@ -23,7 +23,7 @@
     /* color roles: orange = DO something (CTAs) · violet = currently SELECTED · section hues = place identity */
     --sel:#A78BFA; --on-sel:#0F172A;
     --sec-teal:#2DD4BF; --sec-green:#22C55E; --sec-pink:#F472B6; --sec-amber:#FBBF24; --on-sec:#0F172A;   /* Balance is pink: violet means 'selected' */
-    --bar-bg:rgba(11,14,20,.86); --tab-bg:rgba(20,25,37,.95);
+    --tab-bg:rgba(20,25,37,.95);
     --radius:16px; --safe-b:env(safe-area-inset-bottom,0px);
   }
   :root[data-theme="light"]{
@@ -33,7 +33,7 @@
     --accent-2:#15803D; --on-accent-2:#FFFFFF; --warn:#B45309; --danger:#DC2626;
     --sel:#7C3AED; --on-sel:#FFFFFF;
     --sec-teal:#0D9488; --sec-green:#16A34A; --sec-pink:#DB2777; --sec-amber:#B45309; --on-sec:#FFFFFF;
-    --bar-bg:rgba(244,246,249,.85); --tab-bg:rgba(255,255,255,.95);
+    --tab-bg:rgba(255,255,255,.95);
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
@@ -50,9 +50,10 @@
   .ic{display:inline-flex;align-items:center;justify-content:center;flex:none}
   .ic svg{display:block}
   .app{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
-  header.topbar{position:sticky;top:0;z-index:20;background:var(--bar-bg);
-    backdrop-filter:saturate(160%) blur(12px);border-bottom:1px solid var(--line);
-    padding:14px 16px calc(12px);display:flex;align-items:center;gap:10px;padding-top:max(14px,env(safe-area-inset-top))}
+  /* solid, not frosted: on iPhone (status bar drawn over the app) a see-through bar showed the page
+     scrolling blurred behind the gym name and under the clock. Content starts just below the status bar. */
+  header.topbar{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);
+    padding:14px 16px 12px;display:flex;align-items:center;gap:10px;padding-top:max(14px,calc(env(safe-area-inset-top) + 6px))}
   .topbar h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.2px;flex:1}
   .topgear{flex:none;width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);margin-right:-6px}
   .topgear.on{color:var(--accent)}
@@ -270,6 +271,21 @@
   .stag.fav{color:#B7791F;background:rgba(245,158,11,.14);border:1px solid rgba(245,158,11,.36)}
   .addtags{margin-top:6px}
   /* favorite toggle in the exercise detail */
+  .keybtn{flex:none;display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:700;
+    color:var(--muted);border:1px solid var(--line);background:var(--surface-2)}
+  .keybtn.on{color:#FBBF24;border-color:rgba(245,158,11,.45);background:rgba(245,158,11,.12)}
+  :root[data-theme="light"] .keybtn.on{color:#B7791F}
+  .wrapchips{flex-wrap:wrap;overflow-x:visible}
+  .keyline{font-size:14px;line-height:1.35;margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .keyline .ks{color:#F59E0B;display:inline-flex;vertical-align:-1px;margin-right:5px}
+  .keyline .up{color:var(--accent-2);font-weight:700}
+  .hr-note{display:flex;align-items:center;gap:5px;margin-top:3px}
+  .hr-note span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .notebox{margin-top:4px}
+  .setupline{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:14px;color:var(--text);background:none;border:none;padding:2px 0;text-align:left;min-height:28px;max-width:100%}
+  .setupline .ic{color:var(--muted)}
+  .setupline span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .setupline.add{color:var(--muted);font-size:13px}
   .starbtn{flex:none;background:none;border:none;color:var(--muted);display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;cursor:pointer;border-radius:10px}
   .starbtn.on{color:#F59E0B}
   /* prominent workout-status card (ready-to-start / in-progress) — stands off the page */
@@ -363,7 +379,7 @@
   .secnav button.on.sec-prog{background:color-mix(in srgb,var(--sec-green) 16%,var(--surface-2));border-color:var(--sec-green);color:var(--sec-green)}
   .secnav button.on.sec-mix{background:color-mix(in srgb,var(--sec-pink) 16%,var(--surface-2));border-color:var(--sec-pink);color:var(--sec-pink)}
   .secnav button.on.sec-att{background:color-mix(in srgb,var(--sec-amber) 16%,var(--surface-2));border-color:var(--sec-amber);color:var(--sec-amber)}
-  .navbadge{background:var(--warn);color:#111827;border-radius:999px;font-size:12px;font-weight:800;padding:0 6px;margin-left:5px;display:inline-block;line-height:18px}
+  .navbadge{background:#DC2626;color:#fff;border-radius:999px;font-size:12px;font-weight:800;min-width:20px;text-align:center;padding:0 6px;margin-left:5px;display:inline-block;line-height:20px}
   .cal i.tap{cursor:pointer}
 
   /* ---- logging card ---- */
@@ -390,9 +406,9 @@
   .menurow:active{background:var(--surface-2)}
   /* ---- in-progress sticky bar (replaces the tall status card while logging) ---- */
   .wbar{position:sticky;top:var(--tb,57px);z-index:18;display:flex;align-items:center;gap:8px;margin:-14px -16px 12px;padding:10px 16px;
-    background:var(--bar-bg);backdrop-filter:saturate(160%) blur(12px);-webkit-backdrop-filter:saturate(160%) blur(12px);border-bottom:1px solid var(--line)}
+    background:var(--bg);border-bottom:1px solid var(--line)}
   body.logging header.topbar{display:none}
-  body.logging .wbar{top:0;padding-top:max(10px,env(safe-area-inset-top))}
+  body.logging .wbar{top:0;padding-top:max(10px,calc(env(safe-area-inset-top) + 6px))}
   .wbar-main{flex:1;min-width:0}
   .wbar-top{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--accent)}
   .wbar-clock{font-variant-numeric:tabular-nums}
@@ -442,6 +458,13 @@
   .tgttick{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--text);opacity:.6;border-radius:1px}
   /* ---- shared exercise picker ---- */
   .pickhead{position:sticky;top:-18px;z-index:2;background:var(--surface);margin:0 -16px;padding:4px 16px 4px}
+  .keyrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 0;border-top:1px solid var(--line);color:inherit}
+  .keyrow .kr-name{font-weight:600;font-size:15px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .keyrow .spark{width:64px}
+  @media (max-width:360px){ .keyrow .spark{width:44px} .keyrow{gap:8px} }
+  .keyrow .kr-pill{flex:none;min-width:48px;text-align:right}
+  .keystar{flex:none;width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted)}
+  .keystar.on{color:#F59E0B}
   .pickrow{display:flex;align-items:center;gap:10px;min-height:64px;padding:8px 6px;border-bottom:1px solid var(--line);cursor:pointer;border-radius:10px}
   .pickrow:active{background:var(--surface-2)}
   .pickrow.on{background:color-mix(in srgb,var(--accent-2) 9%,transparent)}
@@ -635,7 +658,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v104"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v105"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -663,6 +686,9 @@ const ICONS = {
   info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
   star:'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
   swap:'<path d="M16 3l4 4-4 4"/><path d="M20 7H4"/><path d="M8 21l-4-4 4-4"/><path d="M4 17h16"/>',
+  sliders:'<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+  merge:'<path d="m8 6 4-4 4 4"/><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22"/><path d="m20 22-5-5"/>',
+  pencil:'<path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="m15 5 4 4"/>',
   starfill:'<polygon fill="currentColor" points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
 };
 function ic(name, size=18){
@@ -810,6 +836,22 @@ function exMetric(ex, weight, reps){
   if(isBW(ex)) return 1+reps/30;
   return epley(+weight||0, reps);
 }
+// accessory (isolation) lifts: an "estimated 1RM" for a lateral raise or a cable fly means nothing,
+// so those show their best SET (heaviest weight × reps) instead. Name first, then the muscle.
+const ACC_RX=/\b(raises?|curls?|fly|flys|flye|flyes|crossovers?|pec deck|extensions?|pushdowns?|push down|kickbacks?|shrugs?|crunch|crunches|calf|calves|face pulls?|pullovers?|wrist|abduct|adduct|abductor|adductor|skull ?crushers?|preacher|concentration)\b/;
+const COMP_RX=/\b(press|bench|squats?|deadlifts?|rows?|pull ?ups?|chin ?ups?|pulldowns?|dips?|lunges?|clean|snatch|jerk|thrusts?|step ?ups?|push ?ups?|good mornings?|rack pulls?|carry)\b/;
+const SMALL_MUSCLES=new Set(["side_delts","rear_delts","biceps","triceps","forearms","calves","core"]);
+function isAccessory(ex){
+  if(!ex) return false; const n=normName(ex.name);
+  if(ACC_RX.test(n)) return true; if(COMP_RX.test(n)) return false;
+  return SMALL_MUSCLES.has(ex.primary);
+}
+const showsE1RM = ex => !!ex && !isBW(ex) && !isAccessory(ex);
+// the top set of a group of sets: heaviest load, then the most reps at it
+function topSet(sets){ let b=null;
+  for(const x of sets){ if(!(x.reps>0)) continue; const w=+x.weight||0;
+    if(!b || w>b.weight || (w===b.weight && +x.reps>b.reps)) b={weight:w, reps:+x.reps}; }
+  return b; }
 // short display of a logged set — bodyweight: `weight` = ADDED load (0 = bodyweight); plate: 0 = sled only
 function fmtSetShort(ex,w,r){
   if(isInverted(ex)) return (+w>0) ? `−${w}${ex.unit||"kg"}×${r}` : `${r} reps · unassisted`;
@@ -1104,11 +1146,24 @@ const linkedIds = exerciseId => {
   if(!ex||!ex.linkId) return [exerciseId];
   return State.exercises.filter(e=>e.linkId===ex.linkId).map(e=>e.id);
 };
+// KEY LIFTS — the starred handful you care most about (stored as ex.fav, shared by the same machine
+// at your other gyms). They lead Progress, the Up next card and the workout summary.
+const KEY_MAX=8;   // enough for a 4-day split's main lifts; past that "key" stops meaning anything
+const isKeyLift = ex => !!ex && linkedIds(ex.id).some(id=>State.exercises.find(e=>e.id===id)?.fav);
+function keyLiftExercises(){ const seen=new Set(), out=[];
+  for(const e of State.exercises){ if(!e.fav) continue; const k=e.linkId||e.id; if(seen.has(k)) continue; seen.add(k); out.push(e); }
+  return out; }
+async function setKeyLift(ex, on){
+  if(on && !isKeyLift(ex) && keyLiftExercises().length>=KEY_MAX){
+    noticeSheet(`${KEY_MAX} key lifts is the limit`,"Key lifts work best as a short list. Unstar one first (Insights → Progress → Key lifts → Edit)."); return false; }
+  for(const id of linkedIds(ex.id)){ const e=State.exercises.find(x=>x.id===id); if(!e) continue; e.fav=!!on; await DB.put("exercises",e); }
+  State.exercises=await DB.all("exercises"); return true;
+}
 
 /* ============================================================
    PROGRESSION ENGINE  (double progression + RPE modifier)
    ============================================================ */
-async function lastSetsFor(exerciseId, beforeSessionId=null){
+async function lastSetsFor(exerciseId, beforeSessionId=null, skipIds=null){
   let sets=[];
   for(const id of linkedIds(exerciseId)) sets=sets.concat(await DB.byIndex("sets","exerciseId",id));
   if(!sets.length) return null;
@@ -1116,7 +1171,7 @@ async function lastSetsFor(exerciseId, beforeSessionId=null){
   const bySession = {};
   for(const s of sets){ (bySession[s.sessionId]=bySession[s.sessionId]||[]).push(s); }
   const sessions = await DB.all("sessions");
-  const order = sessions.filter(se=>bySession[se.id] && se.id!==beforeSessionId)
+  const order = sessions.filter(se=>bySession[se.id] && se.id!==beforeSessionId && !(skipIds&&skipIds.has(se.id)))
     .sort((a,b)=> (b.date+b.startedAt).localeCompare(a.date+a.startedAt));
   if(!order.length) return null;
   const last = order[0];
@@ -1150,7 +1205,25 @@ function rpeTargetPct(baseline, rpes){
 }
 
 async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Today's "Up next"), never consumes a scheduled deload
-  const prev = await lastSetsFor(ex.id, State.activeSession?.id);
+  const lastPrev = await lastSetsFor(ex.id, State.activeSession?.id);
+  let prev = lastPrev;
+  // ROUGH DAY: last session was tagged (slept badly, sick, low on time…) AND fell short of the session
+  // before it → it doesn't count. Plan from the last normal session, and don't let that miss count
+  // toward "holding". If you did fine despite the tag, nothing changes.
+  let rough=null;
+  if(prev && isRoughDay(prev.session)){
+    const skip=new Set([prev.session.id]); let earlier=null;
+    for(let k=0;k<6;k++){ earlier=await lastSetsFor(ex.id, State.activeSession?.id, skip);
+      if(!earlier || !isRoughDay(earlier.session)) break; skip.add(earlier.session.id); }
+    const best=a=>Math.max(0,...a.map(x=>exMetric(ex,x.weight,x.reps))), vol=a=>a.reduce((t,x)=>t+(+x.weight||0)*(+x.reps||0),0);
+    const rec=await getMeta(progKey(ex));
+    const missed = (rec && rec.streak>=1 && rec.date===prev.session.date) || (earlier && (best(prev.sets)<best(earlier.sets)*0.995 || vol(prev.sets)<vol(earlier.sets)*0.98));
+    if(earlier && missed){ rough={tags:roughTags(prev.session), from:earlier.session.date, streakOff:(rec&&rec.date===prev.session.date)?1:0}; prev=earlier; }
+  }
+  const withRough = r => !rough ? r : {...r, prev:lastPrev, excused:true,
+    note:`Last time was a rough day (${rough.tags.join(", ").toLowerCase()}), so it doesn't count — planning from ${fmtDate(rough.from)} instead. `
+      +(r.note||"").replace("Last time felt easy","That one felt easy").replace("Last time was a grind","That one was a grind")
+        .replace("Came up short last time","Came up short then").replace("Beat last time:","Beat it:")};
   const sets = Math.max(1, ex.sets||3);
   const repMin = ex.repMin||8, repMax = ex.repMax||12, inc = ex.increment||2.5;
   // equivalent-machine mapping (hint, never override): no recent own history, but the linked
@@ -1199,10 +1272,10 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
                : "Deload you scheduled from Insights — rebuild from here.", kind:"deload", prev };
   }
   // assisted machines run on a backwards scale — their own mirrored double progression
-  if(isInverted(ex)) return invertedNext(ex, prev, {sets,repMin,repMax,inc});
+  if(isInverted(ex)) return withRough(await invertedNext(ex, prev, {sets,repMin,repMax,inc}));
   // pure bodyweight / sled-only (no working load → can't compute volume) keeps classic double progression
   const base = Math.max(0, ...prev.sets.map(s=>+s.weight||0));
-  if(base<=0) return classicNext(ex, prev, {sets,repMin,repMax,inc});
+  if(base<=0) return withRough(await classicNext(ex, prev, {sets,repMin,repMax,inc}));
   // weighted bodyweight (e.g. +10kg dips): solve on implied TOTAL load (bodyweight×coef + added), so
   // a +4% target is +4% of true stimulus — then convert the plan back to added load for logging.
   // Bodyweight enters as a CONSTANT (never the drifting calibrated levelKg); unset → old behavior.
@@ -1212,7 +1285,7 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
   // weighted → volume model. If you fell short of the target last time, HOLD (no progression);
   // two short sessions running → ease back ~10% to rebuild. Otherwise climb by your target %.
   const pl = isPlate(ex);
-  const streak = (await getMeta(progKey(ex)))?.streak || 0;
+  const streak = Math.max(0, ((await getMeta(progKey(ex)))?.streak || 0) - (rough?rough.streakOff:0));
   let plan, note, kind, targetVol;
   if(streak>=1){
     // missed last time → hold the same target and keep trying until you hit it (no auto-deload)
@@ -1230,7 +1303,8 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
     kind = r.weightAdded ? "weight" : (r.repAdded ? "rep" : "repeat");
     const top = Math.max(...plan.map(s=>s.weight));
     if(r.weightAdded){
-      note = `${feel}Beat last time: take your top set to ${fmtW(top,ex)}${(pl||bwBase)?" added":""}.`;
+      const rs=[...new Set(plan.map(s=>s.reps))].sort((a,b)=>a-b);
+      note = `You hit ${repMax} on every set — add weight: ${fmtW(top,ex)}${(pl||bwBase)?" added":""} × ${rs.join("–")}, then build the reps back up.`;
     } else if(r.repAdded){
       const {seed} = normalizeSeed(seedSets, sets);
       const extra = Math.max(1, Math.round(r.plan.reduce((t,s)=>t+s.reps,0) - seed.reduce((t,s)=>t+s.reps,0)));
@@ -1254,7 +1328,7 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
       }
     }
   }
-  return { plan: outPlan, note, kind, prev, targetVol, bwBase: bwBase||null };
+  return withRough({ plan: outPlan, note, kind, prev, targetVol, bwBase: bwBase||null });
 }
 
 // classic double progression — used for bodyweight & sled-only, where true volume isn't computable
@@ -1342,9 +1416,12 @@ async function invertedNext(ex, prev, {sets,repMin,repMax,inc}){
   return {plan,note,kind,prev};
 }
 
-// pure volume-target solver: beat last session's tonnage by ~pct%, rolling the lightest set up to
-// the next load once all sets are at the top of the rep range. A graduated set keeps enough reps to
-// not drop below its old volume (no dip). Returns {plan,Vlast,Vnew,weightAdded,repAdded}.
+// volume-paced double progression. Below the top of the rep range: add reps toward last session's
+// tonnage +pct% (cheapest first: the set with the fewest reps), never past the cap. Once EVERY set hit
+// the top of the range: all sets move up one increment together, and reps drop to keep each set about
+// as hard as last time (Epley) — e.g. 77.5×12 ×3 → 80×11 ×3. (It used to graduate one set at a time
+// while keeping volume flat, which with small jumps meant "same 12 reps, more weight" on a rising
+// ladder like 80×12 · 80×12 · 82.5×12.) Returns {plan,Vlast,Vnew,weightAdded,repAdded}.
 // normalize a past session's sets into exactly `sets` working sets (drop the lightest extras, pad
 // with the lightest), sorted light→heavy. Shared by progress / hold / deload. Returns {seed, Vlast}.
 function normalizeSeed(lastSets, sets){
@@ -1358,21 +1435,22 @@ function normalizeSeed(lastSets, sets){
 function volumeProgress(lastSets, {sets,repMin,repMax,inc,pct}){
   const { seed, Vlast } = normalizeSeed(lastSets, sets);
   const vol = arr => arr.reduce((t,s)=>t+s.weight*s.reps,0);
+  if(seed.every(s=>s.reps>=repMax)){                                   // earned it → add weight to every set
+    const w=round(Math.max(...seed.map(s=>s.weight))+inc, inc);
+    const plan=seed.map(s=>({weight:w, reps:Math.max(repMin, Math.min(repMax-1, Math.round(30*(epley(s.weight,s.reps)/w-1))))}))
+      .sort((a,b)=> a.weight-b.weight || a.reps-b.reps);
+    return { plan, Vlast, Vnew: vol(plan), weightAdded:true, repAdded:false };
+  }
   const Vtarget = Vlast*(1+pct/100);
   const plan = seed.map(s=>({weight:s.weight,reps:s.reps}));
-  let weightAdded=false, repAdded=false, guard=0;
+  let repAdded=false, guard=0;
   while(vol(plan) < Vtarget && guard++ < 600){
-    let i=-1, few=Infinity;                                            // cheapest move: +1 rep on the fewest-rep set under the cap
+    let i=-1, few=Infinity;
     for(let k=0;k<plan.length;k++){ if(plan[k].reps<repMax && plan[k].reps<few){ few=plan[k].reps; i=k; } }
-    if(i>=0){ plan[i].reps++; repAdded=true; continue; }
-    let j=0; for(let k=1;k<plan.length;k++){ if(plan[k].weight<plan[j].weight) j=k; }  // all maxed → graduate the lightest set
-    const oldVol=plan[j].weight*plan[j].reps;
-    plan[j].weight=round(plan[j].weight+inc, inc);
-    plan[j].reps=Math.max(repMin, Math.min(repMax, Math.ceil(oldVol/plan[j].weight)));
-    weightAdded=true;
-    plan.sort((a,b)=> a.weight-b.weight || a.reps-b.reps);
+    if(i<0) break;                                                     // every set at the cap — weight goes on next time
+    plan[i].reps++; repAdded=true;
   }
-  return { plan, Vlast, Vnew: vol(plan), weightAdded, repAdded };
+  return { plan, Vlast, Vnew: vol(plan), weightAdded:false, repAdded };
 }
 const fmtW = (w,ex)=> `${(+w).toLocaleString(undefined,{maximumFractionDigits:2})}${ex.unit||"kg"}`;
 
@@ -1605,7 +1683,8 @@ async function seedDemoData(){
   for(const [k,name,eq,p,sec,inc] of defs){
     const lib=LIB_STAPLES && Object.entries(LIB_STAPLES).find(([,v])=>v===name);
     ex[k]={id:"demo-"+k, gymId:EQUIP[eq].gymScoped?g1:null, name, unit:"kg", equipment:eq, increment:inc, sets:3, repMin:8, repMax:12,
-      primary:p, secondary:sec, invertProgress:false, restSec:suggestRest({name,repMax:12,primary:p}), demo:true};
+      primary:p, secondary:sec, invertProgress:false, restSec:suggestRest({name,repMax:12,primary:p}), demo:true,
+      ...(k==="legpress"?{notes:"Seat 5 · back pad 2nd notch"}:k==="pulldown"?{notes:"Thigh pad 3"}:{})};
     await DB.put("exercises",ex[k]);
   }
   try{ const L=await loadLibrary(); for(const k in ex){ const m=L.find(e=>e.name===ex[k].name); if(m){ ex[k].libId=m.raw.id; await DB.put("exercises",ex[k]); } } }catch(e){}
@@ -1623,8 +1702,11 @@ async function seedDemoData(){
     const [d,kind]=days[i], frac=i/total, t0=iso(d), sid="demo-s"+i, plan=plans[kind];
     if(rnd()<0.1 && kind!=="H") continue;
     const mins=48+Math.round(rnd()*25);
+    const note = kind==="H" ? {tags:["Low on time"], note:"Hotel gym — only one cable stack"}
+      : i%7===3 ? {tags:["Slept badly"]} : i%9===5 ? {tags:["Felt strong"]} : null;
+    const repAdj = note&&note.tags[0]==="Slept badly" ? -2 : note&&note.tags[0]==="Felt strong" ? 1 : 0;   // so the "what affects your lifts" card has something real to say
     await DB.put("sessions",{id:sid,gymId:kind==="H"?g2:g1,date:localISO(t0),startedAt:t0.toISOString(),finishedAt:new Date(t0.getTime()+mins*6e4).toISOString(),
-      ...(plan?{planId:plan.id,planName:plan.name}:{}), demo:true});
+      ...(plan?{planId:plan.id,planName:plan.name}:{}), ...(note||{}), demo:true});
     if(plan){ plan.lastUsedAt=localISO(t0); plan.useCount++; }
     const list = kind==="H" ? [[h1,50],[ex.lat],[ex.curl],[ex.pullup]] : plan.items.map(it=>[Object.values(ex).find(e=>e.id===it.exerciseId)]);
     let order=0;
@@ -1636,6 +1718,7 @@ async function seedDemoData(){
       for(let k=0;k<3;k++){
         let reps = e.equipment==="bodyweight" ? Math.max(4, Math.round(5+frac*5)-k) : Math.max(6, 12-k-Math.round(rnd()*2));
         if(stall) reps=[10,9,8][k];
+        else reps=Math.max(4, Math.min(12, reps+repAdj));
         await DB.put("sets",{id:"demo-set-"+(sc++),sessionId:sid,exerciseId:e.id,weight:e.equipment==="bodyweight"?0:w,reps,
           rpe:k===2?(rnd()<.35?"grind":rnd()<.5?"solid":"easy"):null,joint:false,order:order++,createdAt:new Date(t0.getTime()+order*150000).toISOString(),demo:true});
       }
@@ -1851,18 +1934,25 @@ function threeDoors(){
 }
 // "↑ 2 heavier · 3 more reps" for a plan, from the engine's own suggestions (read-only peek)
 async function planProgressLine(plan){
-  let heavier=0, reps=0, hold=0, first=0;
+  let heavier=0, reps=0, hold=0, first=0; const keys=[];
   for(const it of plan.items){
     const ex=resolveExerciseAtGym(it.exerciseId, State.currentGymId); if(!ex) continue;
     const sug=await suggestNext(ex,{peek:true});
     if(sug.kind==="weight") heavier++; else if(sug.kind==="rep") reps++; else if(sug.kind==="new") first++; else hold++;
+    if(isKeyLift(ex) && sug.plan && sug.kind!=="new") keys.push({ex, sug});
   }
+  // key lifts named, with today's ask — "★ Bench Press · 65kg × 8 · 8 · 8 ↑"
+  const keyLines=keys.slice(0,3).map(({ex,sug})=>el("div",{class:"keyline"},
+    el("span",{class:"ks"},ic("starfill",12)), el("b",{},ex.name), el("span",{class:"muted"}," · "+fmtTargets({sets:sug.plan,kind:sug.kind},ex)),
+    (sug.kind==="weight"||sug.kind==="rep")?el("span",{class:"up"}," ↑"):""));
   const parts=[];
   if(heavier) parts.push(el("span",{class:"progpill up"},`↑ ${heavier} heavier`));
   if(reps) parts.push(el("span",{class:"progpill up"},`↑ ${reps} more reps`));
   if(hold) parts.push(el("span",{class:"progpill hold"},`→ ${hold} hold`));
   if(first) parts.push(el("span",{class:"progpill hold"},`${first} new lift${first>1?"s":""} — log a first set`));
-  return parts.length? el("div",{class:"row",style:"gap:6px;flex-wrap:wrap"},...parts) : el("span");
+  if(!parts.length && !keyLines.length) return el("span");
+  return el("div",{}, ...(parts.length?[el("div",{class:"row",style:"gap:6px;flex-wrap:wrap"},...parts)]:[]),
+    ...(keyLines.length?[el("div",{style:"margin-top:8px"}, ...keyLines)]:[]));
 }
 
 function muscleTags(ex){
@@ -1914,7 +2004,7 @@ function addExerciseCard(ex, onAdd, actLabel){
   const thumb=el("div",{class:"exthumb"}, ic("dumbbell",16));
   exerciseImageId(ex).then(id=>{ if(id){ const im=document.createElement("img"); im.src=libImageUrl(id,0); im.loading="lazy"; im.alt=""; im.onerror=()=>im.remove(); thumb.append(im); } });
   const tags=el("div",{class:"mtags addtags","data-exid":ex.id});
-  if(ex.fav) tags.append(el("span",{class:"stag fav"}, ic("starfill",10),"Favorite"));
+  if(isKeyLift(ex)) tags.append(el("span",{class:"stag fav"}, ic("starfill",10),"Key lift"));
   if(ex.primary&&muscleLabel(ex.primary)) tags.append(muscleTag(muscleLabel(ex.primary),regionOf(ex.primary),true));
   const grow=el("div",{class:"grow"},
     el("div",{class:"name"},ex.name),
@@ -1936,7 +2026,7 @@ function decorateAddStatus(){
     });
   }).catch(()=>{});
 }
-// favorites first, then alphabetical — for the add lists
+// key lifts first, then alphabetical — for the add lists
 function sortForAdd(list){ return list.slice().sort((a,b)=> (b.fav?1:0)-(a.fav?1:0) || a.name.localeCompare(b.name)); }
 
 // glanceable progression cue vs last time (the note below carries the detail)
@@ -2051,7 +2141,8 @@ function loggerCard(item, isCurrent, ss){
         ...(ss?[el("span",{class:"ssbadge"}, ss.letter+ss.n)]:[]),
         ...(isCurrent?[el("span",{class:"nowtag"},"NOW")]:[]),
         el("div",{class:"lname"},ex?.name||"Exercise"), ...(pb?[pb]:[]), ...(item.joint?[el("span",{class:"jointflag",title:"joint flagged"},ic("alert",13))]:[])),
-      el("div",{class:"small muted"}, ex?`${ex.repMin}–${ex.repMax} reps · ${fmtRest(restOf(ex))} rest`:"")),
+      el("div",{class:"small muted"}, ex?`${ex.repMin}–${ex.repMax} reps · ${fmtRest(restOf(ex))} rest`:""),
+      setupNoteLine(ex,{onSaved:render})),
     el("button",{class:"iconbtn","aria-label":`More options for ${ex?.name||"exercise"}`,onClick:()=>openItemMenu(item)}, ic("more",20))));
   if(item.note) card.append(el("div",{class:"suggestion"+(["deload","repeat"].includes(item.kind)?" warn":"")}, item.note));
   // what weight to log, for the ambiguous cases
@@ -2139,6 +2230,55 @@ function loggerCard(item, isCurrent, ss){
   return card;
 }
 // rare per-exercise actions, one tap away instead of six buttons on every card
+/* ---------- notes ---------- */
+// machine settings / setup note on an exercise ("Seat 4 · pad 3 · handle B") — one line, tap to edit.
+// opts: {showAdd (offer "Add…" when empty), onSaved}
+function setupNoteLine(ex, opts={}){
+  if(!ex || (!ex.notes && !opts.showAdd)) return el("span",{style:"display:none"});
+  const line=el("button",{type:"button",class:"setupline"+(ex.notes?"":" add"),"aria-label":ex.notes?`Setup note: ${ex.notes}. Tap to edit`:"Add a setup note",
+    onClick:e=>{ e.stopPropagation(); editSetupNote(ex, ()=>{ line.replaceWith(setupNoteLine(ex, opts)); opts.onSaved&&opts.onSaved(); }); }},
+    ic(ex.notes?"sliders":"plus",14), el("span",{}, ex.notes || "Add a setup note — seat, pad, grip…"));
+  return line;
+}
+function editSetupNote(ex, onSaved){
+  openSheet("Setup note",(body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin:-6px 0 10px"},`For ${ex.name}: seat height, pad, pin, grip, bench angle — whatever you have to remember each time.`));
+    const inp=el("input",{type:"text",value:ex.notes||"",placeholder:"e.g. Seat 4 · pad 3 · handle B",maxlength:"80","aria-label":"Setup note",enterkeyhint:"done"});
+    const save=async()=>{ ex.notes=inp.value.trim()||null; if(!ex.notes) delete ex.notes;
+      await DB.put("exercises",ex); State.exercises=await DB.all("exercises"); close(); onSaved&&onSaved(); };
+    inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); save(); } });
+    body.append(inp, el("button",{class:"btn",style:"margin-top:12px",onClick:save}, ic("check",16),"Save"));
+    if(ex.notes) body.append(el("button",{class:"linkbtn center sm",onClick:()=>{ inp.value=""; save(); }},"Clear note"));
+    setTimeout(()=>{ try{ inp.focus(); }catch(_){} },60);
+  },{stacked:!!document.querySelector(".sheet-bg")});
+}
+// how a workout went — quick tags + one free line. Context for later ("why did bench dip? slept badly").
+const SESSION_TAGS=["Felt strong","Slept badly","Low energy","Low on time","Busy gym","Injured","Sick"];
+// tags that mark a ROUGH DAY: a shortfall on one doesn't lower your targets, count as a miss, or trip
+// a plateau alert, and Insights compares those days with normal ones
+const ROUGH_TAGS=new Set(["Slept badly","Low energy","Low on time","Busy gym","Injured","Sick"]);
+const roughTags = se => ((se&&se.tags)||[]).filter(t=>ROUGH_TAGS.has(t));
+const isRoughDay = se => roughTags(se).length>0;
+const sessionNoteText = se => se ? [...(se.tags||[]), se.note].filter(Boolean).join(" · ") : "";
+function sessionNoteEditor(se){
+  const tags=new Set(se.tags||[]);
+  const inp=el("input",{type:"text",value:se.note||"",placeholder:"Anything else? e.g. new shoes",maxlength:"120","aria-label":"Workout note",enterkeyhint:"done"});
+  const save=async()=>{
+    se.tags=[...tags]; se.note=inp.value.trim();
+    const cur=(await DB.get("sessions",se.id))||se;
+    if(se.tags.length) cur.tags=se.tags; else delete cur.tags;
+    if(se.note) cur.note=se.note; else delete cur.note;
+    await DB.put("sessions",cur);
+  };
+  const chips=el("div",{class:"filterchips wrapchips",style:"margin:0 0 8px"});
+  SESSION_TAGS.forEach(t=>{ const b=el("button",{type:"button",class:"fchip"+(tags.has(t)?" on":""),"aria-pressed":tags.has(t)?"true":"false",onClick:()=>{
+    if(tags.has(t)) tags.delete(t); else tags.add(t);
+    b.classList.toggle("on",tags.has(t)); b.setAttribute("aria-pressed",tags.has(t)?"true":"false"); save(); }}, t); chips.append(b); });
+  let tmr=null; inp.addEventListener("input",()=>{ clearTimeout(tmr); tmr=setTimeout(save,400); });
+  inp.addEventListener("blur",()=>{ clearTimeout(tmr); save(); });
+  inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); inp.blur(); } });
+  return el("div",{class:"notebox"}, chips, inp);
+}
 function openItemMenu(item){
   const ex=State.exercises.find(e=>e.id===item.exerciseId);
   const items=State.activeSession.items, idx=items.indexOf(item);
@@ -2147,6 +2287,7 @@ function openItemMenu(item){
     const act=(icon,label,fn,cls)=>el("button",{class:"menurow"+(cls?" "+cls:""),onClick:async()=>{ close(); await fn(); }}, ic(icon,18), el("span",{},label));
     const rows=[];
     if(ex) rows.push(act("info","Exercise details & history",()=>openExerciseProgress(ex.id)));
+    if(ex) rows.push(act("sliders", ex.notes?"Edit setup note":"Add a setup note (seat, pad, grip…)",()=>editSetupNote(ex, render)));
     if(item.sets.some(s=>!s.done)) rows.push(act("check","Mark all sets done",()=>{ item.sets.forEach(s=>{ if((+s.reps)>0) s.done=true; }); stopRest(); persistSession(); render(); }));
     rows.push(act("arrowdown","Add a drop set",()=>{
       const di=dropInsertIndex(item.sets), base=item.sets[di-1];                        // after the current active set (+ any drops on it)
@@ -2369,12 +2510,17 @@ async function openWorkoutComplete(se){
       else if(!inv){
         const b1=Math.max(...today.map(x=>epley(+x.weight,+x.reps))), hw=Math.max(...today.map(x=>+x.weight));
         if(hw>pr.heaviest) prs.push(`${ex.name} — heaviest, ${fmtW(hw,ex)}`);
+        else if(isAccessory(ex)){   // accessories: more reps at a weight than ever before (no fake 1RM)
+          const t=topSet(today), was=Math.max(0,...before.filter(x=>(+x.weight||0)>=t.weight).map(x=>+x.reps||0));
+          if(t.weight>0 && t.reps>was) prs.push(`${ex.name} — ${t.reps} reps at ${fmtW(t.weight,ex)}`);
+        }
         else if(b1>pr.best1rm) prs.push(`${ex.name} — best est. 1RM, ${Math.round(b1)}${ex.unit||"kg"}`);
       }
     }
     const sug=await suggestNext(ex,{peek:true});
-    rows.push({ex, today, delta, tone, next: sug && sug.plan ? fmtTargets({sets:sug.plan, kind:sug.kind}, ex) : "", nextKind:sug?.kind});
+    rows.push({ex, today, delta, tone, key:isKeyLift(ex), next: sug && sug.plan ? fmtTargets({sets:sug.plan, kind:sug.kind}, ex) : "", nextKind:sug?.kind});
   }
+  rows.sort((a,b)=>(b.key?1:0)-(a.key?1:0));   // key lifts lead the summary (stable: the rest keep workout order)
   openSheet("Workout done",(body,close)=>{
     body.append(el("div",{class:"done-hero"},
       el("span",{class:"done-badge"}, ic("check",28)),
@@ -2389,17 +2535,18 @@ async function openWorkoutComplete(se){
     rows.forEach(r=>body.append(el("button",{class:"donerow",onClick:()=>openExerciseProgress(r.ex.id)},
       el("div",{class:"row between",style:"gap:8px;align-items:flex-start"},
         el("div",{style:"min-width:0"},
-          el("div",{style:"font-weight:700"}, r.ex.name),
+          el("div",{style:"font-weight:700;display:flex;align-items:center;gap:6px"}, ...(r.key?[el("span",{style:"color:#F59E0B;display:inline-flex","aria-label":"key lift"},ic("starfill",13))]:[]), r.ex.name),
           el("div",{class:"small muted"}, r.today.map(x=>fmtSetShort(r.ex,x.weight,x.reps)).join(" · "))),
         el("span",{class:"progpill "+(r.tone==="up"?"up":r.tone==="down"?"down":"hold"),style:"flex:none"}, r.delta)),
       ...(r.next?[el("div",{class:"small",style:"margin-top:4px"}, el("span",{class:"muted"},"Next time: "), r.next, r.nextKind==="weight"?el("span",{style:"color:var(--accent-2);font-weight:700"}," ↑"):"")]:[]))));
+    body.append(el("div",{class:"sectionhead"},"How did it go? (optional)"), sessionNoteEditor(se));
     body.append(el("button",{class:"btn",style:"margin-top:14px",onClick:close}, ic("check"), "Done"));
     if(!se.planId && exIds.length){
       const items=planItemsFromSets(mine);
       body.append(el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>{ close(); saveSessionAsPlan(se, items); }}, ic("clipboard",16), "Save as a plan — repeat it in one tap"));
     }
     body.append(el("button",{class:"linkbtn center",onClick:()=>{ close(); openSessionDetail(se); }}, "View or edit in History"));
-  });
+  },{onClose:()=>{ if(currentTab==="history") render(); }});   // the History row picks up the note
 }
 
 /* build an editable plan; suggestions are pre-filled but fully editable.
@@ -2688,6 +2835,7 @@ function openExerciseSheet(ex, opts={}){
     const pSel=muscleSelect(ex.primary!==undefined?ex.primary:g0.primary, false);
     const sSel=muscleSelect(ex.secondary!==undefined?ex.secondary:g0.secondary, true);
     const restSel=restSelect(isNew ? suggestRest({name:ex.name,repMax:ex.repMax,primary:g0.primary}) : restOf(ex));
+    const noteInp=el("input",{type:"text",value:ex.notes||"",placeholder:"e.g. Seat 4 · pad 3 · handle B",maxlength:"80"});
     let mTouched=!!(ex.primary||ex.secondary), eqTouched=ex.equipment!==undefined, incTouched=!isNew, restTouched=!isNew;
     const reSuggestRest=()=>{ if(!restTouched) restSel.value=String(suggestRest({name:name.value,repMax:+rmax.value||12,primary:pSel.value})); };
     // gym availability — only for machines/cables, and only worth asking when you have >1 gym
@@ -2741,7 +2889,9 @@ function openExerciseSheet(ex, opts={}){
         el("label",{class:"field"},el("span",{},"Rep min"),rmin),
         el("label",{class:"field"},el("span",{},"Rep max"),rmax)),
       el("label",{class:"field"},el("span",{},"Rest between sets"),restSel),
-      el("div",{class:"tiny muted",style:"margin:-4px 0 4px"},"Auto-set from rep range & movement — heavy compounds rest longer, isolation less. Change anytime."),
+      el("div",{class:"tiny muted",style:"margin:-4px 0 10px"},"Auto-set from rep range & movement — heavy compounds rest longer, isolation less. Change anytime."),
+      el("label",{class:"field"},el("span",{},"Setup note (optional)"),noteInp),
+      el("div",{class:"tiny muted",style:"margin:-4px 0 4px"},"Machine settings you need each time — shows under the name while you log."),
     );
     syncGymUI(); syncUnit();
     body.append(el("button",{class:"btn",onClick:async()=>{
@@ -2756,7 +2906,7 @@ function openExerciseSheet(ex, opts={}){
         let desired=gms.get(); if(!desired.length) desired=[State.currentGymId];
         const groupRecords = isNew?[]:linkedIds(ex.id).map(id=>State.exercises.find(e=>e.id===id)).filter(Boolean);
         let lid = ex.linkId || (new Set([...groupRecords.map(r=>r.gymId), ...desired]).size>1 ? uid() : null);
-        Object.assign(ex, base, {gymId: isNew?desired[0]:ex.gymId, linkId:lid||null});
+        Object.assign(ex, base, {gymId: isNew?desired[0]:ex.gymId, linkId:lid||null, notes:noteInp.value.trim()||null});
         await DB.put("exercises",ex);
         for(const r of groupRecords){ if(r.id===ex.id)continue; Object.assign(r, base, {linkId:lid}); await DB.put("exercises",r); }
         const have=new Set([ex.gymId, ...groupRecords.map(r=>r.gymId)]);
@@ -2767,7 +2917,7 @@ function openExerciseSheet(ex, opts={}){
           else await DB.put("exercises",{...base, id:uid(), gymId:gid, linkId:lid});
         }
       } else {
-        Object.assign(ex, base, {gymId:null}); delete ex.linkId;
+        Object.assign(ex, base, {gymId:null, notes:noteInp.value.trim()||null}); delete ex.linkId;
         await DB.put("exercises",ex);
       }
       State.exercises=await DB.all("exercises");
@@ -2777,11 +2927,92 @@ function openExerciseSheet(ex, opts={}){
       if(isNew) maybePromptSameMachine(ex);
       else toast(`Saved “${ex.name}”`);
     }},isNew?"Add exercise":"Save"));
+    if(!isNew) body.append(el("button",{class:"btn secondary",style:"margin-top:8px",onClick:()=>openMergeSheet(ex, close)}, ic("merge",16), "Merge into another exercise…"));
     if(!isNew) body.append(el("button",{class:"btn danger",style:"margin-top:8px",onClick:async()=>{
       const keep={...ex}; await DB.del("exercises",ex.id); State.exercises=await DB.all("exercises"); close(); render();
       toast(`Deleted "${ex.name}" — logged history stays`,{undo:async()=>{ await DB.put("exercises",keep); State.exercises=await DB.all("exercises"); render(); }});
     }},"Delete exercise"));
   });
+}
+
+/* ---------- merge exercises ----------
+   Duplicates ("Incline Db Press" next to "Incline Bench Press (Dumbbell)") split one lift's history
+   and every chart built on it. Merging moves the sets (and plan slots, saved targets, queue) into the
+   keeper and removes the duplicate. Undo-able for a few seconds. */
+function mergeBlocker(src, tgt){
+  if((src.unit||"kg")!==(tgt.unit||"kg")) return `${src.name} logs in ${src.unit||"kg"} and ${tgt.name} in ${tgt.unit||"kg"} — merging would mix the numbers. Change one exercise's unit first.`;
+  if(isInverted(src)!==isInverted(tgt)) return "One of these is an assisted machine (less weight = harder) and the other isn't, so their numbers mean opposite things.";
+  if(isBW(src)!==isBW(tgt)) return "One of these is a bodyweight exercise (the weight is added load) and the other isn't, so their numbers don't line up.";
+  if(State.activeSession && State.activeSession.items.some(i=>i.exerciseId===src.id)) return `${src.name} is in your current workout. Finish the workout (or remove it from it) first.`;
+  return null;
+}
+function openMergeSheet(src, closeEditor){
+  openSheet("Merge into…",(body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin:-6px 0 10px"},
+      "Pick the exercise to keep. ", el("b",{},src.name), "’s logged sets move into it — one history, one chart — and ", el("b",{},src.name), " is removed."));
+    const search=el("input",{type:"text",placeholder:"Search your exercises…","aria-label":"Search your exercises",autocomplete:"off"});
+    const list=el("div",{style:"margin-top:8px"});
+    body.append(search, list);
+    const group=new Set(linkedIds(src.id));
+    const pool=State.exercises.filter(e=>!group.has(e.id));
+    const row=e=>el("button",{class:"pickrow",style:"width:100%;text-align:left;color:inherit",onClick:()=>confirmMerge(src,e,()=>{ close(); closeEditor&&closeEditor(); })},
+      el("div",{class:"grow"}, el("div",{class:"pk-name"},e.name),
+        el("div",{class:"pk-meta"},[equipLabel(e.equipment), (e.unit||"kg"), e.gymId&&State.gyms.length>1?gymNameOf(e.gymId):null].filter(Boolean).join(" · "))),
+      el("span",{class:"chev"},ic("chevron",16)));
+    const paint=()=>{ const q=normName(search.value); list.replaceChildren();
+      if(q){ const r=rankByMatch(q,pool,e=>e.name); r.slice(0,40).forEach(e=>list.append(row(e)));
+        if(!r.length) list.append(el("p",{class:"small muted"},"No exercise matches.")); return; }
+      const likely=rankByMatch(normName(src.name), pool, e=>e.name).slice(0,5);
+      if(likely.length){ list.append(el("div",{class:"regionhead"},"Likely the same")); likely.forEach(e=>list.append(row(e))); }
+      list.append(el("div",{class:"regionhead"},"All your exercises"));
+      pool.filter(e=>!likely.includes(e)).sort((a,b)=>a.name.localeCompare(b.name)).forEach(e=>list.append(row(e)));
+    };
+    search.addEventListener("input",paint); paint();
+  },{stacked:true});
+}
+async function confirmMerge(src, tgt, done){
+  const why=mergeBlocker(src,tgt); if(why){ noticeSheet("Can't merge these", why); return; }
+  const sets=await DB.byIndex("sets","exerciseId",src.id);
+  const nSes=new Set(sets.map(x=>x.sessionId)).size;
+  if(!(await confirmSheet({title:`Merge into ${tgt.name}?`,
+    message:`${sets.length} set${sets.length===1?"":"s"} from ${nSes} workout${nSes===1?"":"s"} move from ${src.name} into ${tgt.name}, and ${src.name} is removed. ${tgt.name} keeps its own settings (rep range, rest, increment).`,
+    confirmLabel:"Merge"}))) return;
+  const undo=await mergeExercises(src, tgt, sets);
+  done&&done(); render();
+  toast(`Merged into ${tgt.name}`,{undo});
+}
+async function mergeExercises(src, tgt, sets){
+  const snap={src:JSON.parse(JSON.stringify(src)), tgt:JSON.parse(JSON.stringify(tgt)), sets:sets.map(x=>x.id), sessions:[], plans:[], queued:null};
+  for(const x of sets){ x.exerciseId=tgt.id; await DB.put("sets",x); }
+  for(const se of await DB.all("sessions")){                 // saved prescriptions (target hit-rate) move with the sets
+    if(!se.targets || se.targets[src.id]==null) continue;
+    snap.sessions.push(JSON.parse(JSON.stringify(se)));
+    if(se.targets[tgt.id]==null) se.targets[tgt.id]=se.targets[src.id];
+    delete se.targets[src.id]; await DB.put("sessions",se); }
+  for(const p of State.plans){
+    if(!p.items.some(it=>it.exerciseId===src.id)) continue;
+    snap.plans.push(JSON.parse(JSON.stringify(p)));
+    p.items = p.items.some(it=>it.exerciseId===tgt.id) ? p.items.filter(it=>it.exerciseId!==src.id)
+      : p.items.map(it=>it.exerciseId===src.id?{...it,exerciseId:tgt.id}:it);
+    await DB.put("plans",p); }
+  const q=await getMeta("queuedExercises");
+  if(Array.isArray(q) && q.includes(src.id)){ snap.queued=q.slice(); await setMeta("queuedExercises",[...new Set(q.map(id=>id===src.id?tgt.id:id))]); }
+  // the keeper inherits what it doesn't have yet
+  if(src.fav && !isKeyLift(tgt)) tgt.fav=true;
+  if(src.notes && !tgt.notes) tgt.notes=src.notes;
+  if(src.libId && !tgt.libId) tgt.libId=src.libId;
+  await DB.put("exercises",tgt);
+  await DB.del("exercises",src.id);
+  State.exercises=await DB.all("exercises"); State.plans=await DB.all("plans"); _exStatus=null;
+  return async()=>{
+    await DB.put("exercises",snap.src); await DB.put("exercises",snap.tgt);
+    const ids=new Set(snap.sets);
+    for(const x of await DB.byIndex("sets","exerciseId",tgt.id)) if(ids.has(x.id)){ x.exerciseId=src.id; await DB.put("sets",x); }
+    for(const se of snap.sessions) await DB.put("sessions",se);
+    for(const p of snap.plans) await DB.put("plans",p);
+    if(snap.queued) await setMeta("queuedExercises",snap.queued);
+    State.exercises=await DB.all("exercises"); State.plans=await DB.all("plans"); _exStatus=null; render();
+  };
 }
 
 /* build / edit today's plan (customizable) */
@@ -3268,7 +3499,8 @@ function viewHistory(){
             ...(multiGym?[el("span",{class:"gdot",style:`background:${gymHue(se.gymId)}`})]:[]),
             [se.planName?when:null, multiGym?gymNameOf(se.gymId):null].filter(Boolean).join(" · ")||(se.planName?"":gymNameOf(se.gymId))),
           el("div",{class:"small",style:"margin-top:4px"}, meta.join(" · ")),
-          ...(regions.length?[el("div",{class:"small muted",style:"margin-top:2px"}, regions.join(" · "))]:[])),
+          ...(regions.length?[el("div",{class:"small muted",style:"margin-top:2px"}, regions.join(" · "))]:[]),
+          ...(sessionNoteText(se)?[el("div",{class:"small muted hr-note"}, ic("pencil",12), el("span",{}, sessionNoteText(se)))]:[])),
         el("span",{class:"chev"},ic("chevron",18))));
     }
   })();
@@ -3293,6 +3525,12 @@ function openSessionDetail(se, editing=false){
       const order=Object.keys(byEx).sort((a,b)=>{ const oa=Math.min(...byEx[a].map(x=>x.order??0)), ob=Math.min(...byEx[b].map(x=>x.order??0));
         return (oa-ob) || (planIdx(a)-planIdx(b)); });
       mount.append(el("div",{class:"small muted",style:"margin:-6px 0 10px"}, `${fmtDate(se.date)} · ${gymNameOf(se.gymId)||"—"}${se.planName?` · ${se.planName}`:""}`));
+      { const fresh=(await DB.get("sessions",se.id))||se; se.tags=fresh.tags; se.note=fresh.note;
+        const slot=el("div",{style:"margin:-4px 0 12px"});
+        const txt=sessionNoteText(se);
+        slot.append(el("button",{type:"button",class:"setupline"+(txt?"":" add"),onClick:()=>slot.replaceChildren(sessionNoteEditor(se))},
+          ic(txt?"pencil":"plus",14), el("span",{}, txt||"Add a note — slept badly, low on time…")));
+        mount.append(slot); }
       if(!ed){
         const mins=sessionMins(se), ton=tonnageSum(sets, exById);
         const grid=el("div",{class:"statgrid"});
@@ -3410,35 +3648,23 @@ function mondayOf(iso){ const d=new Date(iso+"T12:00:00"); d.setDate(d.getDate()
 function lastNWeeks(n){ const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); const out=[]; for(let i=n-1;i>=0;i--){ const w=new Date(d); w.setDate(d.getDate()-i*7); out.push(localISO(w)); } return out; }
 function weekStreak(weekSet){ const d=new Date(); d.setHours(12,0,0,0); d.setDate(d.getDate()-((d.getDay()+6)%7)); let cur=new Date(d); if(!weekSet.has(localISO(cur))) cur.setDate(cur.getDate()-7); let s=0; while(weekSet.has(localISO(cur))){ s++; cur.setDate(cur.getDate()-7); } return s; }
 function fmtWeekLbl(iso){ const d=new Date(iso+"T12:00:00"); return (d.getMonth()+1)+"/"+d.getDate(); }
-// Progressive-overload score (1–10) over the last 28 days. Blends three things, like composite
-// indices in other apps (e.g. Jefit's NSPI): how much of your training is moving up (quality),
-// how consistently you trained (weeks active), and how big the gains are (magnitude).
-// Lifts are pooled by linkId and need ≥2 sessions in the window to count.
-function overloadScore(sessions, sets){
-  const sesById=Object.fromEntries(sessions.map(s=>[s.id,s])); const unit={}; const weeks=new Set();
-  const curWk=lastNWeeks(1)[0];   // exclude the current, incomplete week — a partial week always drags this down
+// how many lifts moved up / held / dipped across the last 4 COMPLETE weeks (first vs last session
+// in the window, on each lift's best set). Lifts are pooled by linkId and need ≥2 sessions to count.
+// (Was a blended 1–10 score — nobody could say what moved it, so it's just the counts now.)
+function liftMovement(sessions, sets){
+  const sesById=Object.fromEntries(sessions.map(s=>[s.id,s])); const unit={};
+  const curWk=lastNWeeks(1)[0];   // exclude the current, incomplete week
   for(const x of sets){ const ex=State.exercises.find(e=>e.id===x.exerciseId); if(!ex)continue;
     const se=sesById[x.sessionId]; if(!se||daysAgo(se.date)>28||mondayOf(se.date)===curWk)continue;
-    weeks.add(mondayOf(se.date));
-    // bodyweight lifts: epley(1, reps) = 1+reps/30 puts a rep gain on the same % scale as a load
-    // gain on a weighted lift (+1 rep ≈ +3%), so rep-based lifts can't inflate the magnitude term
     const key=ex.linkId||ex.id, m=exMetric(ex, x.weight, x.reps);
-    (unit[key]=unit[key]||{})[se.date]=Math.max(unit[key][se.date]||0, m); }
-  let up=0,hold=0,down=0; const gains=[];
-  for(const k in unit){ const ks=Object.keys(unit[k]).sort(); if(ks.length<2)continue;
-    const f=unit[k][ks[0]], l=unit[k][ks[ks.length-1]], dd=f>0?(l-f)/f:0;
-    if(dd>0.01)up++; else if(dd<-0.01)down++; else hold++;
-    gains.push(Math.max(-0.2, Math.min(0.2, dd))); }   // clamp per-lift magnitude — small denominators (level 2→3) can't explode the average
-  const tracked=up+hold+down;
-  if(!tracked) return { score:null, label:"Keep logging", up:0, hold:0, down:0, tracked:0, weeks:Math.min(weeks.size,4), avgGainPct:0 };
-  const quality=(up+0.5*hold)/tracked;                    // share moving up (0–1)
-  const consistency=Math.min(weeks.size,4)/4;             // weeks trained of last 4 (0–1)
-  const avgGain=gains.reduce((a,b)=>a+b,0)/gains.length;  // mean fractional change
-  const magnitude=Math.max(0, Math.min(1, avgGain/0.08)); // ~8% over 4 wks = full marks
-  const raw=0.5*quality + 0.3*consistency + 0.2*magnitude;
-  const score=Math.max(1, Math.min(10, Math.round(raw*10)));
-  return { score, up, hold, down, tracked, weeks:Math.min(weeks.size,4), avgGainPct:Math.round(avgGain*100),
-    label: score>=8?"Excellent": score>=6?"Progressing": score>=4?"Holding":"Stalling" };
+    const u=(unit[key]=unit[key]||{}), p=(u[se.date]=u[se.date]||{v:0,rough:false});
+    p.v=Math.max(p.v, m); p.rough=p.rough||isRoughDay(se); }
+  let up=0,hold=0,down=0;
+  for(const k in unit){ const ks=Object.keys(unit[k]).sort();
+    const e=trendEnds(ks.map(d=>unit[k][d])); if(!e)continue;          // rough-day rule: a PR counts, a shortfall doesn't
+    const dd=e.f>0?(e.l-e.f)/e.f:0;
+    if(dd>0.01)up++; else if(dd<-0.01)down++; else hold++; }
+  return { up, hold, down, tracked:up+hold+down };
 }
 function statTile(num,label,tone){ return el("div",{class:"stat"+(tone?" "+tone:"")}, el("div",{class:"num"},String(num)), el("div",{class:"lbl"},label)); }
 
@@ -3462,8 +3688,10 @@ function buildStrengthStats(sessions, allSets){
     const loadOf=x=> isInverted(ex) ? (invEffectiveKg(ex, x.weight) ?? 0) : (+x.weight||0);
     u.sets.forEach(x=>{ const se=sesById[x.sessionId]; if(!se||!(x.reps>0))return;
       const k=se.date+se.startedAt;
-      const a=agg[k]||(agg[k]={m:0,vol:0,thr:{}});
+      const a=agg[k]||(agg[k]={m:0,vol:0,thr:{},top:0,topReps:0,maxReps:0,sid:se.id,rough:isRoughDay(se)});
       a.m=Math.max(a.m, exMetric(ex, x.weight, x.reps));
+      a.maxReps=Math.max(a.maxReps, +x.reps||0);
+      const tw=loadOf(x); if(tw>a.top || (tw===a.top && +x.reps>a.topReps)){ a.top=tw; a.topReps=+x.reps; }   // the session's top set
       a.vol+= bw ? (+x.reps||0) : (+x.weight||0)*(+x.reps||0);   // bodyweight "volume" = total reps
       // heaviest handled for AT LEAST n reps this session (skips sessions with no qualifying set)
       const w=loadOf(x);
@@ -3472,21 +3700,50 @@ function buildStrengthStats(sessions, allSets){
     const entries=Object.entries(agg).sort((a,b)=>a[0].localeCompare(b[0]));
     if(!entries.length)continue;
     const series=entries.map(([,a])=>a.m);
-    const dated=entries.map(([k,a])=>({d:k.slice(0,10), m:a.m, vol:a.vol, thr:a.thr}));
+    const dated=entries.map(([k,a])=>({d:k.slice(0,10), m:a.m, vol:a.vol, thr:a.thr, top:a.top, topReps:a.topReps, maxReps:a.maxReps, sid:a.sid, rough:a.rough}));
     const first=series[0],last=series[series.length-1];
     stats.push({key,ex,bw,series,dated,first,last,pct:first>0?((last-first)/first*100):0,
-      unitLbl:(bw || (isInverted(ex)&&State.bodyweightKg==null))?"reps":"est 1RM", hasTrend:series.length>=2,
+      unitLbl:(bw || (isInverted(ex)&&State.bodyweightKg==null))?"reps": isAccessory(ex)?"top set":"est 1RM", hasTrend:series.length>=2,
+      acc: !bw && isAccessory(ex),
       combined:u.exIds.size>1, gyms:u.gymIds.size});
   }
   return stats;
 }
+// the "best set" number a movement is charted on: est. 1RM for compounds, the heaviest set's
+// weight for accessories (no fake 1RM), the reps index for bodyweight
+const bestValOf = s => e => s.acc ? e.top : e.m;
+// one-line headline for a movement's latest session: "est. 1RM 85kg" / "12.5kg × 12" / "12 reps"
+function liftHeadline(s){ const e=s.dated[s.dated.length-1]; if(!e) return "";
+  if(s.unitLbl==="reps") return `best ${e.maxReps} reps`;
+  if(s.acc) return `top set ${fmtW(e.top,s.ex)} × ${e.topReps}`;
+  return `est. 1RM ${Math.round(e.m)}${s.ex.unit||"kg"}`; }
+// tiny trend line for list rows (no axes) — the shape, not the numbers
+function sparkline(vals){
+  const W=72,H=26,p=3; if(vals.length<2) return el("span",{class:"spark",style:"flex:none"});
+  const mx=Math.max(...vals), mn=Math.min(...vals), rg=(mx-mn)||1;
+  const pts=vals.map((v,i)=>`${(p+i/(vals.length-1)*(W-2*p)).toFixed(1)},${(p+(1-(v-mn)/rg)*(H-2*p)).toFixed(1)}`).join(" ");
+  const last=pts.split(" ").pop().split(",");
+  const w=el("span",{class:"spark",style:`height:${H}px;flex:none;display:inline-block`,"aria-hidden":"true"});
+  w.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:100%;display:block"><polyline points="${pts}" fill="none" stroke="var(--data)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${last[0]}" cy="${last[1]}" r="2.6" fill="var(--data)"/></svg>`;
+  return w;
+}
 // windowed trend: % change of a metric across the sessions inside the window (null = <2 sessions).
 // All-time first→last is misleading after a layoff — every lift shows its full regain forever.
+// ROUGH DAYS can only help you, never hurt you: a tagged rough day still counts as training
+// (streaks, sets, volume, history, records) and a PR on one is a real PR — it just can't count as a
+// dip, a miss or a stall session. Trend ends follow the same rule: the baseline is your first NORMAL
+// session (a bad day can't flatter the gain), and the end is your latest session unless that's a
+// rough day that fell below your last normal one. pts: [{v, rough}] in date order → {f,l} | null.
+function trendEnds(pts){
+  const normal=pts.filter(p=>!p.rough); if(!normal.length) return null;
+  const first=normal[0], lastN=normal[normal.length-1], last=pts[pts.length-1];
+  const end = (!last.rough || last.v>=lastN.v) ? last : lastN;
+  return end===first ? null : {f:first.v, l:end.v};
+}
 function windowPct(s, valOf, cutDays){
   const pts=s.dated.filter(e=>daysAgo(e.d)<=cutDays && valOf(e)>0);   // ×n+ views skip sessions with no qualifying set
-  if(pts.length<2) return null;
-  const f=valOf(pts[0]), l=valOf(pts[pts.length-1]);
-  return f>0 ? (l-f)/f*100 : null;
+  const e=trendEnds(pts.map(p=>({v:valOf(p), rough:p.rough})));
+  return e && e.f>0 ? (e.l-e.f)/e.f*100 : null;
 }
 // PRs are detected live but vanish as 2-second toasts — replay history per movement so recent
 // wins stay visible. Skips each movement's first session (day one, everything is a "PR").
@@ -3515,7 +3772,10 @@ function recentWins(sessions, allSets){
         else if(!inv && !bw && topW>bestW) label=`heaviest · ${topW}${u.ex.unit||"kg"}`;
         else if(topM>bestM){
           const reps=Math.max(...s2.sets.map(x=>+x.reps||0));
-          label=(bw||(inv&&State.bodyweightKg==null)) ? `most reps · ${reps}` : `est. 1RM · ${Math.round(topM)}${u.ex.unit||"kg"}`;
+          const ts=topSet(s2.sets);
+          label=(bw||(inv&&State.bodyweightKg==null)) ? `most reps · ${reps}`
+            : isAccessory(u.ex) ? `best set · ${fmtW(ts.weight,u.ex)} × ${ts.reps}`
+            : `est. 1RM · ${Math.round(topM)}${u.ex.unit||"kg"}`;
         }
       }
       if(label) wins.push({date:s2.date, name:u.ex.name, gym:gymTag(u.ex), label});
@@ -3524,20 +3784,116 @@ function recentWins(sessions, allSets){
   }
   return wins.filter(w=>daysAgo(w.date)<=7).sort((a,b)=>b.date.localeCompare(a.date));
 }
-// every movement as % of its own first session in the window, averaged per week —
-// the one honest whole-body strength line (never sums raw load across mixed units)
-function normalizedStrengthSeries(stats, cutDays){
-  const buckets={};
-  stats.forEach(s=>{ const pts=s.dated.filter(e=>daysAgo(e.d)<=cutDays && e.m>0); const f=pts.length?pts[0].m:0; if(!(f>0))return;
-    pts.forEach(p=>{ const b=mondayOf(p.d); (buckets[b]=buckets[b]||[]).push(p.m/f*100); }); });
-  const keys=Object.keys(buckets).sort();
-  return {keys, vals:keys.map(k=>buckets[k].reduce((t,v)=>t+v,0)/buckets[k].length)};
-}
 // consistent ▲/▼ pill (shared: card, explorer); null → "new"
 function trendPill(pct, suffix){
   if(pct==null) return el("div",{class:"small muted"},"new");
   return el("div",{class:"small",style:(pct>1?"color:var(--accent-2)":pct<-1?"color:var(--warn)":"color:var(--muted)")},
     (pct>=0?"▲ ":"▼ ")+Math.abs(Math.round(pct))+"%"+(suffix?` · ${suffix}`:""));
+}
+// "Key lifts" — the top of Progress: one row per starred lift with its latest best and a 12-week line.
+// Replaces the old averaged-% chart (an average of every lift hid the ones you care about).
+function keyLiftsCard(stats){
+  const card=el("div",{class:"card"});
+  const keys=keyLiftExercises();
+  card.append(el("div",{class:"row between",style:"margin-bottom:2px"}, el("h2",{style:"margin:0"},"Key lifts"),
+    el("button",{class:"linkbtn sm",style:"min-height:36px",onClick:()=>openKeyLiftPicker(stats)}, keys.length?"Edit":"Choose")));
+  const recentN=s=>s.dated.filter(e=>daysAgo(e.d)<=84).length;
+  if(!keys.length){
+    card.append(el("p",{class:"small muted",style:"margin:4px 0 10px"},`Star up to ${KEY_MAX} lifts you care about most. They lead this page, your Up next card and your workout summary.`));
+    // most-trained compounds, one per body region first (bench + a row + a squat beats three back exercises)
+    const pool=stats.filter(s=>!s.acc && !s.bw && recentN(s)>=2).sort((a,b)=>recentN(b)-recentN(a) || (b.ex.equipment==="barbell")-(a.ex.equipment==="barbell"));
+    const regions=new Set(), sugg=[];
+    pool.forEach(s=>{ const r=exRegion(s.ex); if(sugg.length<4 && !regions.has(r)){ regions.add(r); sugg.push(s); } });
+    pool.forEach(s=>{ if(sugg.length<4 && !sugg.includes(s)) sugg.push(s); });
+    if(sugg.length>=2) card.append(
+      el("div",{class:"small",style:"margin-bottom:10px"}, "Suggested from what you train most: ", el("b",{}, sugg.map(s=>s.ex.name).join(", "))),
+      el("button",{class:"btn secondary sm",onClick:async()=>{ for(const s of sugg) await setKeyLift(s.ex,true);
+        toast(`${sugg.length} key lifts set`); _insightsScroll=window.scrollY; render(); }}, ic("starfill",15), `Use these ${sugg.length}`));
+    return card;
+  }
+  const byKey=Object.fromEntries(stats.map(s=>[s.key,s]));
+  keys.forEach(ex=>{
+    const s=byKey[ex.linkId||ex.id];
+    const row=el("button",{class:"keyrow","aria-label":`${ex.name} — open its progress`,onClick:()=>openExerciseProgress(ex.id)});
+    if(!s){ row.append(el("div",{class:"grow"}, el("div",{class:"kr-name"},ex.name), el("div",{class:"small muted"},"No sets logged yet")), el("span",{class:"chev"},ic("chevron",16))); }
+    else { const vo=bestValOf(s), pts=s.dated.filter(e=>daysAgo(e.d)<=84 && vo(e)>0);
+      row.append(el("div",{class:"grow"}, el("div",{class:"kr-name"},ex.name), el("div",{class:"small muted"}, [liftHeadline(s), gymTag(s.ex)].filter(Boolean).join(" · "))),
+        sparkline(pts.map(vo)), el("div",{class:"kr-pill"}, trendPill(windowPct(s, vo, 84)))); }
+    card.append(row);
+  });
+  card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Change over the last 12 weeks · big lifts track est. 1RM, accessories their heaviest set."));
+  return card;
+}
+// "What affects your lifts" — session tags turned into evidence. Every workout gets a score: the
+// average change of each lift's best set vs that lift's last NORMAL session (so the day after a rough
+// one doesn't look like a PR). Tagged workouts are then compared with untagged ones.
+function tagImpactCard(sessions, stats){
+  const card=el("div",{class:"card"});
+  const recent=sessions.filter(se=>daysAgo(se.date)<=182);
+  const tagged=recent.filter(se=>(se.tags||[]).length);
+  card.append(el("div",{class:"row between",style:"margin-bottom:4px"}, el("h2",{style:"margin:0"},"What affects your lifts"),
+    el("span",{class:"small muted"},"last 6 months")));
+  if(!tagged.length){
+    card.append(el("p",{class:"small muted",style:"margin:4px 0 0"},"Tag how a workout went on the finish screen — slept badly, low on time, felt strong. Rough days stop counting against your targets, and this card shows what actually moves your numbers."));
+    return card;
+  }
+  const ids=new Set(recent.map(se=>se.id)), perSes={};
+  stats.forEach(st=>{ let base=null;
+    for(const p of st.dated){
+      if(base && base.m>0 && ids.has(p.sid)) (perSes[p.sid]=perSes[p.sid]||[]).push(Math.max(-15,Math.min(15,(p.m/base.m-1)*100)));
+      if(!p.rough) base=p; } });
+  const score=se=>{ const a=perSes[se.id]; return a&&a.length ? a.reduce((t,v)=>t+v,0)/a.length : null; };
+  const avg=a=>a.reduce((t,v)=>t+v,0)/a.length;
+  const normal=recent.filter(se=>!(se.tags||[]).length && score(se)!=null).map(score);
+  const roughN=recent.filter(isRoughDay).length, counts={};
+  tagged.forEach(se=>se.tags.forEach(t=>counts[t]=(counts[t]||0)+1));
+  const common=Object.entries(counts).filter(([t])=>ROUGH_TAGS.has(t)).sort((a,b)=>b[1]-a[1])[0];
+  if(roughN) card.append(el("div",{class:"small",style:"margin:2px 0 6px"},
+    `Rough days: ${roughN} of your last ${recent.length} workouts`, common?el("span",{class:"muted"},` · most often “${common[0].toLowerCase()}”`):""));
+  // forgiveness has a limit: when rough days ARE the routine, say so instead of quietly excusing them
+  const last8=sessions.filter(se=>daysAgo(se.date)<=56), r8=last8.filter(isRoughDay).length;
+  if(r8>=3 && r8/last8.length>=1/3) card.append(el("div",{class:"insight warn",style:"margin:4px 0 8px"},
+    el("div",{class:"t"},`${r8} of your last ${last8.length} workouts were rough days`),
+    el("div",{class:"d"}, common&&common[0]==="Low on time" ? "At this rate it's your normal, not a one-off. A shorter plan that fits your time may progress better than a long one you keep cutting short."
+      : "At this rate it's your normal, not a one-off — and your targets keep leaning on older sessions. Worth fixing the cause (sleep, timing, recovery) rather than tagging around it.")));
+  const minsN=recent.filter(se=>!(se.tags||[]).length).map(sessionMins).filter(Boolean);
+  const normMins=minsN.length?Math.round(avg(minsN)):null;
+  let shown=0;
+  if(normal.length>=3) SESSION_TAGS.forEach(t=>{
+    const ss=recent.filter(se=>(se.tags||[]).includes(t)), sc=ss.map(score).filter(v=>v!=null);
+    if(sc.length<2) return;
+    const d=avg(sc)-avg(normal), mins=ss.map(sessionMins).filter(Boolean);
+    const extra = (t==="Low on time" && mins.length && normMins) ? ` · ${Math.round(avg(mins))} min vs ${normMins} usual` : "";
+    card.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line);gap:8px"},
+      el("div",{style:"min-width:0"}, el("div",{style:"font-weight:600;font-size:15px"},t),
+        el("div",{class:"small muted"}, `${sc.length} workout${sc.length===1?"":"s"}${extra}`)),
+      el("div",{class:"small",style:"flex:none;font-weight:700;color:"+(d<-1?"var(--warn)":d>1?"var(--accent-2)":"var(--muted)")},
+        Math.abs(d)<0.5 ? "about the same" : `lifts ${d>0?"+":"−"}${Math.abs(d).toFixed(1)}% vs normal`)));
+    shown++;
+  });
+  if(!shown) card.append(el("p",{class:"small muted",style:"margin:4px 0 0"},"Keep tagging — a tag shows here once it's on 2+ workouts (and you have 3+ untagged ones to compare with)."));
+  else card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Each workout is scored by how your lifts did vs their last normal session. Small numbers — a hint, not a verdict."));
+  return card;
+}
+function openKeyLiftPicker(stats){
+  openSheet("Key lifts",(body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin:-6px 0 10px"},`Star up to ${KEY_MAX} — the lifts you'd judge your training by. Usually your big compounds, plus one or two you're bringing up.`));
+    const count=el("div",{class:"small",style:"font-weight:700;margin:0 2px 6px"}), list=el("div",{});
+    body.append(count, list);
+    const recentN=s=>s.dated.filter(e=>daysAgo(e.d)<=84).length;
+    const units=stats.slice().sort((a,b)=>recentN(b)-recentN(a) || b.dated.length-a.dated.length).map(s=>s.ex);
+    keyLiftExercises().forEach(e=>{ if(!units.some(u=>(u.linkId||u.id)===(e.linkId||e.id))) units.unshift(e); });   // starred but not logged yet
+    const paint=()=>{ count.textContent=`${keyLiftExercises().length} of ${KEY_MAX} chosen`;
+      list.replaceChildren(...units.map(ex=>{ const on=isKeyLift(ex);
+        return el("button",{class:"pickrow",style:"width:100%;text-align:left;color:inherit","aria-pressed":on?"true":"false",
+          "aria-label":`${on?"Unstar":"Star"} ${ex.name}`,onClick:async()=>{ if(await setKeyLift(ex,!on)) paint(); }},
+          el("div",{class:"grow"}, el("div",{class:"pk-name"},ex.name),
+            el("div",{class:"pk-meta"}, [equipLabel(ex.equipment), isAccessory(ex)?"accessory":null, gymTag(ex)].filter(Boolean).join(" · "))),
+          el("span",{class:"keystar"+(on?" on":"")}, ic(on?"starfill":"star",20))); })); };
+    paint();
+    if(!units.length) list.append(el("p",{class:"small muted"},"Log a workout first — or star any exercise from its details page."));
+    body.append(el("button",{class:"btn",style:"margin-top:12px",onClick:close}, ic("check",16),"Done"));
+  },{onClose:()=>{ if(currentTab==="insights"){ _insightsScroll=window.scrollY; render(); } }});
 }
 function viewInsights(){
   const wrap=el("div",{class:"insightsv"});
@@ -3546,7 +3902,7 @@ function viewInsights(){
     const sessions=await DB.all("sessions");
     const allSets=await DB.all("sets");
     if(!allSets.length){ mount.append(el("div",{class:"empty"},el("div",{class:"big"},ic("bulb",42)),
-      el("p",{class:"muted"},"Log a few workouts and you'll get trends, a streak, a progressive-overload score and muscle breakdowns here.")));return;}
+      el("p",{class:"muted"},"Log a few workouts and you'll get trends, a streak, your key lifts and muscle breakdowns here.")));return;}
     // one section on screen at a time — the four questions are separate screens, not one long scroll
     const secC=el("div",{}), secP=el("div",{}), secM=el("div",{}), secA=el("div",{});
     const exById=id=>State.exercises.find(e=>e.id===id);
@@ -3590,8 +3946,8 @@ function viewInsights(){
             if(wr>prB.maxReps && !prText) prText=`New rep PR on ${ex.name} — ${wr} reps`;
           } else {
             const wb=Math.max(...list.map(x=>epley(x.weight,x.reps)));
-            if(wb>prB.best1rm && !prText) prText=`New est-1RM PR on ${ex.name}`;
-            if(prB.best1rm>0){ const j=(wb-prB.best1rm)/prB.best1rm;
+            if(wb>prB.best1rm && !prText) prText=isAccessory(ex)?`New best set on ${ex.name}`:`New est-1RM PR on ${ex.name}`;
+            if(prB.best1rm>0 && !isAccessory(ex)){ const j=(wb-prB.best1rm)/prB.best1rm;
               if(j>0 && (!bestJump||j>bestJump.j)) bestJump={j, text:`${ex.name} est-1RM up ${Math.round(j*100)}% — biggest jump of the week`}; }
           }
         }
@@ -3644,7 +4000,7 @@ function viewInsights(){
     const meets=w=>(perWeek[w]||0)>=(goal||1);
     // streak = consecutive weeks hitting the goal (or training at all, with no goal); this week counts once it's met
     let streak=0; { const wks=lastNWeeks(60); let i=wks.length-1; if(!meets(wks[i])) i--; while(i>=0 && meets(wks[i])){ streak++; i--; } }
-    const ov=overloadScore(sessions, allSets);
+    const ov=liftMovement(sessions, allSets);
     const WK=lastNWeeks(10), thisWeek=WK[WK.length-1];
     const thisN=perWeek[thisWeek]||0;
     const recentMins=sessions.filter(s=>daysAgo(s.date)<=84).map(sessionMins).filter(Boolean).sort((x,y)=>x-y);
@@ -3667,26 +4023,23 @@ function viewInsights(){
         el("span",{class:"small muted"}, goal?`hit ${hit} of the last ${done12.length} weeks`:"not set")),
       el("div",{class:"small muted",style:"margin-top:4px"}, goal?"Workouts per week. Tap again to clear.":"How many workouts a week are you aiming for?"),
       goalChips, weekBars(W12.map(w=>perWeek[w]||0), goal, W12.map(fmtWeekLbl)));
-    // ===== Progressive overload (Q2: Am I progressing?) — lead with the plain sentence, score second =====
+    // ===== Progressive overload (Q2: Am I progressing?) — plain counts, no blended score =====
     const poCard=el("div",{class:"card"}); poCard.append(el("h2",{},"Progressive overload"));
-    const vColor = ov.score==null?"var(--muted)":ov.score>=7?"var(--accent-2)":ov.score<=3?"var(--warn)":"var(--text)";
     if(ov.tracked){
       poCard.append(el("div",{class:"po-hero"}, el("span",{class:"po-big"},`${ov.up} of ${ov.tracked}`), " lifts went up in the last 4 complete weeks"),
-        el("div",{class:"small",style:"margin-top:6px"}, "Overload score ", el("b",{},`${ov.score}/10`), " · ", el("span",{style:`color:${vColor};font-weight:700`},ov.label)));
-      const how=el("details",{class:"howto",style:"margin-top:10px"});
-      how.append(el("summary",{}, el("span",{class:"grow"},"How is this calculated?"), el("span",{class:"chev"},ic("chevron",16))),
-        el("div",{class:"small muted",style:"padding:0 14px 12px"},
-          `Half of it is how many lifts moved up (holding counts half), 30% is consistency (you trained ${ov.weeks} of the last 4 weeks), and 20% is how big the gains were (avg ${ov.avgGainPct>=0?"+":""}${ov.avgGainPct}% per lift). Lifts need 2+ sessions in the window. This week isn't counted until it ends.`));
-      poCard.append(how);
+        el("div",{class:"small muted",style:"margin-top:6px"}, [ov.hold?`${ov.hold} held`:null, ov.down?`${ov.down} dipped`:null].filter(Boolean).join(" · ")||"Nothing went backwards.",
+          " · first vs last session on each lift's best set. A rough day you tagged can't count as a dip — but a good one still counts. This week counts once it ends."));
     } else poCard.append(el("p",{class:"small muted",style:"margin:0"},"Log the same lifts across a couple of weeks and this fills in."));
     // target hit-rate — from prescriptions saved with each finished session (accrues going forward)
-    { let pres=0, hits=0;
+    { let pres=0, hits=0, forgiven=0;
       for(const se of sessions){ if(!se.targets||daysAgo(se.date)>28)continue;
         for(const [exId,tv] of Object.entries(se.targets)){ if(!(tv>0))continue;
           const got=allSets.reduce((t,x)=>x.sessionId===se.id&&x.exerciseId===exId?t+(+x.weight||0)*(+x.reps||0):t,0);
-          pres++; if(got>=tv*0.98) hits++; } }
+          const hit=got>=tv*0.98;
+          if(!hit && isRoughDay(se)){ forgiven++; continue; }        // a miss on a rough day isn't counted; a hit is
+          pres++; if(hit) hits++; } }
       if(pres>=5) poCard.append(el("div",{class:"small",style:"margin-top:8px;font-weight:600;color:"+(hits/pres>=0.7?"var(--accent-2)":"var(--warn)")},
-        `Hit your prescribed target in ${hits} of ${pres} lifts · last 4 weeks (${Math.round(hits/pres*100)}%)`)); }
+        `Hit your prescribed target in ${hits} of ${pres} lifts · last 4 weeks (${Math.round(hits/pres*100)}%)${forgiven?` · ${forgiven} rough-day miss${forgiven>1?"es":""} not counted`:""}`)); }
 
     // ===== Consistency calendar — starts at your first workout (min 12 weeks), not a fixed 26 =====
     const dateCount={}; for(const x of allSets){ const d=dateOf(x); if(d) dateCount[d]=(dateCount[d]||0)+1; }
@@ -3776,34 +4129,30 @@ function viewInsights(){
       muscleCards.push(bcard);
     }
 
-    // ---- strength progress: summary card → full explorer (openStrengthExplorer) ----
+    // ---- strength progress: key lifts first, then the biggest movers → full explorer ----
     const stats=buildStrengthStats(sessions, allSets);
+    const keyCard=keyLiftsCard(stats);
     let strengthCard=null;
     if(stats.length){
-      const p12=s=>windowPct(s, e=>e.m, 84);   // last 12 weeks — matches the explorer's default range
-      const ranked=stats.slice().sort((a,b)=>{ const pa=p12(a), pb=p12(b);
+      const p12=s=>windowPct(s, bestValOf(s), 84);   // last 12 weeks — matches the explorer's default range
+      const ranked=stats.filter(s=>!isKeyLift(s.ex)).sort((a,b)=>{ const pa=p12(a), pb=p12(b);
         return (pb==null?-1:Math.abs(pb))-(pa==null?-1:Math.abs(pa)); });
       const top=ranked.slice(0,3);
       const card=el("div",{class:"card",role:"button",tabindex:"0","aria-label":"Open strength progression explorer",
-        style:"cursor:pointer", onClick:openStrengthExplorer,
+        style:"cursor:pointer", onClick:()=>openStrengthExplorer(),
         onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openStrengthExplorer();}}});
       card.append(el("div",{class:"row between",style:"margin-bottom:6px"},
-        el("h2",{style:"margin:0"},"Strength progress"),
+        el("h2",{style:"margin:0"},"Biggest movers"),
         el("div",{class:"row",style:"gap:2px;align-items:center"},
-          el("span",{class:"small muted"},`${stats.length} movement${stats.length===1?"":"s"}`),
+          el("span",{class:"small muted"},`all ${stats.length} movement${stats.length===1?"":"s"}`),
           el("span",{class:"chev"},ic("chevron",16)))));
-      const ns=normalizedStrengthSeries(stats, 84);
-      if(ns.vals.length>=2) card.append(
-        el("div",{class:"po-hero",style:"margin-bottom:2px"}, el("span",{class:"po-big"},`${ns.vals[ns.vals.length-1]>=100?"+":""}${Math.round(ns.vals[ns.vals.length-1]-100)}%`),
-          ` average estimated strength since ${fmtDate(ns.keys[0])}`),
-        lineChart(ns.vals,{labels:ns.keys.map(fmtWeekLbl), fmt:v=>Math.round(v)+"%"}),
-        el("div",{class:"small muted",style:"margin:2px 0 4px"},"Each lift compared with its own first session in the last 12 weeks, then averaged."));
-      top.forEach(s=>card.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line)"},
+      top.forEach(s=>card.append(el("div",{class:"row between",style:"padding:8px 0;border-top:1px solid var(--line);gap:8px"},
         el("div",{style:"min-width:0"},
           el("div",{style:"font-weight:600;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, s.ex.name),
-          ...(gymTag(s.ex)?[el("div",{class:"small muted"},gymTag(s.ex))]:[])),
+          el("div",{class:"small muted"}, [liftHeadline(s), gymTag(s.ex)].filter(Boolean).join(" · "))),
         trendPill(p12(s),"12 wk"))));
-      card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Biggest movers · last 12 weeks · tap for volume, reps & best-set trends"));
+      if(!top.length) card.append(el("div",{class:"small muted"},"Open to compare every movement you've logged."));
+      card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Last 12 weeks · tap for every movement, rep strength and volume"));
       strengthCard=card;
     }
     // ---- Recent wins: PRs recomputed from history so they don't vanish with the toast ----
@@ -3827,7 +4176,10 @@ function viewInsights(){
         "No PRs this week yet — beat last time on any lift and it lands here."));
     }
     // ---- Q2 assembled ----
-    secP.append(el("div",{class:"sectionhead qhead",style:"--qc:var(--sec-green)"},"Am I progressing?"), poCard);
+    secP.append(el("div",{class:"sectionhead qhead",style:"--qc:var(--sec-green)"},"Am I progressing?"));
+    if(keyCard) secP.append(keyCard);
+    secP.append(poCard);
+    if(sessions.length>=4) secP.append(tagImpactCard(sessions, stats));
     if(strengthCard) secP.append(strengthCard);
     secP.append(winsCard);
     // ---- Q3 assembled ----
@@ -3854,12 +4206,14 @@ function viewInsights(){
     // NOR your best session volume, within the last 8 weeks. Adding reps at the same weight — exactly
     // what the engine prescribes — counts as progress, so it never flags the advice it just gave.
     for(const st of stats){
+      // rough-day rule: a new best on a rough day resets it; only NORMAL sessions count toward the flat run
       const ex=st.ex, pts=st.dated.filter(e=>daysAgo(e.d)<=56);
-      if(pts.length<4 || daysAgo(pts[pts.length-1].d)>21) continue;
-      let bestM=pts[0].m, bestV=pts[0].vol, lastUp=0;
-      for(let i=1;i<pts.length;i++){ const up=pts[i].m>bestM*1.005 || pts[i].vol>bestV*1.005;
+      const i0=pts.findIndex(e=>!e.rough);
+      if(i0<0 || pts.filter(e=>!e.rough).length<4 || daysAgo(pts[pts.length-1].d)>21) continue;
+      let bestM=pts[i0].m, bestV=pts[i0].vol, lastUp=i0;
+      for(let i=i0+1;i<pts.length;i++){ const up=pts[i].m>bestM*1.005 || pts[i].vol>bestV*1.005;
         bestM=Math.max(bestM,pts[i].m); bestV=Math.max(bestV,pts[i].vol); if(up) lastUp=i; }
-      const flat=pts.length-1-lastUp;
+      const after=pts.slice(lastUp+1), flat=after.filter(e=>!e.rough).length, roughN=after.length-flat;
       if(flat<3) continue;
       const mute=await getMeta("muteAlert:stall:"+st.key);
       if(mute && daysAgo(mute)<14) continue;
@@ -3880,7 +4234,7 @@ function viewInsights(){
       const gt=gymTag(ex);
       addAlert(0, el("div",{class:"insight warn"},
         el("div",{class:"t"},`${ex.name}: no new best in ${flat} sessions`),
-        el("div",{class:"d"},`${gt?gt+" · ":""}Neither your best ${isBW(ex)?"reps":"set"} nor your total ${isBW(ex)?"reps":"volume"} has gone up since ${fmtDate(pts[lastUp].d)}. ${isBW(ex)?"Try a harder variation, or add a little weight.":"A short deload usually restarts progress."}`),
+        el("div",{class:"d"},`${gt?gt+" · ":""}Neither your best ${isBW(ex)?"reps":"set"} nor your total ${isBW(ex)?"reps":"volume"} has gone up since ${fmtDate(pts[lastUp].d)}${roughN?` (not counting ${roughN} rough day${roughN>1?"s":""} you tagged)`:""}. ${isBW(ex)?"Try a harder variation, or add a little weight.":"A short deload usually restarts progress."}`),
         btnRow));
     }
     // not trained in a while — by MOVEMENT, not by machine record: doing lat pulldown at home every
@@ -3975,7 +4329,7 @@ function viewInsights(){
 // a filled line chart (SVG, responsive). values = numbers; opts.labels = x-axis labels
 let _lcId=0;
 function lineChart(values, opts={}){
-  const {labels=[], fmt=(v=>String(Math.round(v))), zero=false}=opts;
+  const {labels=[], fmt=(v=>String(Math.round(v))), zero=false, subs=null, flags=null}=opts;   // subs: per-point scrub caption (else the label); flags: points drawn amber (rough days)
   const n=values.length, W=324,H=132,padL=6,padR=6,padT=16,padB=20;
   if(!n || values.every(v=>!v)) return el("div",{class:"small muted",style:"padding:20px 0;text-align:center"},"Not enough data yet — keep logging.");
   // fit the y-range to the data (a 0-based axis made a +17% gain look flat); counts keep 0 via opts.zero
@@ -3997,7 +4351,8 @@ function lineChart(values, opts={}){
     <line x1="${padL}" y1="${base}" x2="${W-padR}" y2="${base}" stroke="var(--line)"/>
     <polygon points="${fillPts}" fill="url(#${gid})"/>
     <polyline points="${line}" fill="none" stroke="var(--data)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-    ${n<=30?values.map((v,i2)=>`<circle cx="${X(i2).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.8" fill="var(--surface)" stroke="var(--data)" stroke-width="1.5"/>`).join(""):""}
+    ${values.map((v,i2)=> (flags&&flags[i2]) ? `<circle cx="${X(i2).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="3.6" fill="var(--warn)" stroke="var(--surface)" stroke-width="1.5"/>`
+      : n<=30 ? `<circle cx="${X(i2).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="2.8" fill="var(--surface)" stroke="var(--data)" stroke-width="1.5"/>` : "").join("")}
     <circle cx="${X(li).toFixed(1)}" cy="${Y(values[li]).toFixed(1)}" r="8" fill="var(--data)" opacity="0.22"/>
     <circle cx="${X(li).toFixed(1)}" cy="${Y(values[li]).toFixed(1)}" r="3.5" fill="var(--data)"/>
     <line x1="${padL}" x2="${W-padR}" y1="${Y(vMax).toFixed(1)}" y2="${Y(vMax).toFixed(1)}" stroke="var(--line)" stroke-dasharray="2,4"/>
@@ -4030,7 +4385,7 @@ function lineChart(values, opts={}){
     const flip=X(i)>W*0.6;   // near the right edge, label sits left of the line
     [lbl,sub].forEach(t=>{ t.setAttribute("text-anchor",flip?"end":"start"); t.setAttribute("x",String(flip?X(i)-7:X(i)+7)); });
     lbl.setAttribute("y",String(padT+8)); lbl.textContent=fmt(values[i]);
-    sub.setAttribute("y",String(padT+21)); sub.textContent=labels.length===n&&labels[i]?labels[i]:"";
+    sub.setAttribute("y",String(padT+21)); sub.textContent=(subs&&subs[i]) || (labels.length===n&&labels[i]?labels[i]:"");
     [vline,halo,dot,lbl,sub].forEach(e3=>e3.style.display="");
   };
   let scrubbing=false;
@@ -4060,27 +4415,32 @@ function openQueueRegionSheet(region){
   });
 }
 /* ---------- strength explorer: one chart, any movement (or all, normalized), three metrics ---------- */
-let _sxMetric="best", _sxSel="all", _sxRange="12w", _sxThr=8;   // session-scoped; _sxMetric: best(est 1RM)|thr(rep strength)|vol|reps; _sxThr: 3|5|8|12
-function openStrengthExplorer(){
+let _sxMetric="best", _sxSel="auto", _sxRange="12w", _sxThr=8;   // session-scoped; _sxMetric: best(est 1RM / top set)|thr(rep strength)|vol; _sxThr: 3|5|8|12
+function openStrengthExplorer(selKey){
   openSheet("Strength progression",(body)=>{
     const mount=el("div",{}); body.append(mount);
     (async()=>{
       const sessions=await DB.all("sessions"), allSets=await DB.all("sets");
       const stats=buildStrengthStats(sessions, allSets);
       if(!stats.length){ mount.append(el("p",{class:"muted small"},"Log a few workouts first — every movement's trend shows up here.")); return; }
+      const sesOf=Object.fromEntries(sessions.map(x=>[x.id,x]));
       const ranked=stats.slice().sort((a,b)=>(b.hasTrend?Math.abs(b.pct):-1)-(a.hasTrend?Math.abs(a.pct):-1));
       const eqG={}; stats.forEach(s=>{ if(s.ex.equivId)(eqG[s.ex.equivId]=eqG[s.ex.equivId]||[]).push(s); });
       const eqKeys=Object.keys(eqG).filter(k=>eqG[k].length>=2);
       const byKey=Object.fromEntries(stats.map(s=>[s.key,s]));
-      if(_sxSel!=="all" && !_sxSel.startsWith("eq:") && !byKey[_sxSel]) _sxSel="all";              // stale selection from a past session
-      if(_sxSel.startsWith("eq:") && !eqKeys.includes(_sxSel.slice(3))) _sxSel="all";
+      // no "all movements" average any more — open on the requested movement, else your first key lift, else the most-trained
+      if(selKey && byKey[selKey]) _sxSel=selKey;
+      const keyFirst=keyLiftExercises().map(e=>e.linkId||e.id).find(k=>byKey[k]);
+      const mostTrained=stats.slice().sort((a,b)=>b.dated.length-a.dated.length)[0].key;
+      if(_sxSel.startsWith("eq:") ? !eqKeys.includes(_sxSel.slice(3)) : !byKey[_sxSel]) _sxSel=keyFirst||mostTrained;
       const sheetEl=()=>mount.closest(".sheet");
       const DAYS={"4w":28,"12w":84,"6mo":182,"1y":365,"all":Infinity};
       // Est. 1RM = range-agnostic Epley index; Rep Strength = ACTUAL heaviest weight handled for ≥n reps
       const thrOn=()=> _sxMetric==="thr";
       if(_sxMetric==="reps") _sxMetric="best";   // Reps view removed — reps is volume for bodyweight, noise for loaded lifts
-      const mLabel=()=> _sxMetric==="vol"?"Volume" : thrOn()?`${_sxThr}+ rep strength`:"Est. 1RM";
-      const valOf=e=> _sxMetric==="vol"?e.vol : thrOn()?((e.thr&&e.thr[_sxThr])||0) : e.m;
+      const mLabel=()=> _sxMetric==="vol"?"Volume" : thrOn()?`${_sxThr}+ rep strength`:"Best set";
+      // per movement: best set = est. 1RM for compounds, heaviest set for accessories
+      const valFor=s=>e=> _sxMetric==="vol"?e.vol : thrOn()?((e.thr&&e.thr[_sxThr])||0) : bestValOf(s)(e);
       // searchable movement picker — an unbounded chip row buries the selection off-screen;
       // a selector button always shows what's active, and the sheet adds search + context
       function openMovementPicker(){
@@ -4100,14 +4460,12 @@ function openStrengthExplorer(){
           const renderList=()=>{
             listEl.replaceChildren();
             const q=search.value.trim();
-            if(!q){
-              listEl.append(row("all","All movements","averaged · % of each movement's own start"));
-              eqKeys.forEach(k=>listEl.append(row("eq:"+k, eqG[k][0].ex.name+" · combined", `${eqG[k].length} equivalent machines`)));
-            }
-            const list=q?rankByMatch(q, ranked, s=>s.ex.name):ranked;
-            list.forEach(s=>listEl.append(row(s.key, s.ex.name,
+            if(!q) eqKeys.forEach(k=>listEl.append(row("eq:"+k, eqG[k][0].ex.name+" · combined", `${eqG[k].length} equivalent machines`)));
+            const keyed=s=>isKeyLift(s.ex)?1:0;
+            const list=q?rankByMatch(q, ranked, s=>s.ex.name):ranked.slice().sort((a,b)=>keyed(b)-keyed(a));   // key lifts first
+            list.forEach(s=>listEl.append(row(s.key, (isKeyLift(s.ex)?"★ ":"")+s.ex.name,
               `${gymTag(s.ex)?gymTag(s.ex)+" · ":""}${s.dated.length} session${s.dated.length===1?"":"s"} · last ${fmtShortDate(s.dated[s.dated.length-1].d)}`,
-              trendPill(windowPct(s, valOf, cut)))));
+              trendPill(windowPct(s, valFor(s), cut)))));
             if(q&&!list.length) listEl.append(el("p",{class:"muted small",style:"margin:8px 2px"},"No movement matches."));
           };
           search.addEventListener("input",renderList);
@@ -4122,7 +4480,7 @@ function openStrengthExplorer(){
           return row; };
         // metric = segmented control (a different shape per filter kind — no more identical chip rows)
         const seg=el("div",{class:"seg",style:"margin-bottom:"+(thrOn()?"8px":"12px")});
-        [["best","Est. 1RM"],["thr","Rep Strength"],["vol","Volume"]].forEach(([k,l])=>
+        [["best","Best set"],["thr","Rep Strength"],["vol","Volume"]].forEach(([k,l])=>
           seg.append(el("button",{class:_sxMetric===k?"on":"","aria-pressed":_sxMetric===k?"true":"false",onClick:()=>{_sxMetric=k;build();}},l)));
         mount.append(seg);
         // Rep Strength: at a given rep threshold, the heaviest weight you successfully handled.
@@ -4130,8 +4488,7 @@ function openStrengthExplorer(){
         if(thrOn())
           mount.append(chips([[3,"3+ rep"],[5,"5+ rep"],[8,"8+ rep"],[12,"12+ rep"]], _sxThr, k=>_sxThr=k));
         // movement = select-style trigger (dumbbell + name + ▾ reads as "pick from a list") → searchable picker sheet
-        const selLabel = _sxSel==="all" ? "All movements · normalized"
-          : _sxSel.startsWith("eq:") ? (eqG[_sxSel.slice(3)][0].ex.name+" · combined")
+        const selLabel = _sxSel.startsWith("eq:") ? (eqG[_sxSel.slice(3)][0].ex.name+" · combined")
           : byKey[_sxSel].ex.name;
         mount.append(el("button",{class:"selectbtn",style:"margin:0 0 12px","aria-label":"Change exercise",onClick:openMovementPicker},
           el("span",{class:"sel-ic"},ic("dumbbell",16)),
@@ -4141,13 +4498,13 @@ function openStrengthExplorer(){
         // ---- chart + headline ----
         const cut=DAYS[_sxRange], inRange=e=>daysAgo(e.d)<=cut;
         let chart, caption, heroVal=null, heroDelta=null, heroSub="";
-        if(_sxSel==="all" || _sxSel.startsWith("eq:")){
-          const scope=_sxSel==="all"?stats:eqG[_sxSel.slice(3)];
+        if(_sxSel.startsWith("eq:")){
+          const scope=eqG[_sxSel.slice(3)];
           // each movement as % of its own first session in range, averaged per week/month bucket —
           // units (kg/lb/levels/bodyweight reps) never mix raw
           const monthly=(_sxRange==="6mo"||_sxRange==="1y"||_sxRange==="all");
           const buckets={}; let used=0;
-          scope.forEach(s=>{ const pts=s.dated.filter(p=>inRange(p)&&valOf(p)>0); const f=pts.length?valOf(pts[0]):0; if(!(f>0))return; used++;
+          scope.forEach(s=>{ const valOf=valFor(s); const pts=s.dated.filter(p=>inRange(p)&&valOf(p)>0); const f=pts.length?valOf(pts[0]):0; if(!(f>0))return; used++;
             pts.forEach(p=>{ const b=monthly?p.d.slice(0,7):mondayOf(p.d);
               (buckets[b]=buckets[b]||[]).push(valOf(p)/f*100); }); });
           const keys=Object.keys(buckets).sort();
@@ -4158,21 +4515,24 @@ function openStrengthExplorer(){
           if(vals.length){ heroVal=Math.round(vals[vals.length-1])+"%"; heroDelta=Math.round(vals[vals.length-1]-100); heroSub="of starting strength"; }
           caption=`${mLabel()} · averaged across ${used} movement${used===1?"":"s"} · 100% = each movement's first session in range`;
         } else {
-          const s=byKey[_sxSel], pts=s.dated.filter(p=>inRange(p)&&valOf(p)>0);
+          const s=byKey[_sxSel], valOf=valFor(s), pts=s.dated.filter(p=>inRange(p)&&valOf(p)>0);
           const unit = _sxMetric==="best" ? (s.unitLbl==="reps" ? "" : (s.ex.unit||"kg"))
             : _sxMetric==="vol" ? (s.bw ? "" : (s.ex.unit||"kg"))
             : (s.ex.unit||"kg");   // rep strength: actual load (for bodyweight = added load)
-          chart = pts.length>=2 ? lineChart(pts.map(valOf),{labels:pts.map(p=>fmtShortDate(p.d)), fmt:v=>Math.round(v)+unit})
+          const showTop = _sxMetric==="best" && s.acc;   // accessory: plot the heaviest set; the scrub label adds its reps
+          chart = pts.length>=2 ? lineChart(pts.map(valOf),{labels:pts.map(p=>fmtShortDate(p.d)), fmt:v=>(showTop?fmtW(v,s.ex):Math.round(v)+unit),
+                    subs: pts.map(p=>(showTop?`${fmtShortDate(p.d)} · ×${p.topReps}`:fmtShortDate(p.d))+(p.rough?" · "+roughTags(sesOf[p.sid]).join(", "):"")),
+                    flags: pts.map(p=>p.rough)})
                 : el("div",{class:"tiny muted",style:"padding:20px 0;text-align:center"},
                     thrOn()?`No sessions with a ${_sxThr}+ rep set on ${s.ex.name} in this range yet.`:"Not enough sessions in this range — try a longer one.");
           if(pts.length){ const lastV=valOf(pts[pts.length-1]), firstV=valOf(pts[0]);
-            heroVal=Math.round(lastV).toLocaleString()+(unit?" "+unit:"");
+            heroVal=(showTop? fmtW(lastV,s.ex) : Math.round(lastV).toLocaleString()+(unit?" "+unit:""));
             heroDelta=firstV>0?Math.round((lastV-firstV)/firstV*100):null;
             heroSub=thrOn()?`heaviest for ${_sxThr}+ reps`
-              : _sxMetric==="best"?(s.unitLbl==="reps"?"best reps":"est 1RM")
+              : _sxMetric==="best"?(s.unitLbl==="reps"?"best reps": s.acc?`heaviest set · ×${pts[pts.length-1].topReps}`:"est 1RM")
               : (s.bw?"total reps":"session volume"); }
           caption=`${thrOn()?`Heaviest weight handled for ${_sxThr}+ reps`
-            : _sxMetric==="best"?"Est. 1RM from your hardest set each session (Epley)":mLabel()} · ${s.ex.name}${s.combined?` · combined across ${s.gyms} gyms`:""}`;
+            : _sxMetric==="best"?(s.acc?"Heaviest set each session (accessory lift — est. 1RM isn't meaningful here)": s.unitLbl==="reps"?"Most reps in a set each session":"Est. 1RM from your hardest set each session (Epley)"):mLabel()} · ${s.ex.name}${s.combined?` · combined across ${s.gyms} gyms`:""}`;
         }
         if(heroVal!=null){
           mount.append(el("div",{class:"row",style:"gap:8px;align-items:baseline;margin:4px 2px 0"},
@@ -4183,8 +4543,8 @@ function openStrengthExplorer(){
         }
         mount.append(chart, el("div",{class:"tiny muted",style:"margin-top:2px"},caption));
         // ---- ranked movement list: pills + order follow the SELECTED range & metric ----
-        mount.append(el("div",{class:"divider"}), el("div",{class:"sectionhead",style:"margin-top:0"},"All movements"));
-        const listRanked=stats.slice().sort((a,b)=>{ const pa=windowPct(a,valOf,cut), pb=windowPct(b,valOf,cut);
+        mount.append(el("div",{class:"divider"}), el("div",{class:"sectionhead",style:"margin-top:0"},"Every movement"));
+        const listRanked=stats.slice().sort((a,b)=>{ const pa=windowPct(a,valFor(a),cut), pb=windowPct(b,valFor(b),cut);
           return (pb==null?-1:Math.abs(pb))-(pa==null?-1:Math.abs(pa)); });
         listRanked.forEach(s=>{
           const lastD=s.dated[s.dated.length-1].d;
@@ -4193,7 +4553,7 @@ function openStrengthExplorer(){
               el("div",{style:"min-width:0;text-align:left"},
                 el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"}, s.ex.name),
                 el("div",{class:"tiny muted"}, `${gymTag(s.ex)?gymTag(s.ex)+" · ":""}${s.dated.length} session${s.dated.length===1?"":"s"} · last ${fmtShortDate(lastD)}${s.combined?` · ${s.gyms} gyms`:""}`)),
-              el("div",{class:"row",style:"gap:6px;align-items:center;flex:none"}, trendPill(windowPct(s,valOf,cut)), el("span",{class:"chev"},ic("chevron",15))))));
+              el("div",{class:"row",style:"gap:6px;align-items:center;flex:none"}, trendPill(windowPct(s,valFor(s),cut)), el("span",{class:"chev"},ic("chevron",15))))));
         });
         mount.append(el("div",{class:"tiny muted",style:"margin-top:6px"},`Biggest movers first — ${mLabel().toLowerCase()} change over the selected range · tap a movement for its full history & PRs.`));
         requestAnimationFrame(()=>{ const sh=sheetEl(); if(sh) sh.scrollTop=sc; });
@@ -4225,14 +4585,14 @@ function openMuscleDetail(mk){
         if(recent) recentEx[ex.id]=(recentEx[ex.id]||0)+w; }
       const setsThis=wkSets[thisWeek]||0, setsLast=wkSets[lastWeek]||0, tonThis=Math.round(wkTon[thisWeek]||0);
       const focus= allSetsThisWeek? Math.round(100*setsThis/allSetsThisWeek):0;
-      const ov=overloadScore(sessions, allSets.filter(x=>{const ex=exById(x.exerciseId);return ex&&ex.primary===mk;}));
+      const ov=liftMovement(sessions, allSets.filter(x=>{const ex=exById(x.exerciseId);return ex&&ex.primary===mk;}));
 
       const grid=el("div",{class:"statgrid"});
       grid.append(
         statTile(setsThis%1?setsThis.toFixed(1):setsThis, "sets this week"),
         statTile(focus+"%", "of weekly volume"),
         statTile(tonThis.toLocaleString(), prefUnit()+" loaded this week"),
-        statTile(ov.score==null?"—":ov.score+"/10", "progressive overload · "+ov.label, ov.score==null?"":ov.score>=7?"accent2":ov.score<=3?"warn":""));
+        statTile(ov.tracked?`${ov.up}/${ov.tracked}`:"—", "lifts went up · last 4 wk", ov.tracked&&ov.up>=ov.tracked/2?"accent2":""));
       mount.append(grid);
       if(tonExcluded) mount.append(el("div",{class:"tiny muted",style:"margin:8px 2px 0"},`Loaded ${prefUnit()} excludes ${tonExcluded} set${tonExcluded>1?"s":""} this week (levels/holds).`));
 
@@ -4270,8 +4630,8 @@ function openMuscleDetail(mk){
       else if(setsThis<tgt) tips.push(["warn","Below your target",`${fmtN(setsThis)} of ${tgt} sets this week — a couple more working sets gets you there.`]);
       else if(setsThis<=tgt*1.3) tips.push(["good","On target",`You've hit your ${tgt}-set weekly target for this muscle.`]);
       else tips.push(["warn","Well above target",`${fmtN(setsThis)} sets vs a target of ${tgt} — above the typical 10–20 productive range; make sure you're recovering, not just accumulating.`]);
-      if(ov.tracked>=1){ if(ov.score>=7) tips.push(["good","Progressing","Loads and reps here are trending up."]);
-        else if(ov.score<=3) tips.push(["warn","Stalling","Little upward movement lately — try a deload or a new rep range."]); }
+      if(ov.tracked>=1){ if(ov.up/ov.tracked>=0.6) tips.push(["good","Progressing","Loads and reps here are trending up."]);
+        else if(ov.up===0) tips.push(["warn","Stalling","Little upward movement lately — try a deload or a new rep range."]); }
       mount.append(el("div",{class:"divider"}));
       tips.forEach(([tone,t,d])=> mount.append(el("div",{class:"insight"+(tone==="good"?" good":tone==="warn"?" warn":"")}, el("div",{class:"t"},t), el("div",{class:"d"},d))));
     })();
@@ -4349,6 +4709,11 @@ async function prCheck(ex,weight,reps){
       return `New PR · ${reps} reps at ${weight>0?`${weight}${ex.unit||"kg"} assist`:"unassisted"} on ${ex.name}`;
     return null;
   }
+  if(isAccessory(ex)){   // accessories: heavier than ever, or more reps at this weight than ever — no fake 1RM
+    if(weight>pr.heaviest) return `New PR · heaviest ${ex.name} (${weight}${ex.unit||"kg"})`;
+    const was=Math.max(0,...hist.filter(s=>s.reps>0 && (+s.weight||0)>=weight).map(s=>+s.reps));
+    return (weight>0 && reps>was) ? `New PR · ${reps} reps at ${weight}${ex.unit||"kg"} on ${ex.name}` : null;
+  }
   if(epley(weight,reps)>pr.best1rm) return `New PR · best est. 1RM on ${ex.name}`;
   if(weight>pr.heaviest) return `New PR · heaviest ${ex.name} (${weight}${ex.unit||"kg"})`;
   return null;
@@ -4373,14 +4738,17 @@ function openExerciseProgress(exId){
       // about: equipment · category + muscle tags
       const cat=(lib&&lib.raw.category) ? lib.raw.category.replace(/(^|\s)\w/g,c=>c.toUpperCase()) : "";
       const metaTxt=[equipLabel(ex.equipment), cat].filter(Boolean).join(" · ");
-      const starBtn=el("button",{class:"starbtn"+(ex.fav?" on":""),"aria-pressed":ex.fav?"true":"false","aria-label":ex.fav?"Remove from favorites":"Mark as favorite",
-        onClick:async()=>{ ex.fav=!ex.fav; await DB.put("exercises",ex); State.exercises=await DB.all("exercises");
-          starBtn.classList.toggle("on",ex.fav); starBtn.setAttribute("aria-pressed",ex.fav?"true":"false"); starBtn.innerHTML=""; starBtn.append(ic(ex.fav?"starfill":"star",20));
-          document.querySelectorAll(`.addtags[data-exid="${ex.id}"]`).forEach(slot=>{ const f=slot.querySelector(".stag.fav"); if(ex.fav&&!f) slot.insertBefore(el("span",{class:"stag fav"}, ic("starfill",10),"Favorite"), slot.firstChild); else if(!ex.fav&&f) f.remove(); });
-          toast(ex.fav?"Added to favorites":"Removed from favorites"); }}, ic(ex.fav?"starfill":"star",20));
+      const starBtn=el("button",{class:"keybtn"});
+      const paintStar=()=>{ const on=isKeyLift(ex); starBtn.classList.toggle("on",on); starBtn.setAttribute("aria-pressed",on?"true":"false");
+        starBtn.replaceChildren(ic(on?"starfill":"star",16), on?"Key lift":"Make key lift"); };
+      starBtn.addEventListener("click",async()=>{ const on=!isKeyLift(ex); if(!(await setKeyLift(ex,on))) return; paintStar();
+        document.querySelectorAll(`.addtags[data-exid="${ex.id}"]`).forEach(slot=>{ const f=slot.querySelector(".stag.fav"); if(on&&!f) slot.insertBefore(el("span",{class:"stag fav"}, ic("starfill",10),"Key lift"), slot.firstChild); else if(!on&&f) f.remove(); });
+        toast(on?"Added to key lifts":"Removed from key lifts"); });
+      paintStar();
       mount.append(el("div",{class:"row between",style:"margin:-6px 0 8px;align-items:center;gap:8px"},
         el("div",{class:"small muted"}, metaTxt||""), starBtn));
       const tg=muscleTags(ex); if(tg){ tg.style.marginBottom="6px"; mount.append(tg); }
+      mount.append(setupNoteLine(ex,{showAdd:true}));
       if(!lib) mount.append(libLinkCta(ex, close));   // not linked → offer to link (photos + how-to)
       else mount.append(libRelinkRow(ex, close));     // linked → let them fix a wrong match
       // how to do it (collapsible guide, from the library)
@@ -4388,19 +4756,28 @@ function openExerciseProgress(exId){
       // your progress (only once there's logged history)
       if(hist.length){
         const pr=computePRs(hist,ex);
-        const bySession={}; hist.forEach(s=>{ if(s.reps>0){ const m=bw?s.reps:exMetric(ex,s.weight,s.reps); bySession[s.date]=Math.max(bySession[s.date]||0,m);} });
-        const dates=Object.keys(bySession).sort(), series=dates.map(d=>bySession[d]);
+        const acc=!bw && isAccessory(ex);   // accessory: chart the heaviest set — an est. 1RM for a raise or a fly means nothing
+        const bySession={}, topBy={}; hist.forEach(s=>{ if(s.reps>0){ const m=bw?s.reps:exMetric(ex,s.weight,s.reps); bySession[s.date]=Math.max(bySession[s.date]||0,m);
+          const t=topBy[s.date]; if(!t || +s.weight>t.weight || (+s.weight===t.weight && +s.reps>t.reps)) topBy[s.date]={weight:+s.weight||0, reps:+s.reps}; } });
+        const dates=Object.keys(bySession).sort(), series=dates.map(d=>acc?topBy[d].weight:bySession[d]);
+        const sesAll=Object.fromEntries((await DB.all("sessions")).map(x=>[x.id,x]));
+        const roughBy={}; hist.forEach(x=>{ const t=roughTags(sesAll[x.sessionId]); if(t.length) roughBy[x.date]=t; });
         const pct = series.length>=2&&series[0]>0? Math.round((series[series.length-1]-series[0])/series[0]*100):null;
         const pl=isPlate(ex);   // plate machine → 1RM is "added load" only (excludes the sled)
         mount.append(el("div",{class:"sectionhead"},"Your progress"));
         mount.append(el("div",{class:"row between",style:"margin:-2px 0 2px"},
-          el("div",{style:"font-weight:600;font-size:14px"}, bw?"Best reps over time":(pl?"Estimated 1RM · added load":"Estimated 1RM over time")),
+          el("div",{style:"font-weight:600;font-size:14px"}, bw?"Best reps over time": acc?"Heaviest set over time" : (pl?"Estimated 1RM · added load":"Estimated 1RM over time")),
           el("span",{class:"small",style:pct==null?"color:var(--muted)":pct>=0?"color:var(--accent-2)":"color:var(--warn)"}, pct==null?"":`${pct>=0?"▲":"▼"} ${Math.abs(pct)}%`)));
-        mount.append(lineChart(series,{labels:dates.map(fmtShortDate), fmt:v=>Math.round(v)+(bw?"":(ex.unit||"kg"))}));
-        if(!bw) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Estimated 1RM via the Epley formula — weight × (1 + reps/30). Most accurate at ≤10 reps."+(pl?" Plate machine: added load only — excludes the sled/base, so it reads lower than the total moved.":"")));
+        mount.append(lineChart(series,{labels:dates.map(fmtShortDate), fmt:v=>acc?fmtW(v,ex):Math.round(v)+(bw?"":(ex.unit||"kg")),
+          subs: dates.map(d=>(acc?`${fmtShortDate(d)} · ×${topBy[d].reps}`:fmtShortDate(d))+(roughBy[d]?" · "+roughBy[d].join(", "):"")),
+          flags: dates.map(d=>!!roughBy[d])}));
+        if(dates.some(d=>roughBy[d])) mount.append(el("div",{class:"tiny",style:"margin-top:2px;display:flex;align-items:center;gap:6px;color:var(--muted)"},
+          el("span",{style:"width:8px;height:8px;border-radius:50%;background:var(--warn);flex:none"}), "Rough days you tagged — they don't count against your targets."));
+        if(acc) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Your heaviest set each session. Accessory lifts don't get an estimated 1RM — it isn't meaningful for raises, curls or flies."));
+        else if(!bw) mount.append(el("div",{class:"tiny muted",style:"margin-top:2px"},"Estimated 1RM via the Epley formula — weight × (1 + reps/30). Most accurate at ≤10 reps."+(pl?" Plate machine: added load only — excludes the sled/base, so it reads lower than the total moved.":"")));
         // forecast: straight-line pace to the next milestone. Shown only for loaded kg/lb lifts
         // with a clean upward trend (≥4 sessions over ≥28 days in the last 10 weeks, r² ≥ 0.4).
-        if(!bw && ex.unit!=="lvl"){
+        if(!bw && !acc && ex.unit!=="lvl"){
           const d0=new Date(dates[0]+"T12:00:00");
           const pts=dates.map((d,i)=>({x:(new Date(d+"T12:00:00")-d0)/86400000, y:series[i]}))
             .filter(p=> (new Date(dates[dates.length-1]+"T12:00:00")-d0)/86400000 - p.x <= 70);
@@ -4429,7 +4806,8 @@ function openExerciseProgress(exId){
         if(bw) recs.append(statTile(pr.maxReps||0,"most reps in a set"), statTile((pr.heaviest||0)+(ex.unit||"kg"),"most added load"));
         else recs.append(
           statTile(pr.heaviest+(ex.unit||"kg"),"heaviest weight"),
-          statTile(pr.best1rm+(ex.unit||"kg"),pl?"best est. 1RM (added)":"best est. 1RM"),
+          acc ? statTile(`${fmtW(pr.heaviest,ex)}×${Math.max(0,...hist.filter(x=>(+x.weight||0)===pr.heaviest).map(x=>+x.reps||0))}`,"best set")
+              : statTile(pr.best1rm+(ex.unit||"kg"),pl?"best est. 1RM (added)":"best est. 1RM"),
           statTile(pr.bestSetVol.toLocaleString(),"best set volume (kg)"),
           statTile(pr.bestSessionVol.toLocaleString(),"best session volume (kg)"));
         mount.append(recs);
@@ -4455,7 +4833,8 @@ function openExerciseProgress(exId){
           } }
         mount.append(el("div",{style:"font-weight:600;font-size:14px;margin:16px 0 6px"},"Recent sessions"));
         dates.slice(-5).reverse().forEach(d=>{ const ss=hist.filter(s=>s.date===d&&s.reps>0).sort((a,b)=>a.order-b.order);
-          mount.append(el("div",{style:"margin-bottom:7px"}, el("div",{class:"small",style:"font-weight:600"},fmtDate(d)),
+          const note=sessionNoteText(sesAll[ss[0]?.sessionId]);
+          mount.append(el("div",{style:"margin-bottom:7px"}, el("div",{class:"small",style:"font-weight:600"},fmtDate(d), note?el("span",{class:"muted",style:"font-weight:500"}," · "+note):""),
             el("div",{class:"small muted"}, ss.map(s=>fmtSetShort(ex,s.weight,s.reps)).join("  ")))); });
       } else {
         mount.append(el("p",{class:"muted small",style:"margin:2px 0 0"}, "No sets logged yet — your progress will show up here."));
