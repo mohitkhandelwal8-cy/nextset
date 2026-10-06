@@ -23,8 +23,9 @@
     /* color roles: orange = DO something (CTAs) · violet = currently SELECTED · section hues = place identity */
     --sel:#A78BFA; --on-sel:#0F172A;
     --sec-teal:#2DD4BF; --sec-green:#22C55E; --sec-pink:#F472B6; --sec-amber:#FBBF24; --on-sec:#0F172A;   /* Balance is pink: violet means 'selected' */
-    --tab-bg:rgba(20,25,37,.95);
+    --tab-bg:#141925;
     --radius:16px; --safe-b:env(safe-area-inset-bottom,0px);
+    --top-gap:14px;   /* space between the status bar and the first row of content (see :root.ios-app) */
   }
   :root[data-theme="light"]{
     --bg:#F4F6F9; --surface:#FFFFFF; --surface-2:#EAEEF3; --line:#D6DCE5;
@@ -33,7 +34,7 @@
     --accent-2:#15803D; --on-accent-2:#FFFFFF; --warn:#B45309; --danger:#DC2626;
     --sel:#7C3AED; --on-sel:#FFFFFF;
     --sec-teal:#0D9488; --sec-green:#16A34A; --sec-pink:#DB2777; --sec-amber:#B45309; --on-sec:#FFFFFF;
-    --tab-bg:rgba(255,255,255,.95);
+    --tab-bg:#FFFFFF;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
@@ -50,11 +51,14 @@
   .ic{display:inline-flex;align-items:center;justify-content:center;flex:none}
   .ic svg{display:block}
   .app{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
-  /* solid, not frosted: on iPhone (status bar drawn over the app) a see-through bar showed the page
-     scrolling blurred behind the gym name and under the clock. iOS also softens a band just below
-     the status bar, so the header content sits 14px clear of it. */
+  /* iOS 26+ draws its own "Liquid Glass" blur over the top of every home-screen web app: under the
+     status bar and fading out ~40pt below it. No CSS or meta tag turns it off, so in the installed
+     iPhone app every top row starts below that band, and the band itself is solid app background
+     (a blur over one flat colour is invisible). Browser tabs / Android / desktop are unaffected. */
+  :root.ios-app{--top-gap:44px}
+  :root.ios-app .sheet{max-height:min(88vh, calc(100vh - env(safe-area-inset-top) - 48px))}
   header.topbar{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);
-    padding:14px 16px 12px;display:flex;align-items:center;gap:10px;padding-top:max(14px,calc(env(safe-area-inset-top) + 14px))}
+    padding:14px 16px 12px;display:flex;align-items:center;gap:10px;padding-top:max(14px,calc(env(safe-area-inset-top) + var(--top-gap)))}
   .topbar h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.2px;flex:1}
   .topgear{flex:none;width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);margin-right:-6px}
   .topgear.on{color:var(--accent)}
@@ -64,7 +68,7 @@
   .gympick .gp-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
   main{flex:1;padding:14px 16px calc(96px + var(--safe-b))}
   .tabbar{position:fixed;bottom:0;left:0;right:0;z-index:30;display:flex;
-    background:var(--tab-bg);backdrop-filter:blur(12px);border-top:1px solid var(--line);
+    background:var(--tab-bg);border-top:1px solid var(--line);
     padding-bottom:var(--safe-b);max-width:560px;margin:0 auto}
   .tabbar button{flex:1;padding:10px 4px 8px;color:var(--muted);font-size:12px;font-weight:600;
     display:flex;flex-direction:column;align-items:center;gap:3px}
@@ -239,7 +243,7 @@
   .exshot-zoom{position:absolute;right:6px;bottom:6px;width:26px;height:26px;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center}
   /* full-screen photo viewer */
   .lightbox{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.97);overflow-y:auto;overscroll-behavior:contain;
-    padding:max(12px,env(safe-area-inset-top)) 14px calc(16px + var(--safe-b));animation:fade .15s ease}
+    padding:max(12px,calc(env(safe-area-inset-top) + var(--top-gap) - 14px)) 14px calc(16px + var(--safe-b));animation:fade .15s ease}
   .lightbox .lbhead{position:sticky;top:0;z-index:1;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:space-between;gap:10px;color:#fff;padding:6px 0 12px}
   .lightbox .lbhead .name{font-weight:700;font-size:16px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lightbox .lbclose{flex:none;width:40px;height:40px;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;display:flex;align-items:center;justify-content:center}
@@ -409,7 +413,7 @@
   .wbar{position:sticky;top:var(--tb,57px);z-index:18;display:flex;align-items:center;gap:8px;margin:-14px -16px 12px;padding:10px 16px;
     background:var(--bg);border-bottom:1px solid var(--line)}
   body.logging header.topbar{display:none}
-  body.logging .wbar{top:0;padding-top:max(10px,calc(env(safe-area-inset-top) + 14px))}
+  body.logging .wbar{top:0;padding-top:max(10px,calc(env(safe-area-inset-top) + var(--top-gap)))}
   .wbar-main{flex:1;min-width:0}
   .wbar-top{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap;overflow:hidden}
   .wbar-clock{font-variant-numeric:tabular-nums}
@@ -441,7 +445,7 @@
   .door-s{display:block;font-size:13px;color:var(--muted);margin-top:2px}
   /* ---- full-screen sheet (exercise detail) + dialogs ---- */
   .sheet-bg.full{align-items:stretch}
-  .sheet.full{max-height:none;height:100%;border-radius:0;border-top:none;padding-top:max(10px,calc(env(safe-area-inset-top) + 12px))}
+  .sheet.full{max-height:none;height:100%;border-radius:0;border-top:none;padding-top:max(10px,calc(env(safe-area-inset-top) + var(--top-gap)))}
   .sheethead.fullhead{position:sticky;top:-10px;z-index:3;background:var(--surface);margin:-10px -16px 12px;padding:8px 16px 10px;border-bottom:1px solid var(--line);justify-content:flex-start}
   .sheethead.fullhead h2{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .backbtn{display:inline-flex;align-items:center;gap:2px;color:var(--accent);font-weight:700;font-size:15px;min-height:44px;padding:0 6px 0 0;flex:none}
@@ -515,6 +519,10 @@
 
 <script>
 "use strict";
+// installed from the iPhone/iPad home screen? (navigator.standalone is iOS-only) → keep content clear
+// of iOS 26's edge blur (see :root.ios-app in the CSS)
+try{ if(window.navigator.standalone===true || (/iPhone|iPad|iPod/.test(navigator.userAgent) && matchMedia("(display-mode: standalone)").matches))
+  document.documentElement.classList.add("ios-app"); }catch(e){}
 /* ---------- theme (System / Light / Dark) ---------- */
 const prefersLight = () => { try{ return window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches; }catch(e){ return false; } };
 const getTheme = () => { try{ return localStorage.getItem("nextset-theme") || "dark"; }catch(e){ return "dark"; } };
@@ -661,7 +669,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v107"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v108"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
