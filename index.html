@@ -51,9 +51,10 @@
   .ic svg{display:block}
   .app{max-width:560px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column}
   /* solid, not frosted: on iPhone (status bar drawn over the app) a see-through bar showed the page
-     scrolling blurred behind the gym name and under the clock. Content starts just below the status bar. */
+     scrolling blurred behind the gym name and under the clock. iOS also softens a band just below
+     the status bar, so the header content sits 14px clear of it. */
   header.topbar{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);
-    padding:14px 16px 12px;display:flex;align-items:center;gap:10px;padding-top:max(14px,calc(env(safe-area-inset-top) + 6px))}
+    padding:14px 16px 12px;display:flex;align-items:center;gap:10px;padding-top:max(14px,calc(env(safe-area-inset-top) + 14px))}
   .topbar h1{font-size:18px;margin:0;font-weight:700;letter-spacing:.2px;flex:1}
   .topgear{flex:none;width:44px;height:44px;border-radius:12px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);margin-right:-6px}
   .topgear.on{color:var(--accent)}
@@ -408,13 +409,15 @@
   .wbar{position:sticky;top:var(--tb,57px);z-index:18;display:flex;align-items:center;gap:8px;margin:-14px -16px 12px;padding:10px 16px;
     background:var(--bg);border-bottom:1px solid var(--line)}
   body.logging header.topbar{display:none}
-  body.logging .wbar{top:0;padding-top:max(10px,calc(env(safe-area-inset-top) + 6px))}
+  body.logging .wbar{top:0;padding-top:max(10px,calc(env(safe-area-inset-top) + 14px))}
   .wbar-main{flex:1;min-width:0}
-  .wbar-top{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--accent)}
+  .wbar-top{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--accent);white-space:nowrap;overflow:hidden}
   .wbar-clock{font-variant-numeric:tabular-nums}
   .wbar-prog{color:var(--muted);font-weight:600}
   .wbar-title{font-weight:700;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .wbar-title .muted{font-weight:500;font-size:14px}
+  .wbar-note{font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .iconbtn.on{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
   .wbar .ipdot{background:var(--accent)}
   .btn.finish{background:var(--accent-2);color:var(--on-accent-2)}
   .alldonecard{text-align:center;padding:18px 14px;margin:4px 0 12px;border-radius:var(--radius);border:1px dashed color-mix(in srgb,var(--accent-2) 50%,var(--line))}
@@ -438,7 +441,7 @@
   .door-s{display:block;font-size:13px;color:var(--muted);margin-top:2px}
   /* ---- full-screen sheet (exercise detail) + dialogs ---- */
   .sheet-bg.full{align-items:stretch}
-  .sheet.full{max-height:none;height:100%;border-radius:0;border-top:none;padding-top:max(10px,env(safe-area-inset-top))}
+  .sheet.full{max-height:none;height:100%;border-radius:0;border-top:none;padding-top:max(10px,calc(env(safe-area-inset-top) + 12px))}
   .sheethead.fullhead{position:sticky;top:-10px;z-index:3;background:var(--surface);margin:-10px -16px 12px;padding:8px 16px 10px;border-bottom:1px solid var(--line);justify-content:flex-start}
   .sheethead.fullhead h2{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .backbtn{display:inline-flex;align-items:center;gap:2px;color:var(--accent);font-weight:700;font-size:15px;min-height:44px;padding:0 6px 0 0;flex:none}
@@ -658,7 +661,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v106"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v107"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -978,6 +981,9 @@ async function loadState(){
   State.gyms = await DB.all("gyms");
   State.exercises = await DB.all("exercises");
   State.plans = await DB.all("plans");
+  // which plan you did on which day (last ~2 months) — feeds Up next's weekly-habit rule without
+  // making the Today screen wait on a full sessions read
+  State.planDays = (await DB.all("sessions")).filter(x=>x.planId && daysAgo(x.date)<=63).map(x=>({planId:x.planId, date:x.date}));
   // backfill tags for exercises saved before tagging existed (uses built-in knowledge)
   for(const ex of State.exercises){
     let changed=false;
@@ -1810,7 +1816,9 @@ function viewToday(){
         el("span",{class:"ipdot"}),
         ...(s.startedAt?[el("span",{id:"elapsedClock",class:"wbar-clock"}, fmtElapsed(Date.now()-new Date(s.startedAt).getTime()))]:[]),
         items.length?el("span",{class:"wbar-prog"}, `${doneItems}/${items.length} done`):el("span")),
-      el("div",{class:"wbar-title"}, s.planName||"Workout", el("span",{class:"muted"}, curGym()?` · ${curGym().name}`:""))),
+      el("div",{class:"wbar-title"}, s.planName||"Workout", el("span",{class:"muted"}, curGym()?` · ${curGym().name}`:"")),
+      ...(sessionNoteText(s)?[el("div",{class:"wbar-note"}, sessionNoteText(s))]:[])),
+    el("button",{class:"iconbtn"+(sessionNoteText(s)?" on":""),"aria-label":sessionNoteText(s)?`Workout note: ${sessionNoteText(s)}. Edit`:"Tag how today is going",onClick:openWorkoutNoteSheet}, ic("pencil",18)),
     ...(items.length?[el("button",{class:"iconbtn","aria-label":"Edit workout plan",onClick:openPlanSheet}, ic("clipboard",18))]:[]),
     el("button",{class:finishCls,onClick:finishSession}, ic("check",16), "Finish")));
   if(!items.length){
@@ -1847,12 +1855,28 @@ function viewToday(){
 }
 
 /* ---------- start screen: what to do next ---------- */
-// the plan you're due for: least-recently-done of the plans in your current rotation (used in the
-// last 4 weeks); otherwise the oldest-done / never-done one. A suggestion — every plan is one tap away.
+// the plan you're due for (see the rules inside). A suggestion — every plan is one tap away.
 function nextPlan(plans){
-  const recent=plans.filter(p=>p.lastUsedAt && daysAgo(p.lastUsedAt)<=28);
-  const pool=recent.length?recent:plans;
-  return pool.slice().sort((a,b)=>(a.lastUsedAt||"").localeCompare(b.lastUsedAt||"") || (a.createdAt||"").localeCompare(b.createdAt||""))[0];
+  // plans saved for the gym you're at come first; other gyms' plans only when this gym has none
+  const here=plans.filter(p=>p.gymId===State.currentGymId), pool0=here.length?here:plans;
+  // 1) weekly habit: the plan you did on THIS weekday in most recent weeks (2+ times in the last 6
+  //    weeks, and more than half of that weekday's workouts) — unless you did it today or yesterday
+  const dow=new Date().getDay(), ids=new Set(pool0.map(p=>p.id)), tally={};
+  for(const x of (State.planDays||[])){ const a=daysAgo(x.date);
+    if(a<1 || a>42 || !ids.has(x.planId) || new Date(x.date+"T12:00:00").getDay()!==dow) continue;
+    tally[x.planId]=(tally[x.planId]||0)+1; }
+  const total=Object.values(tally).reduce((t,v)=>t+v,0);
+  const top=Object.entries(tally).sort((a,b)=>b[1]-a[1])[0];
+  if(top && top[1]>=2 && top[1]/total>0.5){
+    const p=pool0.find(x=>x.id===top[0]);
+    if(p && !(p.lastUsedAt && daysAgo(p.lastUsedAt)<=1))
+      return {plan:p, why:`You usually do this on ${new Date().toLocaleDateString(undefined,{weekday:"long"})}s`};
+  }
+  // 2) rotation: least-recently-done of the plans in use (last 4 weeks); else the oldest-done / never-done
+  const recent=pool0.filter(p=>p.lastUsedAt && daysAgo(p.lastUsedAt)<=28);
+  const pool=recent.length?recent:pool0;
+  const plan=pool.slice().sort((a,b)=>(a.lastUsedAt||"").localeCompare(b.lastUsedAt||"") || (a.createdAt||"").localeCompare(b.createdAt||""))[0];
+  return {plan, why: recent.length>1 ? "Next in your rotation — the one you did longest ago" : ""};
 }
 // "This week": a dot per day you trained + the count (and your goal, if you set one)
 function weekGlance(){
@@ -1877,13 +1901,15 @@ function viewStart(wrap){
   const plans=allPlans().filter(p=>p.items.length);   // empty drafts are managed in Library
   wrap.append(weekGlance());
   if(plans.length){
-    const next=nextPlan(plans), others=plans.filter(p=>p!==next);
+    const {plan:next, why}=nextPlan(plans);
+    const others=plans.filter(p=>p!==next).sort((a,b)=>(b.gymId===State.currentGymId)-(a.gymId===State.currentGymId));   // this gym's plans first
     const n=next.items.length, usage=planUsageLbl(next);
     const progLine=el("div",{class:"hero-prog"}, el("span",{class:"small muted"},"Working out today's targets…"));
     wrap.append(el("div",{class:"herocard"},
       el("div",{class:"statuscard-eyebrow"},"Up next"),
       el("div",{class:"hero-title"}, next.name),
       el("div",{class:"small muted"}, `${n} exercise${n>1?"s":""} · ~${templateMinutes(next)} min${usage?` · ${usage}`:""}`),
+      ...(why?[el("div",{class:"small",style:"margin-top:2px;color:var(--muted)"}, why)]:[]),
       progLine,
       el("button",{class:"btn",style:"margin-top:14px",onClick:()=>startSessionFromPlan(next)}, ic("play"), `Start ${next.name}`)));
     planProgressLine(next).then(node=>progLine.replaceChildren(node)).catch(()=>progLine.replaceChildren());
@@ -2260,11 +2286,12 @@ const ROUGH_TAGS=new Set(["Slept badly","Low energy","Low on time","Busy gym","I
 const roughTags = se => ((se&&se.tags)||[]).filter(t=>ROUGH_TAGS.has(t));
 const isRoughDay = se => roughTags(se).length>0;
 const sessionNoteText = se => se ? [...(se.tags||[]), se.note].filter(Boolean).join(" · ") : "";
-function sessionNoteEditor(se){
+function sessionNoteEditor(se, onSave){   // onSave: custom persist (the workout in progress) — else writes the saved session
   const tags=new Set(se.tags||[]);
   const inp=el("input",{type:"text",value:se.note||"",placeholder:"Anything else? e.g. new shoes",maxlength:"120","aria-label":"Workout note",enterkeyhint:"done"});
   const save=async()=>{
     se.tags=[...tags]; se.note=inp.value.trim();
+    if(onSave){ if(!se.tags.length) delete se.tags; if(!se.note) delete se.note; await onSave(); return; }
     const cur=(await DB.get("sessions",se.id))||se;
     if(se.tags.length) cur.tags=se.tags; else delete cur.tags;
     if(se.note) cur.note=se.note; else delete cur.note;
@@ -2278,6 +2305,16 @@ function sessionNoteEditor(se){
   inp.addEventListener("blur",()=>{ clearTimeout(tmr); save(); });
   inp.addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); inp.blur(); } });
   return el("div",{class:"notebox"}, chips, inp);
+}
+// tag the workout while it's on — you usually know before the first set that you slept badly or
+// are short on time. Saved with the workout; the finish screen shows them already picked.
+function openWorkoutNoteSheet(){
+  const s=State.activeSession; if(!s) return;
+  openSheet("How's today going?",(body,close)=>{
+    body.append(el("p",{class:"small muted",style:"margin:-6px 0 10px"},"Tag it now or at the end. A rough day that falls short won't count against your targets."),
+      sessionNoteEditor(s, persistSession),
+      el("button",{class:"btn",style:"margin-top:14px",onClick:close}, ic("check",16),"Done"));
+  },{onClose:()=>render()});
 }
 function openItemMenu(item){
   const ex=State.exercises.find(e=>e.id===item.exerciseId);
@@ -2437,9 +2474,11 @@ async function commitSession(opts={}){
   // persist what was PRESCRIBED so Insights can score "did you hit your targets" later
   const targets={}; s.items.forEach(it=>{ if(it.targetVol!=null) targets[it.exerciseId]=it.targetVol; });
   const sessionRec={id:s.id,gymId:s.gymId,date:s.date,startedAt:s.startedAt,finishedAt:opts.stale?null:nowIso,
+    ...(s.tags&&s.tags.length?{tags:s.tags}:{}), ...(s.note?{note:s.note}:{}),        // tagged mid-workout
     ...(Object.keys(targets).length?{targets}:{}),
     ...(s.planId?{planId:s.planId, planName:s.planName}:{})};
   await DB.put("sessions",sessionRec);
+  if(s.planId) (State.planDays=State.planDays||[]).push({planId:s.planId, date:s.date});
   if(s.planId){ const plan=State.plans.find(p=>p.id===s.planId);   // plan usage: powers "done N days ago · M×"
     if(plan){ plan.lastUsedAt=s.date; plan.useCount=(plan.useCount||0)+1; await DB.put("plans",plan); } }
   for(const st of done) await DB.put("sets",st);
@@ -3525,12 +3564,8 @@ function openSessionDetail(se, editing=false){
       const order=Object.keys(byEx).sort((a,b)=>{ const oa=Math.min(...byEx[a].map(x=>x.order??0)), ob=Math.min(...byEx[b].map(x=>x.order??0));
         return (oa-ob) || (planIdx(a)-planIdx(b)); });
       mount.append(el("div",{class:"small muted",style:"margin:-6px 0 10px"}, `${fmtDate(se.date)} · ${gymNameOf(se.gymId)||"—"}${se.planName?` · ${se.planName}`:""}`));
-      { const fresh=(await DB.get("sessions",se.id))||se; se.tags=fresh.tags; se.note=fresh.note;
-        const slot=el("div",{style:"margin:-4px 0 12px"});
-        const txt=sessionNoteText(se);
-        slot.append(el("button",{type:"button",class:"setupline"+(txt?"":" add"),onClick:()=>slot.replaceChildren(sessionNoteEditor(se))},
-          ic(txt?"pencil":"plus",14), el("span",{}, txt||"Add a note — slept badly, low on time…")));
-        mount.append(slot); }
+      { const fresh=(await DB.get("sessions",se.id))||se; se.tags=fresh.tags; se.note=fresh.note;   // tags + note, always open — saves as you tap/type
+        mount.append(el("div",{style:"margin:0 0 14px"}, el("div",{class:"small",style:"font-weight:700;margin-bottom:6px"},"How did it go?"), sessionNoteEditor(se))); }
       if(!ed){
         const mins=sessionMins(se), ton=tonnageSum(sets, exById);
         const grid=el("div",{class:"statgrid"});
@@ -4155,7 +4190,7 @@ function viewInsights(){
       const p12=s=>windowPct(s, bestValOf(s), 84);   // last 12 weeks — matches the explorer's default range
       const ranked=stats.filter(s=>!isKeyLift(s.ex)).sort((a,b)=>{ const pa=p12(a), pb=p12(b);
         return (pb==null?-1:Math.abs(pb))-(pa==null?-1:Math.abs(pa)); });
-      const top=ranked.slice(0,3);
+      const top=_showAllMovers ? stats.slice().sort((a,b)=>{ const pa=p12(a), pb=p12(b); return (pb==null?-1:Math.abs(pb))-(pa==null?-1:Math.abs(pa)); }) : ranked.slice(0,3);
       // the way into every movement is an explicit button at the end — a whole-card tap target with a
       // tiny "all N movements" in the corner was easy to miss. A lift row opens that lift's own page,
       // like everywhere else in the app; the explorer is the "compare everything" view.
@@ -4163,12 +4198,13 @@ function viewInsights(){
       card.append(el("div",{class:"row between",style:"margin-bottom:2px"},
         el("h2",{style:"margin:0"},"Biggest movers"), el("span",{class:"small muted"},"last 12 weeks")));
       top.forEach(s=>card.append(el("button",{class:"keyrow","aria-label":`${s.ex.name} — open its progress`,onClick:()=>openExerciseProgress(s.ex.id)},
-        el("div",{class:"grow"}, el("div",{class:"kr-name"}, s.ex.name),
+        el("div",{class:"grow"}, el("div",{class:"kr-name"}, (isKeyLift(s.ex)?"★ ":"")+s.ex.name),
           el("div",{class:"small muted"}, [liftHeadline(s), gymTag(s.ex)].filter(Boolean).join(" · "))),
         el("div",{class:"kr-pill"}, trendPill(p12(s))), el("span",{class:"chev"},ic("chevron",16)))));
       if(!top.length) card.append(el("p",{class:"small muted",style:"margin:4px 0 0"},"Every movement you've logged is a key lift — compare them all below."));
-      card.append(el("button",{class:"btn secondary",style:"width:100%;margin-top:12px",onClick:()=>openStrengthExplorer()},
-        `See all ${stats.length} movement${stats.length===1?"":"s"}`, ic("chevron",16)));
+      if(stats.length>top.length || _showAllMovers) card.append(el("button",{class:"btn secondary",style:"width:100%;margin-top:12px",
+        onClick:()=>{ _showAllMovers=!_showAllMovers; _insightsScroll=window.scrollY; render(); }},
+        _showAllMovers ? "Show fewer" : `See all ${stats.length} movement${stats.length===1?"":"s"}`, ic("chevron",16)));
       strengthCard=card;
     }
     // ---- Recent wins: PRs recomputed from history so they don't vanish with the toast ----
@@ -4660,7 +4696,7 @@ let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
 let insightsSection="consist";   // active Insights tab: consist | prog | mix | att — session-scoped
 let _recapOpen=false;            // weekly recap banner expanded — session-scoped
 let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
-let _showAllAlerts=false, _showAllMuscles=false, _showAllWins=false; // Insights long-list expanders — session-scoped
+let _showAllAlerts=false, _showAllMuscles=false, _showAllWins=false, _showAllMovers=false; // Insights long-list expanders — session-scoped
 // "Show all N" ghost button used by both long Insights sections; preserves scroll on re-render
 function showAllBtn(label, onTap){
   return el("button",{class:"btn ghost sm",style:"width:100%;margin-top:4px",onClick:()=>{ _insightsScroll=window.scrollY; onTap(); render(); }}, ic("chevron",14), label);
