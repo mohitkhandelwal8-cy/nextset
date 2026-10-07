@@ -55,7 +55,7 @@
      status bar and fading out ~40pt below it. No CSS or meta tag turns it off, so in the installed
      iPhone app every top row starts below that band, and the band itself is solid app background
      (a blur over one flat colour is invisible). Browser tabs / Android / desktop are unaffected. */
-  :root.ios-app{--top-gap:44px}
+  :root.ios-app{--top-gap:25px}   /* the smallest gap that stayed sharp, tuned on the owner's iPhone (v109) */
   :root.ios-app .sheet{max-height:min(88vh, calc(100vh - env(safe-area-inset-top) - 48px))}
   header.topbar{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);
     padding:14px 16px 12px;display:flex;align-items:center;gap:10px;padding-top:max(14px,calc(env(safe-area-inset-top) + var(--top-gap)))}
@@ -165,6 +165,7 @@
   /* modal/sheet */
   .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;touch-action:none}
   body.modal-open{overflow:hidden}
+  body.modal-open .restbar{z-index:40}   /* an open sheet/menu sits ABOVE the rest bar (it used to cover sheet buttons); it returns on close */
   .sheet{background:var(--surface);width:100%;max-width:560px;border-radius:18px 18px 0 0;
     border-top:1px solid var(--line);padding:18px 16px calc(20px + var(--safe-b));max-height:88vh;overflow:auto;overscroll-behavior:contain;touch-action:auto;animation:up .2s ease}
   @keyframes up{from{transform:translateY(30px);opacity:.6}to{transform:none;opacity:1}}
@@ -395,7 +396,14 @@
   .iconbtn:active{color:var(--text)}
   .jointflag{display:inline-flex;color:var(--warn)}
   .loghint{display:flex;align-items:center;gap:6px;margin:8px 2px 0}
-  .lfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:2px}
+  .lfoot{display:flex;flex-direction:column;align-items:flex-start;margin-top:2px}
+  .actchips{display:flex;flex-wrap:wrap;gap:6px}
+  .actchip{display:inline-flex;align-items:center;gap:5px;min-height:36px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:700;
+    color:var(--text);background:var(--surface-2);border:1px solid var(--line)}
+  .actchip .ic{color:var(--muted)}
+  .actchip.main{color:var(--accent)} .actchip.main .ic{color:var(--accent)}
+  .actchip.quiet{color:var(--muted)}
+  .actchip:active{background:color-mix(in srgb,var(--text) 10%,var(--surface-2))}
   .linkbtn{display:inline-flex;align-items:center;gap:6px;color:var(--accent);font-weight:700;font-size:15px;min-height:44px;padding:0 4px;background:none;border:none}
   .linkbtn.sm{font-size:14px}
   .linkbtn.quiet{color:var(--muted)}
@@ -521,11 +529,9 @@
 "use strict";
 // installed from the iPhone/iPad home screen? (navigator.standalone is iOS-only) → keep content clear
 // of iOS 26's edge blur (see :root.ios-app in the CSS)
-const TOP_GAP_DEFAULT=44;   // px below the status bar; tunable per device in Settings → Top spacing
-try{ if(window.navigator.standalone===true || (/iPhone|iPad|iPod/.test(navigator.userAgent) && matchMedia("(display-mode: standalone)").matches)){
-  document.documentElement.classList.add("ios-app");
-  const g=parseInt(localStorage.getItem("nextset-topgap"),10);
-  if(Number.isFinite(g)) document.documentElement.style.setProperty("--top-gap", Math.max(0,Math.min(60,g))+"px"); } }catch(e){}
+try{ if(window.navigator.standalone===true || (/iPhone|iPad|iPod/.test(navigator.userAgent) && matchMedia("(display-mode: standalone)").matches))
+  document.documentElement.classList.add("ios-app"); }catch(e){}
+try{ localStorage.removeItem("nextset-topgap"); }catch(e){}   // v109's temporary on-device tuning setting (now fixed at 25px)
 /* ---------- theme (System / Light / Dark) ---------- */
 const prefersLight = () => { try{ return window.matchMedia && matchMedia("(prefers-color-scheme: light)").matches; }catch(e){ return false; } };
 const getTheme = () => { try{ return localStorage.getItem("nextset-theme") || "dark"; }catch(e){ return "dark"; } };
@@ -672,7 +678,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v109"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v110"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1133,9 +1139,18 @@ function matchScore(qt, name){
 }
 // best score over an item's names (a library entry matches on its clean name AND its original one),
 // + a boost for the staples most people mean; weak tail matches are dropped
+// equipment words in a query also match the exercise's EQUIPMENT, not just its name — "adductor
+// machine" finds the adductor machine even if its name never says "machine"
+const EQ_QUERY={machine:["machine","plate"],cable:["cable"],dumbbell:["dumbbell"],barbell:["barbell","freeplate"],
+  kettlebell:["kettlebell"],band:["other"],bodyweight:["bodyweight"]};
 function scoreItem(qt, e, nameOf){
   const names=[].concat(nameOf(e)).filter(Boolean);
   let sc=Math.max(0,...names.map(n=>matchScore(qt,n)));
+  const eqT=qt.filter(w=>EQ_QUERY[w]), rest=qt.filter(w=>!EQ_QUERY[w]);
+  if(eqT.length && rest.length && e && e.equipment && eqT.every(w=>EQ_QUERY[w].includes(e.equipment))){
+    const r=Math.max(0,...names.map(n=>matchScore(rest,n)));
+    if(r>0) sc=Math.max(sc, r+3);
+  }
   if(sc>0 && e && e.raw && LIB_STAPLES[e.raw.name]) sc+=3;
   return sc;
 }
@@ -2227,21 +2242,28 @@ function loggerCard(item, isCurrent, ss){
 
   // add a set + live volume vs last time (the metric the progression targets).
   // On an assisted machine raw weight×reps counts the HELP — use effective load, or skip it.
+  // set actions on the card itself (drop set + superset used to hide in the ⋯ menu)
   const foot=el("div",{class:"lfoot"});
   const lastSet=item.sets[item.sets.length-1];
-  foot.append(el("div",{class:"row",style:"gap:4px"},
-    el("button",{class:"linkbtn sm",onClick:()=>{
-      item.sets.push({weight:lastSet?.weight||0,reps:lastSet?.reps||(ex?.repMin||8),done:false});
-      persistSession(); render();
-    }}, ic("plus",15), "Add set"),
-    ...(item.sets.length>1 && !lastSet.done ? [el("button",{class:"linkbtn sm quiet",onClick:()=>{ item.sets.pop(); persistSession(); render(); }}, ic("minus",15), "Remove set")] : [])));
+  const sItems=State.activeSession.items, sIdx=sItems.indexOf(item);
+  const inSS=item.ssGroup && ((sItems[sIdx-1]&&sItems[sIdx-1].ssGroup===item.ssGroup)||(sItems[sIdx+1]&&sItems[sIdx+1].ssGroup===item.ssGroup));
+  const chip=(icon,label,fn,cls,aria)=>el("button",{type:"button",class:"actchip"+(cls?" "+cls:""),...(aria?{"aria-label":aria}:{}),onClick:fn}, ic(icon,15), label);
+  foot.append(el("div",{class:"actchips"},
+    chip("plus","Add set",()=>{ item.sets.push({weight:lastSet?.weight||0,reps:lastSet?.reps||(ex?.repMin||8),done:false}); persistSession(); render(); },"main"),
+    chip("arrowdown","Drop set",()=>{
+      const di=dropInsertIndex(item.sets), base=item.sets[di-1];                        // after the current active set (+ any drops on it)
+      item.sets.splice(di, 0, {weight:round((base?.weight||0)*0.8, ex?.increment||2.5), reps:base?.reps||(ex?.repMin||8), done:false, drop:true});
+      persistSession(); render(); },null,"Add a drop set (about 20% lighter)"),
+    ...(inSS ? [chip("x","Unlink superset",()=>ungroupSS(item))]
+      : sIdx>=0 && sIdx<sItems.length-1 ? [chip("link","Superset",()=>groupWithNext(item),null,"Superset with the next exercise")] : []),
+    ...(item.sets.length>1 && !lastSet.done ? [chip("minus","Remove set",()=>{ item.sets.pop(); persistSession(); render(); },"quiet")] : [])));
   const invVol = isInverted(ex);
   if(last && !(invVol && State.bodyweightKg==null)){
     const volOf = (w,r) => invVol ? (invEffectiveKg(ex,w)||0)*(+r||0) : bw ? (+r||0) : (+w||0)*(+r||0);
     const lastVol = last.reduce((t,s)=>t+volOf(s.weight,s.reps),0);
     const curVol = item.sets.reduce((t,s)=> t + (s.done?volOf(s.weight,s.reps):0), 0);
     const beat = curVol>0 && curVol>=lastVol, fmtV=v=>Math.round(v).toLocaleString();
-    foot.append(el("div",{class:"volpill"+(beat?" beat":""),title:bw?"total reps vs last time":"weight × reps vs last time"},
+    foot.append(el("div",{class:"volpill"+(beat?" beat":""),style:"margin-top:8px",title:bw?"total reps vs last time":"weight × reps vs last time"},
       beat?ic("check",13):el("span"), `${bw?"Reps":"Volume"} ${fmtV(curVol)} / ${fmtV(lastVol)}${bw?"":" "+(ex?.unit||"kg")}`));
   }
   card.append(foot);
@@ -2329,21 +2351,13 @@ function openWorkoutNoteSheet(){
 }
 function openItemMenu(item){
   const ex=State.exercises.find(e=>e.id===item.exerciseId);
-  const items=State.activeSession.items, idx=items.indexOf(item);
-  const grouped = item.ssGroup && ((items[idx-1]&&items[idx-1].ssGroup===item.ssGroup)||(items[idx+1]&&items[idx+1].ssGroup===item.ssGroup));
   openSheet(ex?.name||"Exercise",(body,close)=>{
     const act=(icon,label,fn,cls)=>el("button",{class:"menurow"+(cls?" "+cls:""),onClick:async()=>{ close(); await fn(); }}, ic(icon,18), el("span",{},label));
     const rows=[];
     if(ex) rows.push(act("info","Exercise details & history",()=>openExerciseProgress(ex.id)));
     if(ex) rows.push(act("sliders", ex.notes?"Edit setup note":"Add a setup note (seat, pad, grip…)",()=>editSetupNote(ex, render)));
     if(item.sets.some(s=>!s.done)) rows.push(act("check","Mark all sets done",()=>{ item.sets.forEach(s=>{ if((+s.reps)>0) s.done=true; }); stopRest(); persistSession(); render(); }));
-    rows.push(act("arrowdown","Add a drop set",()=>{
-      const di=dropInsertIndex(item.sets), base=item.sets[di-1];                        // after the current active set (+ any drops on it)
-      item.sets.splice(di, 0, {weight:round((base?.weight||0)*0.8, ex?.increment||2.5), reps:base?.reps||(ex?.repMin||8), done:false, drop:true});
-      persistSession(); render(); }));
-    if(item.sets.length>1) rows.push(act("minus","Remove last set",()=>{ item.sets.pop(); persistSession(); render(); }));
-    if(grouped) rows.push(act("x","Ungroup superset",()=>ungroupSS(item)));
-    else if(idx<items.length-1) rows.push(act("link","Superset with the next exercise",()=>groupWithNext(item)));
+    // (drop set, superset and remove set are buttons on the card itself)
     rows.push(act("alert", item.joint?"Clear the joint flag":"Flag a joint (tweaked something)",()=>{ item.joint=!item.joint; persistSession(); render(); }));
     rows.push(act("x","Remove from this workout",()=>removeItem(item),"danger"));
     body.append(...rows);
@@ -5084,12 +5098,14 @@ const LIB_STAPLES={
   "Bulgarian Split Squat (Rear-Foot-Elevated)":"Bulgarian Split Squat", "Dumbbell Lunges":"Lunge (Dumbbell)",
   "Barbell Shrug":"Shrug (Barbell)", "Dumbbell Shrug":"Shrug (Dumbbell)", "Plank":"Plank", "Cable Crunch":"Cable Crunch",
   "Arnold Dumbbell Press":"Arnold Press",
+  "Thigh Adductor":"Hip Adduction (Machine)", "Thigh Abductor":"Hip Abduction (Machine)",   // what the machines are called in gyms
 };
 // every other library name gets the same house style: equipment as a suffix ("Shrug (Barbell)"),
 // " - With Bands" → "(Bands)", singular ("Curls" → "Curl"), no "- Medium Grip" noise
 const NAME_SINGULAR={Curls:"Curl",Rows:"Row",Raises:"Raise",Extensions:"Extension",Lunges:"Lunge",Shrugs:"Shrug",Presses:"Press",Flyes:"Fly",Flys:"Fly",
   Dips:"Dip",Squats:"Squat",Deadlifts:"Deadlift",Crunches:"Crunch",Kickbacks:"Kickback",Pulldowns:"Pulldown",Pullovers:"Pullover",Swings:"Swing",
-  Pullups:"Pull-Up",Pushups:"Push-Up",Lifts:"Lift",Thrusts:"Thrust",Bridges:"Bridge",Twists:"Twist"};
+  Pullups:"Pull-Up",Pushups:"Push-Up",Lifts:"Lift",Thrusts:"Thrust",Bridges:"Bridge",Twists:"Twist",
+  Adductions:"Adduction",Abductions:"Abduction"};
 function displayLibName(raw){
   if(LIB_STAPLES[raw]) return LIB_STAPLES[raw];
   let n=String(raw||"").trim().replace(/\s+/g," ");
@@ -5097,7 +5113,7 @@ function displayLibName(raw){
   n=n.replace(/\s+-\s+Medium Grip$/i,"");
   n=n.replace(/\s+-\s+With\s+(.+)$/i," ($1)").replace(/\s+-\s+(.+?)\s+Attachment$/i," ($1)").replace(/\s+-\s+(.+)$/," ($1)");
   n=n.replace(/\b([A-Z][a-z]+)\b/g,w=>NAME_SINGULAR[w]||w);
-  const m=n.match(/^(Smith Machine|Barbell|Dumbbell|Cable|Machine|Kettlebell|EZ-Bar|E-Z Bar)\s+(.+)$/);
+  const m=n.match(/^(Smith Machine|Barbell|Dumbbell|Cable|Machine|Kettlebell|EZ-Bar|E-Z Bar|Band)\s+(.+)$/);
   if(m && !m[2].includes("(")) n=`${m[2]} (${m[1]==="E-Z Bar"?"EZ-Bar":m[1]})`;
   return n;
 }
@@ -5367,27 +5383,6 @@ function viewSettings(){
     seg.append(el("button",{class:"segbtn"+(cur===k?" on":""),"aria-pressed":cur===k?"true":"false",onClick:()=>setTheme(k)}, lbl)));
   themeCard.append(seg, el("div",{class:"tiny muted",style:"margin-top:8px"},"Dark by default · System follows your phone."));
   wrap.append(themeCard);
-  // ----- Top spacing: installed iPhone app only — find the smallest gap iOS's top-edge blur allows -----
-  if(document.documentElement.classList.contains("ios-app")){
-    const getGap=()=>{ try{ const g=parseInt(localStorage.getItem("nextset-topgap"),10); return Number.isFinite(g)?g:TOP_GAP_DEFAULT; }catch(e){ return TOP_GAP_DEFAULT; } };
-    const probe=el("div",{style:"position:fixed;top:0;left:0;width:1px;height:0;visibility:hidden;padding-top:env(safe-area-inset-top)"});
-    document.body.append(probe); const inset=Math.round(probe.getBoundingClientRect().height); probe.remove();
-    const val=el("span",{class:"numcell",style:"display:flex;align-items:center;justify-content:center"});
-    const apply=(g,save)=>{ g=Math.max(0,Math.min(60,g)); val.textContent=`${g} px`;
-      if(save){ try{ localStorage.setItem("nextset-topgap",String(g)); }catch(e){} }
-      document.documentElement.style.setProperty("--top-gap",g+"px");
-      const tb=document.querySelector("header.topbar"); if(tb) document.documentElement.style.setProperty("--tb", tb.offsetHeight+"px"); };
-    const sb=(d,label)=>el("button",{type:"button",class:"sbtn","aria-label":label,onClick:()=>apply(getGap()+d,true)}, ic(d<0?"minus":"plus",18));
-    const card=el("div",{class:"card"});
-    card.append(el("h2",{},"Top spacing (iPhone)"),
-      el("p",{class:"small muted",style:"margin:-6px 0 10px"},"iOS blurs the top of home-screen apps. Tap − to move the header up until its text starts to look soft, then + once. Check a workout screen too."),
-      el("div",{class:"row",style:"gap:12px;align-items:center"},
-        el("div",{class:"stepcell",style:"width:170px;flex:none"}, sb(-2,"Move content up"), val, sb(2,"Move content down")),
-        el("button",{class:"linkbtn sm",onClick:()=>{ try{ localStorage.removeItem("nextset-topgap"); }catch(e){} apply(TOP_GAP_DEFAULT,false); }},"Reset")),
-      el("div",{class:"tiny muted",style:"margin-top:8px"}, `Gap below the status bar (${inset}px on this phone) · default ${TOP_GAP_DEFAULT}px.`));
-    apply(getGap(),false);
-    wrap.append(card);
-  }
   // ----- Units: default weight unit -----
   const unitCard=el("div",{class:"card"}); unitCard.append(el("h2",{},"Units"));
   const uSeg=el("div",{class:"seg"});
