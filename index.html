@@ -473,6 +473,15 @@
   .tgttick{position:absolute;top:-3px;bottom:-3px;width:2px;margin-left:-1px;background:var(--text);opacity:.6;border-radius:1px}
   /* ---- shared exercise picker ---- */
   .pickhead{position:sticky;top:-18px;z-index:2;background:var(--surface);margin:0 -16px;padding:4px 16px 4px}
+  .mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+  .mg-h{font-size:11px;color:var(--muted);font-weight:700;padding-bottom:2px}
+  .mg-d{font-size:12px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--muted);background:var(--surface-2);font-variant-numeric:tabular-nums}
+  .mg-d.on{background:var(--accent-2);color:var(--on-accent-2);font-weight:800}
+  .mg-d.fut{opacity:.35}
+  .monthbanner{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:6px 8px 6px 14px;margin-bottom:12px}
+  .mb-main{flex:1;display:flex;align-items:center;gap:8px;min-width:0;min-height:40px;text-align:left;color:var(--text);background:none;border:none;padding:0}
+  .mb-eyebrow{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--sec-teal);flex:none}
+  .mb-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
   .keyrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 0;border-top:1px solid var(--line);color:inherit}
   .keyrow .kr-name{font-weight:600;font-size:15px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .keyrow .spark{width:64px}
@@ -678,7 +687,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v110"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v111"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1925,7 +1934,7 @@ function weekGlance(){
 }
 function viewStart(wrap){
   const plans=allPlans().filter(p=>p.items.length);   // empty drafts are managed in Library
-  wrap.append(weekGlance());
+  wrap.append(weekGlance(), monthBanner());
   if(plans.length){
     const {plan:next, why}=nextPlan(plans);
     const others=plans.filter(p=>p!==next).sort((a,b)=>(b.gymId===State.currentGymId)-(a.gymId===State.currentGymId));   // this gym's plans first
@@ -3807,7 +3816,8 @@ function windowPct(s, valOf, cutDays){
 }
 // PRs are detected live but vanish as 2-second toasts — replay history per movement so recent
 // wins stay visible. Skips each movement's first session (day one, everything is a "PR").
-function recentWins(sessions, allSets){
+const recentWins = (sessions, allSets) => allWins(sessions, allSets).filter(w=>daysAgo(w.date)<=7);
+function allWins(sessions, allSets){
   const exById=id=>State.exercises.find(e=>e.id===id);
   const sesById=Object.fromEntries(sessions.map(s=>[s.id,s]));
   const units={};
@@ -3842,7 +3852,7 @@ function recentWins(sessions, allSets){
       bestW=inv?Math.min(bestW,topW):Math.max(bestW,topW); bestM=Math.max(bestM,topM); first=false;
     }
   }
-  return wins.filter(w=>daysAgo(w.date)<=7).sort((a,b)=>b.date.localeCompare(a.date));
+  return wins.sort((a,b)=>b.date.localeCompare(a.date));
 }
 // consistent ▲/▼ pill (shared: card, explorer); null → "new"
 function trendPill(pct, suffix){
@@ -3934,6 +3944,215 @@ function tagImpactCard(sessions, stats){
   if(!shown) card.append(el("p",{class:"small muted",style:"margin:4px 0 0"},"Keep tagging — a tag shows here once it's on 2+ workouts (and you have 3+ untagged ones to compare with)."));
   else card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Each workout is scored by how your lifts did vs their last normal session. Small numbers — a hint, not a verdict."));
   return card;
+}
+/* ---------- Month in review ----------
+   One page per calendar month: workouts vs goal, sets, load, the days you trained, records, key-lift
+   changes, body-area balance vs the month before, and how it went (tags). "Share as image" draws a
+   portrait card on the phone and hands it to the share sheet — nothing is uploaded by the app. */
+const ymOf = d => d.slice(0,7);
+const ymDate = ym => new Date(+ym.slice(0,4), +ym.slice(5,7)-1, 1);
+const monthLong = ym => ymDate(ym).toLocaleDateString(undefined,{month:"long", year:"numeric"});
+const monthOnly = ym => ymDate(ym).toLocaleDateString(undefined,{month:"long"});
+const prevYM = ym => { const d=ymDate(ym); d.setMonth(d.getMonth()-1); return localISO(d).slice(0,7); };
+// a lift's value at one session, in words: "est. 1RM 85kg" / "top set 7.5kg × 10" / "12 reps"
+function pointHeadline(st, e){
+  if(st.unitLbl==="reps") return `${e.maxReps} reps`;
+  if(st.acc) return `top set ${fmtW(e.top,st.ex)} × ${e.topReps}`;
+  return `est. 1RM ${Math.round(e.m)}${st.ex.unit||"kg"}`;
+}
+function monthReport(ym, sessions, allSets){
+  const pym=prevYM(ym);
+  const ses=sessions.filter(x=>ymOf(x.date)===ym), ids=new Set(ses.map(x=>x.id));
+  const pses=sessions.filter(x=>ymOf(x.date)===pym), pids=new Set(pses.map(x=>x.id));
+  const sets=allSets.filter(x=>ids.has(x.sessionId)&&x.reps>0), psets=allSets.filter(x=>pids.has(x.sessionId)&&x.reps>0);
+  const daysIn=new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
+  const isCur=ym===todayISO().slice(0,7);
+  const dayCount=isCur ? +todayISO().slice(8,10) : daysIn;                 // the current month counts "so far"
+  const goal=State.weeklyGoal ? Math.max(1,Math.round(State.weeklyGoal*dayCount/7)) : null;
+  const mins=ses.map(sessionMins).filter(Boolean);
+  const stats=buildStrengthStats(sessions, allSets), byKey=Object.fromEntries(stats.map(x=>[x.key,x]));
+  const keys=keyLiftExercises().map(ex=>{ const st=byKey[ex.linkId||ex.id]; if(!st) return null; const vo=bestValOf(st);
+    const pts=st.dated.filter(e=>ymOf(e.d)===ym && vo(e)>0); if(!pts.length) return null;
+    const te=trendEnds(pts.map(p=>({v:vo(p), rough:p.rough})));            // same rough-day rule as everywhere
+    return {ex, st, n:pts.length, pct: te&&te.f>0 ? (te.l-te.f)/te.f*100 : null, last:pts[pts.length-1]}; }).filter(Boolean);
+  const tags={}; ses.forEach(x=>(x.tags||[]).forEach(t=>tags[t]=(tags[t]||0)+1));
+  return { ym, isCur, n:ses.length, pn:pses.length, setsN:sets.length, psetsN:psets.length, goal,
+    avgMins: mins.length?Math.round(mins.reduce((a,b)=>a+b,0)/mins.length):null,
+    ton: tonnageSum(sets, id=>State.exercises.find(e=>e.id===id)).kg, days:new Set(ses.map(x=>x.date)), daysIn,
+    wins: allWins(sessions, allSets).filter(w=>ymOf(w.date)===ym).filter((w,i,a)=>a.findIndex(x=>x.name===w.name)===i), keys,   // latest record per lift
+    reg: regionSets(sets), preg: psets.length?regionSets(psets):null, tags, rough: ses.filter(isRoughDay).length };
+}
+function monthGrid(ym, days){
+  const first=ymDate(ym), off=(first.getDay()+6)%7, n=new Date(first.getFullYear(), first.getMonth()+1, 0).getDate(), today=todayISO();
+  const g=el("div",{class:"mgrid"});
+  "MTWTFSS".split("").forEach(d=>g.append(el("span",{class:"mg-h","aria-hidden":"true"},d)));
+  for(let i=0;i<off;i++) g.append(el("span"));
+  for(let d=1; d<=n; d++){ const iso=`${ym}-${String(d).padStart(2,"0")}`, on=days.has(iso);
+    g.append(el("span",{class:"mg-d"+(on?" on":"")+(iso>today?" fut":""),"aria-label":`${fmtDate(iso)}${on?" — trained":""}`}, String(d))); }
+  return g;
+}
+async function openMonthReport(ym){
+  const [sessions, allSets]=await Promise.all([DB.all("sessions"), DB.all("sets")]);
+  const r=monthReport(ym, sessions, allSets);
+  if(!r.isCur){ try{ await setMeta("monthSeen", ym); }catch(_){} }
+  openSheet(monthLong(ym)+(r.isCur?" so far":""),(body)=>{
+    body.append(el("div",{class:"small muted",style:"margin:-4px 0 12px"}, r.isCur?"Your month so far":"Your month in review"));
+    if(!r.n){ body.append(el("p",{class:"muted"},"No workouts this month.")); return; }
+    const grid=el("div",{class:"statgrid"});
+    grid.append(statTile(r.goal?`${r.n}/${r.goal}`:r.n, r.goal?"workouts · goal":"workouts", r.goal&&r.n>=r.goal?"accent2":""),
+      statTile(r.setsN.toLocaleString(),"working sets"), statTile(fmtTon(r.ton),"lifted"), statTile(r.avgMins!=null?r.avgMins+" min":"—","typical workout"));
+    body.append(grid);
+    if(r.pn){ const dW=r.n-r.pn, dS=r.psetsN?Math.round((r.setsN-r.psetsN)/r.psetsN*100):null;
+      body.append(el("div",{class:"small muted",style:"margin-top:8px"},
+        `vs ${monthOnly(prevYM(ym))}: ${dW>0?"+":""}${dW} workout${Math.abs(dW)===1?"":"s"}${dS!=null?` · sets ${dS>=0?"+":""}${dS}%`:""}${r.isCur?" (so far)":""}`)); }
+    body.append(el("div",{class:"sectionhead"},`Days you trained · ${r.days.size}`), monthGrid(ym, r.days));
+    body.append(el("div",{class:"sectionhead"}, r.wins.length?`Records · ${r.wins.length} lift${r.wins.length===1?"":"s"}`:"Records"));
+    if(r.wins.length){
+      r.wins.slice(0,10).forEach(w=>body.append(el("div",{class:"row between",style:"padding:8px 0;border-bottom:1px solid var(--line);gap:8px"},
+        el("div",{style:"min-width:0"}, el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},w.name), el("div",{class:"small muted"},fmtDate(w.date))),
+        el("div",{class:"small",style:"color:var(--accent-2);font-weight:600;flex:none;display:inline-flex;align-items:center;gap:5px"}, ic("starfill",12), w.label))));
+      if(r.wins.length>10) body.append(el("div",{class:"small muted",style:"margin-top:6px"},`+${r.wins.length-10} more`));
+    } else body.append(el("p",{class:"small muted",style:"margin:0"},"No new records this month."));
+    body.append(el("div",{class:"sectionhead"},"Key lifts"));
+    if(r.keys.length) r.keys.forEach(k=>body.append(el("button",{class:"keyrow",onClick:()=>openExerciseProgress(k.ex.id)},
+      el("div",{class:"grow"}, el("div",{class:"kr-name"},k.ex.name), el("div",{class:"small muted"}, `${pointHeadline(k.st,k.last)} · ${k.n} session${k.n===1?"":"s"}`)),
+      el("div",{class:"kr-pill"}, trendPill(k.pct)))));
+    else body.append(el("p",{class:"small muted",style:"margin:0"}, keyLiftExercises().length?"None of your key lifts were trained this month.":"Star your key lifts (Insights → Progress) to see them here."));
+    body.append(el("div",{class:"sectionhead"},"Balance · sets per body area"), radarChart(r.reg, r.preg), radarLegend(monthOnly(ym), r.preg?monthOnly(prevYM(ym)):null));
+    const tagList=Object.entries(r.tags).sort((a,b)=>b[1]-a[1]);
+    if(tagList.length) body.append(el("div",{class:"sectionhead"},"How it went"),
+      el("div",{class:"small"}, tagList.map(([t,c])=>`${t} ×${c}`).join(" · ")),
+      ...(r.rough?[el("div",{class:"small muted",style:"margin-top:4px"},`${r.rough} rough day${r.rough>1?"s":""} — a shortfall on those didn't count against your targets.`)]:[]));
+    body.append(el("button",{class:"btn",style:"margin-top:20px",onClick:()=>openMonthShare(r)}, ic("upload",16),"Share as image"));
+  },{full:true, stacked:!!document.querySelector(".sheet-bg")});
+}
+// the share card: 1080×1350 (portrait — fits Instagram, WhatsApp, Photos), drawn on the phone
+function drawRadarCanvas(g, cur, prev, cx, cy, R, C, F){
+  const n=REGIONS6.length, mx=Math.max(1,...REGIONS6.map(k=>cur[k]||0), ...(prev?REGIONS6.map(k=>prev[k]||0):[]));
+  const pt=(i,v)=>{ const a=-Math.PI/2+i*2*Math.PI/n, r=R*v/mx; return [cx+r*Math.cos(a), cy+r*Math.sin(a)]; };
+  const path=get=>{ g.beginPath(); REGIONS6.forEach((k,i)=>{ const [x,y]=pt(i,get(k)); i?g.lineTo(x,y):g.moveTo(x,y); }); g.closePath(); };
+  g.strokeStyle=C.line; g.lineWidth=2; [0.25,0.5,0.75,1].forEach(f=>{ path(()=>mx*f); g.stroke(); });
+  REGIONS6.forEach((k,i)=>{ const [x,y]=pt(i,mx); g.beginPath(); g.moveTo(cx,cy); g.lineTo(x,y); g.stroke(); });
+  if(prev){ g.setLineDash([10,10]); g.strokeStyle=C.muted; g.lineWidth=3; path(k=>prev[k]||0); g.stroke(); g.setLineDash([]); }
+  path(k=>cur[k]||0); g.fillStyle="rgba(96,165,250,.25)"; g.fill(); g.strokeStyle=C.data; g.lineWidth=5; g.lineJoin="round"; g.stroke();
+  g.font=F(700,30,true); g.fillStyle=C.text; g.textBaseline="middle";
+  REGIONS6.forEach((k,i)=>{ const a=-Math.PI/2+i*2*Math.PI/n;
+    g.textAlign=Math.abs(Math.cos(a))<0.2?"center":Math.cos(a)>0?"left":"right"; g.fillText(k, cx+(R+28)*Math.cos(a), cy+(R+28)*Math.sin(a)); });
+  g.textAlign="left"; g.textBaseline="alphabetic";
+}
+async function monthImage(r){
+  try{ await document.fonts.ready; }catch(_){}
+  const W=1080,H=1350,c=document.createElement("canvas"); c.width=W; c.height=H; const g=c.getContext("2d");
+  const C={bg:"#0F1420",card:"#1B2333",line:"#2C3648",text:"#F8FAFC",muted:"#9FB0C3",accent:"#F97316",good:"#22C55E",warn:"#FBBF24",data:"#60A5FA"};
+  const F=(w,sz,cond)=>`${w} ${sz}px ${cond?"'Barlow Condensed',":""}'Barlow',-apple-system,Helvetica,Arial,sans-serif`;
+  const fit=(t,max)=>{ t=String(t); if(g.measureText(t).width<=max) return t; while(t.length>1 && g.measureText(t+"…").width>max) t=t.slice(0,-1); return t+"…"; };
+  const box=(x,y,w,h,rad)=>{ g.beginPath(); if(g.roundRect) g.roundRect(x,y,w,h,rad); else g.rect(x,y,w,h); };
+  g.fillStyle=C.bg; g.fillRect(0,0,W,H);
+  g.fillStyle=C.accent; g.font=F(700,34,true); g.fillText("NEXTSET",72,84);
+  g.fillStyle=C.text; g.font=F(700,84,true); g.fillText(fit(monthLong(r.ym)+(r.isCur?" so far":""),936),72,176);
+  g.fillStyle=C.muted; g.font=F(500,34); g.fillText(r.isCur?"My month so far":"My month in review",72,224);
+  [[r.goal?`${r.n}/${r.goal}`:String(r.n), r.goal?"workouts vs goal":"workouts"],[r.setsN.toLocaleString(),"working sets"],[fmtTon(r.ton),"lifted"],[`${r.days.size} days`,"in the gym"]]
+    .forEach(([v,l],i)=>{ const x=72+(i%2)*478, y=258+Math.floor(i/2)*152;
+      g.fillStyle=C.card; box(x,y,458,136,24); g.fill();
+      g.fillStyle=C.text; g.font=F(700,62,true); g.fillText(fit(v,400),x+30,y+76);
+      g.fillStyle=C.muted; g.font=F(500,28); g.fillText(l,x+30,y+114); });
+  const y0=624;
+  g.fillStyle=C.text; g.font=F(700,40,true); g.fillText(`Records · ${r.wins.length} lift${r.wins.length===1?"":"s"}`,72,y0); g.fillText("Key lifts",570,y0);
+  g.font=F(500,28);
+  r.wins.slice(0,4).forEach((w,i)=>{ const yy=y0+54+i*52; g.fillStyle=C.good; g.fillText("★",72,yy); g.fillStyle=C.text; g.fillText(fit(w.name,400),112,yy); });
+  if(!r.wins.length){ g.fillStyle=C.muted; g.fillText("None this month",72,y0+54); }
+  r.keys.slice(0,4).forEach((k,i)=>{ const yy=y0+54+i*52, p=k.pct;
+    g.fillStyle=C.text; g.fillText(fit(k.ex.name,320),570,yy);
+    g.fillStyle=p==null?C.muted:p>1?C.good:p<-1?C.warn:C.muted; g.textAlign="right";
+    g.fillText(p==null?"—":`${p>=0?"+":"−"}${Math.abs(Math.round(p))}%`,1008,yy); g.textAlign="left"; });
+  if(!r.keys.length){ g.fillStyle=C.muted; g.fillText("—",570,y0+54); }
+  g.fillStyle=C.text; g.font=F(700,40,true); g.fillText("Balance",72,908);
+  if(r.preg){ g.font=F(500,24); g.fillStyle=C.muted; g.textAlign="right"; g.fillText(`dashed: ${monthOnly(prevYM(r.ym))}`,1008,908); g.textAlign="left"; }
+  drawRadarCanvas(g, r.reg, r.preg, 540, 1092, 132, C, F);
+  g.fillStyle=C.muted; g.font=F(500,26); g.textAlign="center"; g.fillText("Tracked with NextSet", W/2, H-30); g.textAlign="left";
+  return c;
+}
+async function openMonthShare(r){
+  const c=await monthImage(r);
+  const blob=await new Promise(res=>c.toBlob(res,"image/png")); if(!blob){ toast("Couldn't make the image"); return; }
+  const url=URL.createObjectURL(blob), name=`nextset-${r.ym}.png`;
+  openSheet("Share your month",(body)=>{
+    body.append(el("img",{src:url,alt:`${monthLong(r.ym)} summary`,style:"width:100%;border-radius:12px;border:1px solid var(--line);display:block"}),
+      el("p",{class:"tiny muted",style:"margin:8px 0 0"},"Made on your phone — nothing leaves it until you share. It shows totals, records, key-lift % changes and balance; no notes, gyms or set-by-set weights."),
+      el("button",{class:"btn",style:"margin-top:12px",onClick:async()=>{
+        const file=new File([blob], name, {type:"image/png"});
+        try{ if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:`${monthLong(r.ym)} — NextSet`}); return; } }
+        catch(e){ if(e && e.name==="AbortError") return; }
+        const a=document.createElement("a"); a.href=url; a.download=name; document.body.append(a); a.click(); a.remove(); toast("Image saved");
+      }}, ic("upload",16), "Share"));
+  },{stacked:true, onClose:()=>setTimeout(()=>URL.revokeObjectURL(url),1500)});
+}
+// Habits tab: every month with workouts, newest first
+function monthReportsCard(sessions){
+  const yms=[...new Set(sessions.map(x=>ymOf(x.date)))].sort().reverse();
+  if(!yms.length) return null;
+  const card=el("div",{class:"card"});
+  card.append(el("div",{class:"row between",style:"margin-bottom:2px"}, el("h2",{style:"margin:0"},"Monthly reports"), el("span",{class:"small muted"},"share as an image")));
+  (_showAllMonths?yms:yms.slice(0,4)).forEach(ym=>{ const n=sessions.filter(x=>ymOf(x.date)===ym).length, cur=ym===todayISO().slice(0,7);
+    card.append(el("button",{class:"keyrow",onClick:()=>openMonthReport(ym)},
+      el("div",{class:"grow"}, el("div",{class:"kr-name"}, monthLong(ym)+(cur?" (so far)":"")), el("div",{class:"small muted"}, `${n} workout${n===1?"":"s"}`)),
+      el("span",{class:"chev"},ic("chevron",16)))); });
+  if(yms.length>4) card.append(_showAllMonths ? showAllBtn("Show fewer",()=>{_showAllMonths=false;}) : showAllBtn(`Show all ${yms.length} months`,()=>{_showAllMonths=true;}));
+  return card;
+}
+// Today, first week of a month: last month's report, one tap away (dismissible)
+function monthBanner(){
+  const box=el("div",{});
+  (async()=>{
+    const today=todayISO(); if(+today.slice(8,10)>7) return;
+    const ym=prevYM(today.slice(0,7)); if((await getMeta("monthSeen"))===ym) return;
+    const sessions=await DB.all("sessions"); const n=sessions.filter(x=>ymOf(x.date)===ym).length; if(!n) return;
+    const wins=new Set(allWins(sessions, await DB.all("sets")).filter(w=>ymOf(w.date)===ym).map(w=>w.name)).size;   // lifts with a record
+    box.append(el("div",{class:"monthbanner"},
+      el("button",{class:"mb-main",onClick:()=>openMonthReport(ym).then(()=>box.remove())},
+        el("span",{class:"mb-eyebrow"},"Month in review"),
+        el("span",{class:"mb-title"}, `${monthOnly(ym)} · ${n} workout${n===1?"":"s"}${wins?` · records on ${wins} lift${wins===1?"":"s"}`:""}`),
+        el("span",{class:"chev"},ic("chevron",16))),
+      el("button",{class:"sheetclose",style:"width:32px;height:32px;flex:none","aria-label":"Dismiss",onClick:async()=>{ await setMeta("monthSeen",ym); box.remove(); }}, ic("x",15))));
+  })();
+  return box;
+}
+/* ---------- body-area balance: the spider chart ---------- */
+// six areas; opposite axes face each other (chest↔back, shoulders↔legs, arms↔core)
+const REGIONS6=["Chest","Shoulders","Arms","Back","Legs","Core"];
+function regionSets(sets){   // working sets per area — primary muscle 1, secondary ½ (same rule as the muscle bars)
+  const r=Object.fromEntries(REGIONS6.map(k=>[k,0]));
+  for(const x of sets){ if(!(x.reps>0)) continue; const ex=State.exercises.find(e=>e.id===x.exerciseId); if(!ex) continue;
+    if(ex.primary && r[regionOf(ex.primary)]!=null) r[regionOf(ex.primary)]+=1;
+    if(ex.secondary && r[regionOf(ex.secondary)]!=null) r[regionOf(ex.secondary)]+=0.5; }
+  return r;
+}
+// cur/prev: {Chest:n,…}; prev is drawn dashed underneath (both on one scale) so a shift in your plan shows
+function radarChart(cur, prev){
+  const W=320,H=288,cx=160,cy=138,R=88,n=REGIONS6.length;
+  const vals=k=>[cur[k]||0, prev?prev[k]||0:0];
+  const mx=Math.max(1,...REGIONS6.flatMap(vals));
+  const pt=(i,v)=>{ const a=-Math.PI/2+i*2*Math.PI/n, r=R*v/mx; return [cx+r*Math.cos(a), cy+r*Math.sin(a)]; };
+  const poly=get=>REGIONS6.map((k,i)=>pt(i,get(k)).map(v=>v.toFixed(1)).join(",")).join(" ");
+  const fv=v=>v%1?v.toFixed(1):String(v);
+  let g="";
+  [0.25,0.5,0.75,1].forEach(f=>{ g+=`<polygon points="${REGIONS6.map((k,i)=>pt(i,mx*f).map(v=>v.toFixed(1)).join(",")).join(" ")}" fill="none" stroke="var(--line)" stroke-width="1"/>`; });
+  REGIONS6.forEach((k,i)=>{ const [x,y]=pt(i,mx); g+=`<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`; });
+  if(prev) g+=`<polygon points="${poly(k=>prev[k]||0)}" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4,4"/>`;
+  g+=`<polygon points="${poly(k=>cur[k]||0)}" fill="var(--data)" fill-opacity="0.22" stroke="var(--data)" stroke-width="2" stroke-linejoin="round"/>`;
+  REGIONS6.forEach((k,i)=>{ const [x,y]=pt(i,cur[k]||0); g+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="var(--data)"/>`; });
+  REGIONS6.forEach((k,i)=>{ const a=-Math.PI/2+i*2*Math.PI/n, lx=cx+(R+22)*Math.cos(a), ly=cy+(R+22)*Math.sin(a);
+    const anchor=Math.abs(Math.cos(a))<0.2?"middle":Math.cos(a)>0?"start":"end", dy=Math.sin(a)<-0.5?-4:Math.sin(a)>0.5?10:0;
+    g+=`<text x="${lx.toFixed(1)}" y="${(ly+dy).toFixed(1)}" text-anchor="${anchor}" font-size="12" font-weight="700" fill="var(--text)">${k}</text>`+
+       `<text x="${lx.toFixed(1)}" y="${(ly+dy+14).toFixed(1)}" text-anchor="${anchor}" font-size="11" fill="var(--muted)">${fv(cur[k]||0)}${prev?` · was ${fv(prev[k]||0)}`:""}</text>`; });
+  const w=el("div",{class:"chart",role:"img","aria-label":"Sets per body area: "+REGIONS6.map(k=>`${k} ${fv(cur[k]||0)}${prev?` (was ${fv(prev[k]||0)})`:""}`).join(", ")});
+  w.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:360px;height:auto;display:block;margin:0 auto;overflow:visible">${g}</svg>`;
+  return w;
+}
+function radarLegend(curLbl, prevLbl){
+  return el("div",{class:"row",style:"gap:14px;justify-content:center;flex-wrap:wrap;margin-top:2px"},
+    el("span",{class:"tiny muted",style:"display:inline-flex;align-items:center;gap:6px"}, el("span",{style:"width:14px;height:10px;border-radius:3px;background:color-mix(in srgb,var(--data) 30%,transparent);border:2px solid var(--data)"}), curLbl),
+    ...(prevLbl?[el("span",{class:"tiny muted",style:"display:inline-flex;align-items:center;gap:6px"}, el("span",{style:"width:16px;border-top:2px dashed var(--muted)"}), prevLbl)]:[]));
 }
 // "Strength chart" — the direct way in: a live 12-week preview of one lift (whatever you last looked at
 // in the full chart, else your first key lift, else your most-trained) and a button into the full chart
@@ -4130,7 +4349,8 @@ function viewInsights(){
       el("div",{class:"small muted",style:"margin-top:6px"},"Each square is a day · tap one to open that workout."));
 
     // ---- Q1 assembled: consistency first ----
-    secC.append(el("div",{class:"sectionhead qhead",style:"--qc:var(--sec-teal)"},"Am I consistent?"), ...(recapEl?[recapEl]:[]), ovCard, goalCard, calCard);
+    const monthCard=monthReportsCard(sessions);
+    secC.append(el("div",{class:"sectionhead qhead",style:"--qc:var(--sec-teal)"},"Am I consistent?"), ...(recapEl?[recapEl]:[]), ovCard, goalCard, calCard, ...(monthCard?[monthCard]:[]));
 
     // ===== Muscle targets + breakdown (Q3: What should I change?) =====
     const inMR = d => muscleRange==="week" ? mondayOf(d)===thisWeek : daysAgo(d) <= ({"4wk":28,"12wk":84,"6mo":182}[muscleRange]||28);
@@ -4195,15 +4415,20 @@ function viewInsights(){
       // Push / pull / legs balance
       const S=(...ks)=>ks.reduce((t,k)=>t+(vol[k]||0),0);
       const push=S("chest","front_delts","side_delts","triceps"), pull=S("lats","upper_back","rear_delts","biceps","forearms"), legs=S("quads","hamstrings","glutes","calves");
-      const bmax=Math.max(1,push,pull,legs);
-      const bcard=el("div",{class:"card"}); bcard.append(el("h2",{},"Balance"));
-      [["Push",push],["Pull",pull],["Legs",legs]].forEach(([lbl,v])=>bcard.append(el("div",{class:"vbar"},
-        el("div",{class:"lbl"},lbl), el("div",{class:"track"}, el("div",{class:"fill",style:`width:${Math.round(v/bmax*100)}%`})),
-        el("div",{class:"val"}, v%1?v.toFixed(1):String(v)))));
+      // spider: sets per body area for this range, dashed = the previous equal range (last week for "This week")
+      const inPrev = d => muscleRange==="week" ? mondayOf(d)===WK[WK.length-2] : (()=>{ const a=daysAgo(d); return a>prevDays && a<=2*prevDays; })();
+      const curR=regionSets(allSets.filter(x=>{ const d=dateOf(x); return d && inMR(d); }));
+      const prevR=regionSets(allSets.filter(x=>{ const d=dateOf(x); return d && inPrev(d); }));
+      const hasPrev=REGIONS6.some(k=>prevR[k]>0);
+      const bcard=el("div",{class:"card"});
+      bcard.append(el("div",{class:"row between",style:"margin-bottom:4px"}, el("h2",{style:"margin:0"},"Balance"), el("span",{class:"small muted"},`sets · ${mrLabel}`)),
+        radarChart(curR, hasPrev?prevR:null),
+        radarLegend(mrLabel.replace(/^last /,"Last ").replace(/^this /,"This "), hasPrev?(muscleRange==="week"?"Last week":"The period before"):null),
+        el("div",{class:"small",style:"margin-top:8px"}, `Push ${push%1?push.toFixed(1):push} · Pull ${pull%1?pull.toFixed(1):pull} · Legs ${legs%1?legs.toFixed(1):legs} sets`));
       let note;
       if(push+pull>0){ const r=push/Math.max(pull,0.5); note = r>1.5?"Push is outpacing pull — add rows/pulls to balance the shoulders." : r<0.66?"Pull is outpacing push — good for posture; add pressing if chest's a goal." : "Push and pull are well balanced."; }
       else note="Log some upper-body work to see your push/pull balance.";
-      bcard.append(el("div",{class:"tiny muted",style:"margin-top:4px"}, note));
+      bcard.append(el("div",{class:"tiny muted",style:"margin-top:2px"}, note));
       muscleCards.push(bcard);
     }
 
@@ -4721,7 +4946,7 @@ let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
 let insightsSection="consist";   // active Insights tab: consist | prog | mix | att — session-scoped
 let _recapOpen=false;            // weekly recap banner expanded — session-scoped
 let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
-let _showAllAlerts=false, _showAllMuscles=false, _showAllWins=false, _showAllMovers=false; // Insights long-list expanders — session-scoped
+let _showAllAlerts=false, _showAllMuscles=false, _showAllWins=false, _showAllMovers=false, _showAllMonths=false; // Insights long-list expanders — session-scoped
 // "Show all N" ghost button used by both long Insights sections; preserves scroll on re-render
 function showAllBtn(label, onTap){
   return el("button",{class:"btn ghost sm",style:"width:100%;margin-top:4px",onClick:()=>{ _insightsScroll=window.scrollY; onTap(); render(); }}, ic("chevron",14), label);
