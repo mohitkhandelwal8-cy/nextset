@@ -118,7 +118,9 @@
   /* set logger */
   /* set table: SET · KG · REPS · ✓ — each number is − [value] +, so you can tap-step or type;
      the steppers shrink on narrow phones so "102.5" never clips (≥16px text: no iOS focus-zoom) */
-  .sethead,.setrow{display:grid;grid-template-columns:22px minmax(0,1.18fr) minmax(0,1fr) 46px;gap:6px;align-items:center}
+  .sethead,.setrow{display:grid;grid-template-columns:22px minmax(0,1.18fr) minmax(0,1fr) 46px 24px;gap:6px;align-items:center}
+  .setx{width:24px;height:46px;display:flex;align-items:center;justify-content:center;color:var(--muted);background:none;border:none;padding:0;opacity:.75}
+  .setx:active{color:var(--danger);opacity:1}
   .sethead{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:0 0 6px}
   .sethead span{text-align:center}
   .settable{margin-top:12px}
@@ -126,7 +128,8 @@
   .setrow .idx{color:var(--muted);font-size:14px;font-weight:700;text-align:center}
   .setrow .idx.drop{color:var(--warn)}
   .lastline{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin:12px 2px 0;font-size:14px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
-  .lastline .lbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .lastline .lbl, .histlines .lbl{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .histlines{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;align-items:baseline;margin:12px 2px 0;font-size:14px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
   .stepcell{--sb:38px;display:flex;align-items:stretch;height:46px;min-width:0;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
   .stepcell:focus-within{border-color:var(--accent)}
   .stepcell .sbtn{flex:0 0 var(--sb);display:flex;align-items:center;justify-content:center;color:var(--muted);background:none;border:none;padding:0}
@@ -140,7 +143,7 @@
   .setrow.locked .numcell{opacity:1;color:var(--text);-webkit-text-fill-color:var(--text)}
   @media (max-width:400px){ .stepcell{--sb:34px} }
   @media (max-width:360px){
-    .sethead,.setrow{gap:4px;grid-template-columns:18px minmax(0,1.2fr) minmax(0,1fr) 44px}
+    .sethead,.setrow{gap:4px;grid-template-columns:18px minmax(0,1.2fr) minmax(0,1fr) 44px 22px}
     .stepcell{--sb:30px}
     .stepcell .numcell{font-size:16px}
     .setrow .done{width:44px}
@@ -159,6 +162,7 @@
   .suggestion{font-size:14px;color:var(--text);background:color-mix(in srgb,var(--accent-2) 9%,transparent);
     border-left:3px solid var(--accent-2);border-radius:8px;padding:8px 10px;margin:10px 0 4px;line-height:1.4}
   .suggestion.warn{background:color-mix(in srgb,var(--warn) 9%,transparent);border-left-color:var(--warn)}
+  .suggestion.one{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}   /* one line; tap shows the rest */
   /* modal/sheet */
   .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;touch-action:none}
   body.modal-open{overflow:hidden}
@@ -388,13 +392,16 @@
   .iconbtn:active{color:var(--text)}
   .jointflag{display:inline-flex;color:var(--warn)}
   .loghint{display:flex;align-items:center;gap:6px;margin:8px 2px 0}
-  .lfoot{display:flex;flex-direction:column;align-items:flex-start;margin-top:2px}
+  .lfoot{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:2px}
   .actchips{display:flex;flex-wrap:wrap;gap:6px}
-  .actchip{display:inline-flex;align-items:center;gap:5px;min-height:36px;padding:0 12px;border-radius:999px;font-size:13px;font-weight:700;
+  .actchip{display:inline-flex;align-items:center;gap:4px;min-height:36px;padding:0 10px;border-radius:999px;font-size:13px;font-weight:700;
     color:var(--text);background:var(--surface-2);border:1px solid var(--line)}
   .actchip .ic{color:var(--muted)}
   .actchip.main{color:var(--accent)} .actchip.main .ic{color:var(--accent)}
   .actchip.quiet{color:var(--muted)}
+  .actchip.icononly{padding:0;width:36px;justify-content:center}
+  .voltext{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums;padding:0 2px}
+  .voltext.beat{color:var(--accent-2)}
   .actchip:active{background:color-mix(in srgb,var(--text) 10%,var(--surface-2))}
   .linkbtn{display:inline-flex;align-items:center;gap:6px;color:var(--accent);font-weight:700;font-size:15px;min-height:44px;padding:0 4px;background:none;border:none}
   .linkbtn.sm{font-size:14px}
@@ -552,6 +559,7 @@ try{ document.documentElement && document.documentElement.setAttribute("data-the
    ============================================================ */
 
 /* ---------- tiny DB layer (IndexedDB) ---------- */
+const _bestSetCache = new Map();   // exerciseId → {weight,reps,date} | null — your best set ever (see bestSetEver)
 const DB = (() => {
   const NAME = "nextset", VER = 2;
   let db = null;
@@ -580,8 +588,9 @@ const DB = (() => {
     });
   }
   function tx(store,mode="readonly"){return db.transaction(store,mode).objectStore(store);}
-  const put = (store,val)=>new Promise((res,rej)=>{const r=tx(store,"readwrite").put(val);r.onsuccess=()=>res(val);r.onerror=()=>rej(r.error);});
-  const del = (store,key)=>new Promise((res,rej)=>{const r=tx(store,"readwrite").delete(key);r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});
+  const touched = store => { if(store==="sets"||store==="sessions") _bestSetCache.clear(); };   // history changed → best sets recompute
+  const put = (store,val)=>new Promise((res,rej)=>{touched(store);const r=tx(store,"readwrite").put(val);r.onsuccess=()=>res(val);r.onerror=()=>rej(r.error);});
+  const del = (store,key)=>new Promise((res,rej)=>{touched(store);const r=tx(store,"readwrite").delete(key);r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});
   const get = (store,key)=>new Promise((res,rej)=>{const r=tx(store).get(key);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});
   const all = (store)=>new Promise((res,rej)=>{const r=tx(store).getAll();r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error);});
   const byIndex = (store,idx,val)=>new Promise((res,rej)=>{const r=tx(store).index(idx).getAll(val);r.onsuccess=()=>res(r.result||[]);r.onerror=()=>rej(r.error);});
@@ -680,7 +689,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v112"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v113"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -894,6 +903,21 @@ function topSet(sets){ let b=null;
   for(const x of sets){ if(!(x.reps>0)) continue; const w=+x.weight||0;
     if(!b || w>b.weight || (w===b.weight && +x.reps>b.reps)) b={weight:w, reps:+x.reps}; }
   return b; }
+// your best set ever on a lift (pooled across linked machines), judged the way records are: compounds by
+// est. 1RM, accessories and bodyweight by the top set (heaviest, then most reps), assisted by least help
+async function bestSetEver(ex){
+  if(!ex) return null;
+  if(_bestSetCache.has(ex.id)) return _bestSetCache.get(ex.id);
+  const hist=(await exerciseHistory(ex.id)).filter(x=>x.reps>0);
+  let b=null;
+  const better = isInverted(ex) ? (x,y)=> (+x.weight||0)<(+y.weight||0) || ((+x.weight||0)===(+y.weight||0) && x.reps>y.reps)
+    : showsE1RM(ex) ? (x,y)=> epley(+x.weight||0,x.reps)>epley(+y.weight||0,y.reps)
+    : (x,y)=> (+x.weight||0)>(+y.weight||0) || ((+x.weight||0)===(+y.weight||0) && x.reps>y.reps);
+  for(const x of hist) if(!b || better(x,b)) b=x;
+  const out = b ? {weight:+b.weight||0, reps:+b.reps, date:b.date} : null;
+  _bestSetCache.set(ex.id, out);
+  return out;
+}
 // short display of a logged set — bodyweight: `weight` = ADDED load (0 = bodyweight); plate: 0 = sled only
 function fmtSetShort(ex,w,r){
   if(isInverted(ex)) return (+w>0) ? `−${w}${ex.unit||"kg"}×${r}` : `${r} reps · unassisted`;
@@ -1022,7 +1046,7 @@ async function loadState(){
   State.plans = await DB.all("plans");
   // which plan you did on which day (last ~2 months) — feeds Up next's weekly-habit rule without
   // making the Today screen wait on a full sessions read
-  State.planDays = (await DB.all("sessions")).filter(x=>x.planId && daysAgo(x.date)<=63).map(x=>({planId:x.planId, date:x.date}));
+  State.planDays = (await DB.all("sessions")).filter(x=>x.planId && daysAgo(x.date)<=63).map(x=>({planId:x.planId, date:x.date, at:x.startedAt||""}));
   // backfill tags for exercises saved before tagging existed (uses built-in knowledge)
   for(const ex of State.exercises){
     let changed=false;
@@ -1326,8 +1350,7 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
     if(earlier && missed){ rough={tags:roughTags(prev.session), from:earlier.session.date}; prev=earlier; }
   }
   const withRough = r => !rough ? r : {...r, prev:lastPrev, excused:true,
-    note:`Last time was a rough day (${rough.tags.join(", ").toLowerCase()}), so it doesn't count — planning from ${fmtDate(rough.from)} instead. `
-      +(r.note||"").replace("Came up short last time","Came up short then").replace("Beat last time:","Beat it:")};
+    note:`Rough day ignored (${rough.tags.join(", ").toLowerCase()}) — `+(r.note||"").replace(/last time/g, shortDay(rough.from)).replace(/^./, c=>c.toLowerCase())};
   const sets = Math.max(1, ex.sets||3);
   const repMin = ex.repMin||8, repMax = ex.repMax||12, inc = ex.increment||2.5;
   // equivalent-machine mapping (hint, never override): no recent own history, but the linked
@@ -1352,14 +1375,14 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
             .sort((a,b)=> a.weight-b.weight || b.reps-a.reps);
           const topO=Math.max(...oPlan.map(p=>p.weight)), topM=Math.max(...mapped.map(p=>p.weight));
           return { plan: mapped, kind:"mapped", prev,
-            note:`Based on ${other.name} at ${gymNameOf(other.gymId)||"your other gym"} (${fmtW(topO,other)} there) — ≈ ${fmtW(topM,ex)} here. First time mapping, so treat it as a starting point.` };
+            note:`≈ ${fmtW(topM,ex)} here, from ${fmtW(topO,other)} on ${other.name} at ${gymNameOf(other.gymId)||"your other gym"} — a starting point` };
         }
       }
     }
   }
   if(!prev){
     return { plan: Array.from({length:sets},()=>({weight:0,reps:repMin,target:repMin})),
-             note: isBW(ex)?"First time — log your reps and I'll progress them next time.":"First time on this — log a working set and I'll progress it next time.", kind:"new" };
+             note: isBW(ex)?"First time — I'll progress from the reps you log":"First time — I'll progress from what you log", kind:"new" };
   }
   // deload the user scheduled from Insights — consumed once, and only exists because they tapped it
   const adjKey="pendingAdjust:"+(ex.linkId||ex.id);
@@ -1371,9 +1394,7 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
     // on an assisted machine "easier" means MORE help, so a deload moves the number up, not down
     const dw=Math.max(0, round(isInverted(ex) ? top*(1+pct) : top*(1-pct), inc));
     return { plan: Array.from({length:sets},()=>({weight:dw,reps:repMin,target:repMin})),
-             note: isInverted(ex)
-               ? `Deload you scheduled from Insights — more assistance (${fmtW(dw,ex)}) to rebuild from.`
-               : "Deload you scheduled from Insights — rebuild from here.", kind:"deload", prev };
+             note: isInverted(ex) ? `Scheduled deload — more help (${fmtW(dw,ex)}) to rebuild` : "Scheduled deload — rebuild from here", kind:"deload", prev };
   }
   // assisted machines run on a backwards scale — their own mirrored double progression
   if(isInverted(ex)) return withRough(await invertedNext(ex, prev, {sets,repMin,repMax,inc}));
@@ -1402,26 +1423,25 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
       if(sameW && b.Vlast>Vlast){ seed=b.seed; Vlast=b.Vlast; backTo=before.session.date; }
     }
     plan = toAdded(seed.map(s=>({weight:s.weight,reps:s.reps}))); targetVol = Vlast; kind = "hold";
-    note = streak>=3
-      ? `Still holding — ${streak} sessions at this target. Stick with it; if it's truly stuck, ease the weight down a notch yourself.`
-      : backTo ? `Came up short last time — back to your ${fmtDate(backTo)} numbers. Match them and we build from there.`
-      : `Came up short last time — same weights and reps again. Nail every set and we add load next.`;
+    note = streak>=3 ? `Holding ${streak} sessions — if it's stuck, drop a notch`
+      : backTo ? `Hold — back to your ${shortDay(backTo)} numbers, then up`
+      : `Hold — short last time, so repeat those numbers`;
   } else {
     const pct = pace.pct;
-    const feel = pace.mode==="ease" ? `Easing back in after a hold — +${pct}% this time, full pace once two land. ` : "";
+    const feel = pace.mode==="ease" ? `Easing in (+${pct}%) · ` : "";
     const r = volumeProgress(seedSets, {sets,repMin,repMax,inc,pct});
     plan = toAdded(r.plan); targetVol = r.Vnew;
     kind = r.weightAdded ? "weight" : (r.repAdded ? "rep" : "repeat");
     const top = Math.max(...plan.map(s=>s.weight));
     if(r.weightAdded){
       const rs=[...new Set(plan.map(s=>s.reps))].sort((a,b)=>a-b);
-      note = `You hit ${repMax} on every set — add weight: ${fmtW(top,ex)}${(pl||bwBase)?" added":""} × ${rs.join("–")}, then build the reps back up.`;
+      note = `Earned it — add weight: ${fmtW(top,ex)}${(pl||bwBase)?" added":""} × ${rs.join("–")}`;
     } else if(r.repAdded){
       const {seed} = normalizeSeed(seedSets, sets);
       const extra = Math.max(1, Math.round(r.plan.reduce((t,s)=>t+s.reps,0) - seed.reduce((t,s)=>t+s.reps,0)));
-      note = `${feel}Beat last time: same weights, ${extra>1?`${extra} more reps`:"one more rep"} than before.`;
+      note = `${feel}Same weights, +${extra} rep${extra>1?"s":""} vs last time`;
     } else {
-      note = `${feel}Match last time, then we'll add load.`;
+      note = `${feel}Match last time, then we add load`;
     }
   }
   const outPlan = plan.map(s=>({weight:s.weight, reps:s.reps, target:s.reps}))
@@ -1435,7 +1455,7 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
         const mappedTop=round(Math.max(0,...oPrev.sets.map(s2=>+s2.weight||0))*rate, inc);
         const ownTop=Math.max(0,...outPlan.map(s2=>s2.weight));
         if(ownTop>0 && mappedTop>ownTop*1.1)
-          note+=` Your ${gymNameOf(other.gymId)||"other gym"} sessions suggest you're stronger than this — try ${fmtW(mappedTop,ex)} if it feels light.`;
+          note+=` · ${gymNameOf(other.gymId)||"Your other gym"} says try ${fmtW(mappedTop,ex)} if it feels light`;
       }
     }
   }
@@ -1456,20 +1476,20 @@ async function classicNext(ex, prev, {sets,repMin,repMax,inc}){
   if(allTop){
     const w = round(workW+inc, inc);
     plan = Array.from({length:sets},()=>({weight:w,reps:repMin,target:repMin}));
-    note = `${bw?"Add load":"Add weight"} → ${loadStr(w)} × ${repMin} — up from ${loadStr(workW)} last time. You hit ${repMax}+ ${bw?"reps":"on every set"}.`;
+    note = `Hit ${repMax}+ — ${bw?"add load":"add weight"}: ${loadStr(w)} × ${repMin}`;
     kind="weight";
   } else if(minReps>=repMin){
     const tgt = Math.min(maxReps+1, repMax);
     plan = Array.from({length:sets},()=>({weight:workW,reps:tgt,target:tgt}));
-    note = `${bw? (workW>0?loadStr(workW):"Bodyweight") : (isPlate(ex)&&workW===0?"Sled only":`Same weight ${fmtW(workW,ex)}`)} → push for ${tgt} reps.`;
+    note = `${bw? (workW>0?loadStr(workW):"Bodyweight") : (isPlate(ex)&&workW===0?"Sled only":`Same weight ${fmtW(workW,ex)}`)} → push for ${tgt} reps`;
   } else {
     plan = Array.from({length:sets},()=>({weight:workW,reps:repMin,target:repMin}));
-    note = `${bw?`Repeat ${loadStr(workW)} for ${repMin} reps`:`Repeat ${fmtW(workW,ex)} × ${repMin}`} — you missed the bottom of the range last time.`;
+    note = `Under ${repMin} last time — repeat ${bw?loadStr(workW):fmtW(workW,ex)} × ${repMin}`;
     kind="repeat";
     const stalls = await stallCount(ex.id);
     if(stalls>=2 && !((bw||isPlate(ex)) && workW===0)){
       const dw = round(workW*0.9, inc);
-      note = `${bw?`Stalled ${stalls+1} sessions at ${loadStr(workW)}. Drop to ${loadStr(dw)}`:`Stalled ${stalls+1} sessions at ${fmtW(workW,ex)}. Consider a deload to ${fmtW(dw,ex)}`} and rebuild.`;
+      note = `Stalled ${stalls+1} sessions — drop to ${bw?loadStr(dw):fmtW(dw,ex)} and rebuild`;
       kind="deload";
       plan = Array.from({length:sets},()=>({weight:dw,reps:repMin,target:repMin}));
     }
@@ -1496,25 +1516,25 @@ async function invertedNext(ex, prev, {sets,repMin,repMax,inc}){
       // already unassisted and hitting the top of the range — the machine has nothing left to give
       const tgt = Math.min(maxReps+1, repMax);
       plan = mk(0, tgt); kind="rep";
-      note = `You're doing these unassisted for ${repMax}+ reps — the machine's done its job. Move to real pull-ups, or start adding load with a belt.`;
+      note = `Unassisted for ${repMax}+ — move to real pull-ups or add a belt`;
     } else {
       const w = Math.max(0, round(workW-inc, inc));
       plan = mk(w, repMin); kind="weight";
       note = w>0
-        ? `Less help → ${loadStr(w)} × ${repMin}, down from ${loadStr(workW)} last time. You hit ${repMax}+ on every set.`
-        : `Drop the assistance entirely — try these unassisted for ${repMin}. You hit ${repMax}+ on every set at ${loadStr(workW)}.`;
+        ? `Hit ${repMax}+ — less help: ${loadStr(w)} × ${repMin}`
+        : `Hit ${repMax}+ — try them unassisted × ${repMin}`;
     }
   } else if(minReps>=repMin){
     const tgt = Math.min(maxReps+1, repMax);
     plan = mk(workW, tgt);
-    note = `Same ${loadStr(workW)} → push for ${tgt} reps.`;
+    note = `Same ${loadStr(workW)} → push for ${tgt} reps`;
   } else {
     plan = mk(workW, repMin); kind="repeat";
-    note = `Repeat ${loadStr(workW)} for ${repMin} reps — you missed the bottom of the range last time.`;
+    note = `Under ${repMin} last time — repeat ${loadStr(workW)} × ${repMin}`;
     const stalls = await stallCount(ex.id);
     if(stalls>=2){
       const dw = round(workW+inc, inc);               // easing off = MORE assistance
-      note = `Stalled ${stalls+1} sessions at ${loadStr(workW)}. Add a little help back (${loadStr(dw)}) and rebuild.`;
+      note = `Stalled ${stalls+1} sessions — add a little help (${loadStr(dw)})`;
       kind="deload"; plan = mk(dw, repMin);
     }
   }
@@ -1958,24 +1978,41 @@ function viewToday(){
 function nextPlan(plans){
   // plans saved for the gym you're at come first; other gyms' plans only when this gym has none
   const here=plans.filter(p=>p.gymId===State.currentGymId), pool0=here.length?here:plans;
-  // 1) weekly habit: the plan you did on THIS weekday in most recent weeks (2+ times in the last 6
-  //    weeks, and more than half of that weekday's workouts) — unless you did it today or yesterday
-  const dow=new Date().getDay(), ids=new Set(pool0.map(p=>p.id)), tally={};
-  for(const x of (State.planDays||[])){ const a=daysAgo(x.date);
-    if(a<1 || a>42 || !ids.has(x.planId) || new Date(x.date+"T12:00:00").getDay()!==dow) continue;
+  if(pool0.length===1) return {plan:pool0[0], why:""};
+  const ids=new Set(pool0.map(p=>p.id)), byId=Object.fromEntries(pool0.map(p=>[p.id,p]));
+  // your plan workouts in order (last ~9 weeks), oldest first
+  const seq=(State.planDays||[]).filter(x=>ids.has(x.planId))
+    .sort((a,b)=>(a.date+(a.at||"")).localeCompare(b.date+(b.at||"")));
+  const last=seq.length?seq[seq.length-1]:null, lastName=last&&byId[last.planId]?.name;
+  // 0) never the plan you did last time — you don't repeat a session back to back
+  const cand=pool0.filter(p=>!last || p.id!==last.planId);
+  const ok=new Set(cand.map(p=>p.id));
+  // 1) YOUR ORDER: what you've usually done after the plan you did last (2+ times, most of the time).
+  //    Follows your sequence even when the days shift (a missed or moved day doesn't throw it off).
+  if(last){
+    const after={};
+    for(let i=1;i<seq.length;i++) if(seq[i-1].planId===last.planId && seq[i].planId!==last.planId) after[seq[i].planId]=(after[seq[i].planId]||0)+1;
+    const tot=Object.values(after).reduce((t,v)=>t+v,0), top=Object.entries(after).sort((a,b)=>b[1]-a[1])[0];
+    if(top && ok.has(top[0]) && top[1]>=2 && top[1]/tot>0.5) return {plan:byId[top[0]], why:`Usually comes after ${lastName}`};
+  }
+  // 2) weekly habit: the plan you did on THIS weekday in most recent weeks (2+ times in the last 6 weeks,
+  //    and more than half of that weekday's workouts) — unless you've done it in the last 3 days
+  const dow=new Date().getDay(), tally={};
+  for(const x of seq){ const a=daysAgo(x.date);
+    if(a<1 || a>42 || new Date(x.date+"T12:00:00").getDay()!==dow) continue;
     tally[x.planId]=(tally[x.planId]||0)+1; }
   const total=Object.values(tally).reduce((t,v)=>t+v,0);
   const top=Object.entries(tally).sort((a,b)=>b[1]-a[1])[0];
-  if(top && top[1]>=2 && top[1]/total>0.5){
-    const p=pool0.find(x=>x.id===top[0]);
-    if(p && !(p.lastUsedAt && daysAgo(p.lastUsedAt)<=1))
+  if(top && ok.has(top[0]) && top[1]>=2 && top[1]/total>0.5){
+    const p=byId[top[0]];
+    if(!(p.lastUsedAt && daysAgo(p.lastUsedAt)<=3))
       return {plan:p, why:`You usually do this on ${new Date().toLocaleDateString(undefined,{weekday:"long"})}s`};
   }
-  // 2) rotation: least-recently-done of the plans in use (last 4 weeks); else the oldest-done / never-done
-  const recent=pool0.filter(p=>p.lastUsedAt && daysAgo(p.lastUsedAt)<=28);
-  const pool=recent.length?recent:pool0;
+  // 3) rotation: least-recently-done of the plans in use (last 4 weeks); else the oldest-done / never-done
+  const recent=cand.filter(p=>p.lastUsedAt && daysAgo(p.lastUsedAt)<=28);
+  const pool=recent.length?recent:cand;
   const plan=pool.slice().sort((a,b)=>(a.lastUsedAt||"").localeCompare(b.lastUsedAt||"") || (a.createdAt||"").localeCompare(b.createdAt||""))[0];
-  return {plan, why: recent.length>1 ? "Next in your rotation — the one you did longest ago" : ""};
+  return {plan, why: recent.length>1 ? "Next in your rotation — the one you did longest ago" : lastName ? "Next on your list" : ""};
 }
 // "This week": a dot per day you trained + the count (and your goal, if you set one)
 function weekGlance(){
@@ -2268,7 +2305,9 @@ function loggerCard(item, isCurrent, ss){
       el("div",{class:"small muted"}, ex?`${ex.repMin}–${ex.repMax} reps · ${fmtRest(restOf(ex))} rest`:""),
       setupNoteLine(ex,{onSaved:render})),
     el("button",{class:"iconbtn","aria-label":`More options for ${ex?.name||"exercise"}`,onClick:()=>openItemMenu(item)}, ic("more",20))));
-  if(item.note) card.append(el("div",{class:"suggestion"+(["deload","repeat"].includes(item.kind)?" warn":"")}, item.note));
+  if(item.note){ const nt=el("div",{class:"suggestion one"+(["deload","repeat"].includes(item.kind)?" warn":""),role:"button",tabindex:"0",title:item.note,
+      "aria-label":item.note, onClick:()=>nt.classList.toggle("one")}, item.note);
+    card.append(nt); }
   // what weight to log, for the ambiguous cases
   const logHint = ex && (isInverted(ex) ? "Log the assistance weight — less is harder, 0 = unassisted."
                   : ex.unit==="lvl" ? "Numbered stack — log the level you set (1, 2, 3…), not kg."
@@ -2279,11 +2318,17 @@ function loggerCard(item, isCurrent, ss){
   // ---- the set table ----
   const last=item.last&&item.last.sets&&item.last.sets.length ? item.last.sets : null;
   const wHead=weightHead(ex);
-  if(last) card.append(el("div",{class:"lastline"}, el("span",{class:"lbl"},"Last time"),
-    el("span",{}, last.map(s=>shortSet(ex,s.weight,s.reps)).join("  ·  "))));
+  if(last){
+    const hist=el("div",{class:"histlines"}, el("span",{class:"lbl"},"Last time"),
+      el("span",{}, last.map(s=>shortSet(ex,s.weight,s.reps)).join("  ·  ")));
+    const putBest=b=>{ if(b) hist.append(el("span",{class:"lbl"},"Best"),
+      el("span",{}, shortSet(ex,b.weight,b.reps), el("span",{class:"muted",style:"font-weight:500"}, `  ·  ${shortDay(b.date)}`))); };
+    if(_bestSetCache.has(ex.id)) putBest(_bestSetCache.get(ex.id)); else bestSetEver(ex).then(putBest);   // first look: filled in a moment later
+    card.append(hist);
+  }
   const table=el("div",{class:"settable"});
   table.append(el("div",{class:"sethead","aria-hidden":"true"},
-    el("span",{},"Set"), el("span",{}, bw?"Reps":wHead), el("span",{}, bw?wHead:"Reps"), el("span",{})));
+    el("span",{},"Set"), el("span",{}, bw?"Reps":wHead), el("span",{}, bw?wHead:"Reps"), el("span",{}), el("span",{})));
   let setNo=0;
   item.sets.forEach((set,si)=>{
     const drop=!!set.drop; if(!drop) setNo++;
@@ -2308,6 +2353,14 @@ function loggerCard(item, isCurrent, ss){
       } else stopRest();   // un-ticking cancels the rest you just started
       persistSession(); render();   // re-render so the row locks/unlocks
     }},ic("check",18)));
+    // remove this set — visible on sets not ticked yet (a ticked set is locked); a set takes its drop sets
+    // with it; never the last one left. Undo puts them back where they were.
+    let cnt=1; if(!drop) while(item.sets[si+cnt] && item.sets[si+cnt].drop) cnt++;
+    row.append(!set.done && item.sets.length-cnt>=1
+      ? el("button",{type:"button",class:"setx","aria-label":`Remove ${drop?"drop set":"set "+n}`,onClick:()=>{
+          const removed=item.sets.splice(si,cnt); persistSession(); render();
+          toast(`${drop?"Drop set":"Set "+n} removed`,{undo:()=>{ item.sets.splice(si,0,...removed); persistSession(); render(); }}); }}, ic("x",15))
+      : el("span",{"aria-hidden":"true"}));
     table.append(row);
   });
   card.append(table);
@@ -2327,16 +2380,15 @@ function loggerCard(item, isCurrent, ss){
       item.sets.splice(di, 0, {weight:round((base?.weight||0)*0.8, ex?.increment||2.5), reps:base?.reps||(ex?.repMin||8), done:false, drop:true});
       persistSession(); render(); },null,"Add a drop set (about 20% lighter)"),
     ...(inSS ? [chip("x","Unlink superset",()=>ungroupSS(item))]
-      : sIdx>=0 && sIdx<sItems.length-1 ? [chip("link","Superset",()=>groupWithNext(item),null,"Superset with the next exercise")] : []),
-    ...(item.sets.length>1 && !lastSet.done ? [chip("minus","Remove set",()=>{ item.sets.pop(); persistSession(); render(); },"quiet")] : [])));
+      : sIdx>=0 && sIdx<sItems.length-1 ? [chip("link","Superset",()=>groupWithNext(item),null,"Superset with the next exercise")] : [])));
   const invVol = isInverted(ex);
   if(last && !(invVol && State.bodyweightKg==null)){
     const volOf = (w,r) => invVol ? (invEffectiveKg(ex,w)||0)*(+r||0) : bw ? (+r||0) : (+w||0)*(+r||0);
     const lastVol = last.reduce((t,s)=>t+volOf(s.weight,s.reps),0);
     const curVol = item.sets.reduce((t,s)=> t + (s.done?volOf(s.weight,s.reps):0), 0);
     const beat = curVol>0 && curVol>=lastVol, fmtV=v=>Math.round(v).toLocaleString();
-    foot.append(el("div",{class:"volpill"+(beat?" beat":""),style:"margin-top:8px",title:bw?"total reps vs last time":"weight × reps vs last time"},
-      beat?ic("check",13):el("span"), `${bw?"Reps":"Volume"} ${fmtV(curVol)} / ${fmtV(lastVol)}${bw?"":" "+(ex?.unit||"kg")}`));
+    foot.append(el("div",{class:"voltext"+(beat?" beat":""),title:bw?"total reps vs last time":"weight × reps vs last time"},
+      ...(beat?[ic("check",13)]:[]), `${bw?"Reps":"Volume"} ${fmtV(curVol)} / ${fmtV(lastVol)}${bw?"":" "+(ex?.unit||"kg")}`));
   }
   card.append(foot);
 
@@ -2577,7 +2629,7 @@ async function commitSession(opts={}){
     ...(Object.keys(targets).length?{targets}:{}), ...(Object.keys(tbw).length?{tbw}:{}),
     ...(s.planId?{planId:s.planId, planName:s.planName}:{})};
   await DB.put("sessions",sessionRec);
-  if(s.planId) (State.planDays=State.planDays||[]).push({planId:s.planId, date:s.date});
+  if(s.planId) (State.planDays=State.planDays||[]).push({planId:s.planId, date:s.date, at:s.startedAt||""});
   if(s.planId){ const plan=State.plans.find(p=>p.id===s.planId);   // plan usage: powers "done N days ago · M×"
     if(plan){ plan.lastUsedAt=s.date; plan.useCount=(plan.useCount||0)+1; await DB.put("plans",plan); } }
   for(const st of done) await DB.put("sets",st);
