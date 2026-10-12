@@ -159,9 +159,6 @@
   .suggestion{font-size:14px;color:var(--text);background:color-mix(in srgb,var(--accent-2) 9%,transparent);
     border-left:3px solid var(--accent-2);border-radius:8px;padding:8px 10px;margin:10px 0 4px;line-height:1.4}
   .suggestion.warn{background:color-mix(in srgb,var(--warn) 9%,transparent);border-left-color:var(--warn)}
-  .rpe{display:flex;gap:6px;margin-top:6px}
-  .rpe button{flex:1;font-size:15px;font-weight:600;padding:6px 4px;min-height:44px;border-radius:10px;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);display:inline-flex;align-items:center;justify-content:center;gap:5px}
-  .rpe button.on{background:var(--sel);border-color:var(--sel);color:var(--on-sel)}   /* a choice = selected (violet), not a CTA */
   /* modal/sheet */
   .sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;display:flex;align-items:flex-end;justify-content:center;touch-action:none}
   body.modal-open{overflow:hidden}
@@ -368,11 +365,6 @@
   .lg.l1{background:rgba(34,197,94,.3)} .lg.l2{background:rgba(34,197,94,.6)} .lg.l3{background:var(--accent-2)}
   /* Insights is a reading surface — roomier cards there only; the logger stays dense */
   .insightsv .card{padding:16px 15px}
-  /* weekly recap: compact expandable banner (a note, not furniture) */
-  .recapbar{background:var(--surface);border:1px solid var(--sec-teal);border-radius:12px;padding:6px 8px 6px 12px;margin-bottom:12px}
-  .recaphead{flex:1;min-width:0;display:flex;align-items:center;gap:9px;background:none;border:none;color:var(--text);min-height:36px;cursor:pointer;text-align:left;padding:0}
-  .recap-eyebrow{font-size:12px;font-weight:800;color:var(--sec-teal);text-transform:uppercase;letter-spacing:.7px;flex:none}
-  .recapdet{padding:0 2px 8px}
   /* sticky section jump-nav on Insights */
   /* four equal tabs that always fit (the scrolling pill row clipped "Attention" at 390px) */
   .secnav{position:sticky;top:var(--tb,57px);z-index:15;display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:8px 0 8px;margin:-8px 0 8px;
@@ -410,8 +402,8 @@
   .linkbtn.center{display:flex;width:fit-content;margin:14px auto 0}
   .volpill{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;color:var(--muted);background:var(--surface-2);border-radius:999px;padding:5px 11px;font-variant-numeric:tabular-nums}
   .volpill.beat{color:var(--accent-2);background:color-mix(in srgb,var(--accent-2) 12%,transparent)}
-  .feelbox{margin-top:10px;padding:12px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line)}
-  .feelbox .rpe button{background:var(--surface)}
+  .donebox{margin-top:10px;padding:8px 12px 2px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line)}
+  .donebox > .small{padding-top:4px}
   .menurow{width:100%;display:flex;align-items:center;gap:12px;min-height:52px;padding:0 6px;font-size:16px;font-weight:600;color:var(--text);background:none;border:none;border-bottom:1px solid var(--line);text-align:left}
   .menurow:last-child{border-bottom:none}
   .menurow .ic{color:var(--muted)}
@@ -481,7 +473,8 @@
   .monthbanner{display:flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:6px 8px 6px 14px;margin-bottom:12px}
   .mb-main{flex:1;display:flex;align-items:center;gap:8px;min-width:0;min-height:40px;text-align:left;color:var(--text);background:none;border:none;padding:0}
   .mb-eyebrow{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.6px;color:var(--sec-teal);flex:none}
-  .mb-title{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+  .mb-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;padding:4px 0}
+  .mb-title{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .keyrow{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:10px 0;border-top:1px solid var(--line);color:inherit}
   .keyrow .kr-name{font-weight:600;font-size:15px;line-height:1.25;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
   .keyrow .spark{width:64px}
@@ -687,7 +680,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v111"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v112"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -730,7 +723,7 @@ function ic(name, size=18){
 /* ---------- body-part taxonomy + auto-tagger (built-in knowledge) ---------- */
 const MUSCLES={
   quads:{label:"Quads",region:"Legs"}, hamstrings:{label:"Hamstrings",region:"Legs"},
-  glutes:{label:"Glutes",region:"Legs"}, calves:{label:"Calves",region:"Legs"},
+  glutes:{label:"Glutes",region:"Legs"}, adductors:{label:"Adductors",region:"Legs"}, calves:{label:"Calves",region:"Legs"},
   lats:{label:"Lats",region:"Back"}, upper_back:{label:"Upper Back",region:"Back"}, lower_back:{label:"Lower Back",region:"Back"},
   chest:{label:"Chest",region:"Chest"},
   front_delts:{label:"Front Delts",region:"Shoulders"}, side_delts:{label:"Side Delts",region:"Shoulders"}, rear_delts:{label:"Rear Delts",region:"Shoulders"},
@@ -738,6 +731,7 @@ const MUSCLES={
   core:{label:"Core",region:"Core"}, cardio:{label:"Cardio",region:"Other"},
 };
 const REGION_ORDER=["Legs","Back","Chest","Shoulders","Arms","Core","Other"];
+const NO_DEFAULT_TARGET=new Set(["cardio","adductors"]);   // no automatic 10-sets/week target for these
 const muscleLabel=k=>MUSCLES[k]?.label||null;
 const regionOf=k=>MUSCLES[k]?.region||"Other";
 const exRegion=ex=>ex.primary?regionOf(ex.primary):"Other";
@@ -764,43 +758,62 @@ function gymHue(id){
   let h=0; for(let k=0;k<(id||"").length;k++) h=(h*31+id.charCodeAt(k))>>>0; return pal[h%pal.length];   // deleted gym → stable fallback
 }
 function tintStyle(h, weight){ return `color:${h};border:1px solid ${h}59;background:${h}1f`+(weight?`;font-weight:${weight}`:""); }
-// ordered rules — first phrase match wins (specific → general)
+// ordered rules — first match wins (specific → general). A key is a phrase (substring of the padded,
+// lower-cased name) or a RegExp. Machine-brand words that collide with lift words ("Iso-Lateral" ≠ a
+// lateral raise, "Hammer Strength" ≠ a hammer curl) are stripped before matching — see guessMuscles.
+const ROW_W=/\brows?\b|\browing\b/;                              // "row" as a word — not thROW, nARROW
 const MUSCLE_RULES=[
-  [["rowing machine","row erg","row-erg","erg","treadmill","elliptical","stair","stationary bike","spin bike","jump rope","sprint","cardio"],"cardio",null],
+  [["rowing machine","row erg","row-erg",/\bergs?\b/,"treadmill","elliptical","stair","stationary bike","spin bike","jump rope","sprint","cardio"],"cardio",null],
+  [["calf","calves"],"calves",null],                                       // before leg press: "calf press on the leg press"
   [["leg press","hack squat","hack-squat"],"quads","glutes"],
   [["leg extension","knee extension"],"quads",null],
+  [["glute ham","glute-ham","ghr"],"hamstrings","glutes"],                // before "glute": a glute-ham raise is hamstrings
   [["leg curl","hamstring curl","lying curl","seated leg curl","nordic"],"hamstrings",null],
   [["romanian deadlift","rdl","stiff leg","stiff-leg","good morning"],"hamstrings","glutes"],
-  [["hip thrust","glute bridge","glute kickback","glute","abductor","adductor"],"glutes","hamstrings"],
+  [["adductor","adduction"],"adductors",null],
+  [["hip thrust","glute bridge","glute kickback","glute","abductor","abduction","hip extension","pull through","pull-through","frog pump",
+    "band walk","monster walk","lateral walk","clamshell"],"glutes","hamstrings"],
+  [["trap bar deadlift","trap-bar deadlift","hex bar deadlift","hex-bar deadlift"],"quads","glutes"],
+  [["rack pull"],"lower_back","glutes"],
   [["deadlift"],"hamstrings","glutes"],
-  [["calf","calves"],"calves",null],
   [["lunge","split squat","bulgarian","step up","step-up","goblet squat","front squat","sissy"],"quads","glutes"],
   [["squat"],"quads","glutes"],
-  [["face pull","rear delt","reverse fly","reverse pec","rear-delt"],"rear_delts","upper_back"],
+  [["face pull","rear delt","rear-delt","reverse fly","reverse flye","reverse pec","rear lateral","rear raise","rear fly","back fly","pull apart","pull-apart",
+    "external rotation",/\bbent[\s-]?over\b.*\b(lateral|laterals|raise|fly|flye)\b/,"row to neck"],"rear_delts","upper_back"],
   [["shrug"],"upper_back",null],
-  [["upright row"],"side_delts","upper_back"],
-  [["lat pulldown","pulldown","pull-down","pull up","pull-up","pullup","chin up","chin-up","chinup"],"lats","biceps"],
+  [[/\bupright\b.*\brows?\b/],"side_delts","upper_back"],
+  [["lat pulldown","pulldown","pull-down","pull down","lat pull","pull up","pull-up","pullup",/^(?!.*\bpress\b).*\bchin(s|ning)?\b/,"chin-up","chinup","muscle up","muscle-up"],"lats","biceps"],
   [["straight arm","straight-arm","pullover"],"lats",null],
+  // rows pulled low and tight (V-bar / close / neutral grip) or from up high (high rows) are lat rows;
+  // wide or generic rows stay upper back (below)
+  [[/^(?=.*\brows?\b)(?=.*\b(v[\s-]?(bar|handle|grip)|close[\s-]?grip|narrow[\s-]?grip|neutral)\b)/, /^(?=.*\brows?\b)(?=.*\bhigh\b)/],"lats","upper_back"],
   [["t-bar","tbar","bent over row","bent-over","barbell row","pendlay","seated row","cable row","machine row","dumbbell row","db row","chest supported","chest-supported","one arm row","one-arm row","inverted row"],"upper_back","biceps"],
-  [["row"],"upper_back","biceps"],
-  [["back extension","hyperextension","hyper extension","hyper-extension","lower back"],"lower_back",null],
-  [["incline bench","incline press","incline chest","incline dumbbell","incline db"],"chest","front_delts"],
-  [["bench press","chest press","pec deck","pec fly","chest fly","cable fly","cable crossover","crossover","push up","push-up","pushup","decline press","dip"],"chest","triceps"],
-  [["bench"],"chest","triceps"],
+  [[ROW_W],"upper_back","biceps"],
+  [["back extension","hyperextension","hyper extension","hyper-extension","reverse hyper","lower back"],"lower_back",null],
+  [["bench dip","tricep dip","triceps dip"],"triceps","chest"],
+  // incline PRESSING / flyes are upper chest — an incline curl or incline raise is not
+  [["incline bench","incline chest",/\bincline\b.*\b(press|fly|flye|flyes|push[\s-]?ups?)\b/],"chest","front_delts"],
+  [["pec deck","pec fly","chest fly","cable fly","cable crossover","crossover"],"chest","front_delts"],   // flyes: no triceps
+  [["bench press","chest press","push up","push-up","pushup","decline press","floor press",/\bflat\b.*\bpress\b/,"dip"],"chest","triceps"],
+  [["bench",/\bchest\b/],"chest","triceps"],
   [["overhead press","shoulder press","military","ohp","arnold","push press"],"front_delts","triceps"],
-  [["lateral raise","side raise","lateral","laterals"],"side_delts",null],
-  [["front raise"],"front_delts",null],
+  [["landmine press"],"front_delts","chest"],
+  [["pallof"],"core",null],
+  [["lateral raise","side raise","side lateral","laterals","lateral fly","lateral delt","lateral machine","cable lateral","db lateral","dumbbell lateral","machine lateral","side delt","lat raise","lu raise","y raise","y-raise"],"side_delts",null],
+  [["front raise","front delt","internal rotation"],"front_delts",null],
+  [[/\bfly(e|es|s)?\b/],"chest","front_delts"],                          // any other fly — after rear/lateral flyes
+  [["wrist","forearm","finger curl","farmer","gripper","plate pinch","dead hang",/\breverse[\s-]?(grip[\s-]?)?curls?\b/],"forearms",null],
+  [["skull","jm press",/\bclose[\s-]?grip\b.*\b(press|extension|pushdown)\b/],"triceps",null],   // before curls: EZ-bar skullcrushers are triceps (a close-grip CURL is still biceps)
   [["hammer curl","hammer"],"biceps","forearms"],
-  [["preacher","bicep","curl","ez curl","ez-bar"],"biceps",null],
-  [["tricep","pushdown","push down","press down","pressdown","push-down","skull","overhead extension","kickback","close grip","close-grip","jm press"],"triceps",null],
-  [["wrist","forearm","grip","reverse curl"],"forearms",null],
+  [["preacher","bicep","curl","ez curl"],"biceps",null],
+  [["tricep","pushdown","push down","press down","pressdown","push-down","overhead extension","french press","kickback"],"triceps",null],
   [["crunch","sit up","sit-up","situp","plank","leg raise","knee raise","russian twist","oblique","hanging","cable crunch","ab wheel","ab roller","woodchop","rotation"],"core",null],
   [["ab ","abs","core"],"core",null],
 ];
 function guessMuscles(name){
-  const n=" "+(name||"").toLowerCase()+" ";
+  const n=" "+(name||"").toLowerCase().replace(/\b(iso|uni|bi)[\s-]?lateral\b/g," ").replace(/\bhammer[\s-]?strength\b/g," ")+" ";
   for(const [keys,primary,secondary] of MUSCLE_RULES){
-    if(keys.some(k=>n.includes(k))) return {primary, secondary:secondary||null};
+    if(keys.some(k=>k instanceof RegExp ? k.test(n) : n.includes(k))) return {primary, secondary:secondary||null};
   }
   return {primary:null, secondary:null};
 }
@@ -1086,6 +1099,33 @@ async function loadState(){
       if(n) State._renamed=n;
     }catch(e){ /* library unavailable (first run offline) — try again next launch */ }
   }
+  // one-time repair (v112): muscle auto-tagging fixes — V-bar/close-grip/high rows → lats, wrist curls →
+  // forearms, skull crushers → triceps, incline curls/raises ≠ chest, rear laterals → rear delts, hip
+  // adduction → the new Adductors, "Iso-Lateral"/"Hammer Strength" no longer trip the lateral/hammer rules,
+  // "row" inside thROW/nARROW… Only exercises still on what the OLD rules picked change (`from` = the old
+  // wrong picks for each new answer); a muscle you chose yourself is left alone. Every chart, balance and
+  // report recounts from the exercise's muscles, so past weeks correct themselves too.
+  if(!(await getMeta("muscleFix2"))){
+    try{
+      const FROM={ lats:["upper_back"], forearms:["biceps"], triceps:["biceps","chest"], calves:["quads"], hamstrings:["glutes"],
+        adductors:["glutes","quads"], biceps:["chest","side_delts"], side_delts:["chest","front_delts","upper_back"], rear_delts:["side_delts","front_delts","core"],
+        chest:["side_delts","biceps"], front_delts:["core"], quads:["hamstrings"] };
+      const lib=await loadLibrary(), byId=new Map(lib.map(e=>[e.raw.id,e]));
+      let n=0;
+      for(const ex of State.exercises){
+        const le=ex.libId && byId.get(ex.libId);
+        const g= le && normName(ex.name)===normName(le.name) ? {primary:le.primary, secondary:le.secondary} : guessMuscles(ex.name);   // renamed → judge by its name
+        if(g.primary && g.primary===ex.primary && g.secondary==="front_delts" && ex.secondary==="triceps" && g.primary==="chest"){   // flyes
+          ex.secondary="front_delts"; await DB.put("exercises",ex); n++; continue; }
+        // (no muscle at all = the old rules didn't recognise the name — the editor can't set "none" as primary)
+        if(!g.primary || g.primary===ex.primary || !(ex.primary==null || (FROM[g.primary]||[]).includes(ex.primary))) continue;
+        ex.primary=g.primary; ex.secondary=g.secondary||null;              // the pair was auto-picked together
+        await DB.put("exercises",ex); n++;
+      }
+      await setMeta("muscleFix2", true);
+      if(n) State.exercises=await DB.all("exercises");
+    }catch(e){ /* library unavailable (offline first run) — try again next launch */ }
+  }
   // one-time repair: "grip" in a name (Medium-Grip bench, Wide-Grip pulldown) used to mark a compound
   // lift as isolation → 75s rest. Re-suggest for exercises still on that auto value.
   if(!(await getMeta("fixGripRest"))){
@@ -1099,7 +1139,6 @@ async function loadState(){
 }
 const setMeta = (k,v)=>DB.put("meta",{k,v});
 const getMeta = async (k)=>{ const r=await DB.get("meta",k); return r?r.v:null; };
-const progKey = ex => "prog:"+((ex&&ex.linkId)||(ex&&ex.id));   // per-exercise volume miss-streak (pooled across linked machines)
 const curGym = ()=>State.gyms.find(g=>g.id===State.currentGymId)||null;
 // a gym's exercises = its gym-scoped machines/cables + all global (free-weight/bodyweight) exercises
 const gymExercises = (gid=State.currentGymId)=>State.exercises.filter(e=>e.gymId===gid || e.gymId==null);
@@ -1234,15 +1273,38 @@ async function stallCount(exerciseId){
   return n; // sessions before today at same top weight
 }
 
-// How aggressively to grow volume each session (user setting, %). Default 4 — this is a "Solid" session.
+// How aggressively to grow volume each session (user setting, %). Default 4 — your pace.
 function volTarget(){ const v=State.volTargetPct; return Number.isFinite(v)&&v>0 ? v : 4; }
-// autoregulation: scale that target by how the last session felt. Easy ~2.5× (push), Grind ~0.5× (ease),
-// Solid/unrated = baseline. Capped so a high baseline can't run away.
-function rpeTargetPct(baseline, rpes){
-  const r=(rpes||[]).filter(Boolean);
-  if(r.includes("grind")) return Math.max(1, Math.round(baseline*0.5*10)/10);
-  if(r.length && r.every(x=>x==="easy")) return Math.min(12, Math.round(baseline*2.5*10)/10);
-  return baseline;
+// did a finished session hit the target it was given? weight × reps on the same scale the target was
+// solved on (weighted bodyweight lifts include bodyweight), within 2%. se.targets / se.tbw are saved at finish.
+function targetGot(se, exId, sets){
+  const ex=State.exercises.find(e=>e.id===exId);
+  const bw = se.tbw ? (se.tbw[exId]||0)                                   // saved with the session (v112+)
+    : (ex && isBW(ex) && State.bodyweightKg>0 ? State.bodyweightKg*bwCoef(ex.name) : 0);   // older sessions: today's bodyweight
+  return sets.reduce((t,x)=>x.sessionId===se.id&&x.exerciseId===exId&&x.reps>0 ? t+(bw+(+x.weight||0))*(+x.reps||0) : t, 0);
+}
+const targetHit = (se, exId, sets) => targetGot(se, exId, sets) >= se.targets[exId]*0.98;
+// one lift's target record (pooled across linked machines), newest first: [{se, hit, rough}]
+async function targetHistory(ex, skipId){
+  const ids=linkedIds(ex.id);
+  const ses=(await DB.all("sessions")).filter(se=>se.id!==skipId && se.targets && ids.some(id=>se.targets[id]>0))
+    .sort((a,b)=>(b.date+(b.startedAt||"")).localeCompare(a.date+(a.startedAt||"")));
+  if(!ses.length) return [];
+  let sets=[]; for(const id of ids) sets=sets.concat(await DB.byIndex("sets","exerciseId",id));
+  return ses.map(se=>{ const id=ids.find(i=>se.targets[i]>0); return {se, hit:targetHit(se,id,sets), rough:isRoughDay(se)}; });
+}
+// PACE — how hard the next target pushes, from how you've actually been doing (no "how did it feel"):
+//   hit your last target            → keep going at your pace (Settings → Progression), session after session
+//   missed it                       → HOLD: same weights and reps until you match them
+//   matched, but missed one of the 2 before → EASE back in at half pace, then full pace again
+// A miss on a tagged rough day doesn't count — rough days can only help.
+function progressPace(hist){
+  const h=(hist||[]).filter(o=>o.hit||!o.rough), base=volTarget();
+  let miss=0; for(const o of h){ if(o.hit) break; miss++; }
+  if(miss) return {mode:"hold", streak:miss, pct:0, base};
+  if(h.slice(1,3).some(o=>!o.hit)) return {mode:"ease", streak:0, pct:Math.max(1, Math.round(base*5)/10), base};
+  let run=0; for(const o of h){ if(!o.hit) break; run++; }
+  return {mode:"full", streak:0, pct:base, base, run};
 }
 
 async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Today's "Up next"), never consumes a scheduled deload
@@ -1252,19 +1314,20 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
   // before it → it doesn't count. Plan from the last normal session, and don't let that miss count
   // toward "holding". If you did fine despite the tag, nothing changes.
   let rough=null;
+  const hist = await targetHistory(ex, State.activeSession?.id);
   if(prev && isRoughDay(prev.session)){
     const skip=new Set([prev.session.id]); let earlier=null;
     for(let k=0;k<6;k++){ earlier=await lastSetsFor(ex.id, State.activeSession?.id, skip);
       if(!earlier || !isRoughDay(earlier.session)) break; skip.add(earlier.session.id); }
     const best=a=>Math.max(0,...a.map(x=>exMetric(ex,x.weight,x.reps))), vol=a=>a.reduce((t,x)=>t+(+x.weight||0)*(+x.reps||0),0);
-    const rec=await getMeta(progKey(ex));
-    const missed = (rec && rec.streak>=1 && rec.date===prev.session.date) || (earlier && (best(prev.sets)<best(earlier.sets)*0.995 || vol(prev.sets)<vol(earlier.sets)*0.98));
-    if(earlier && missed){ rough={tags:roughTags(prev.session), from:earlier.session.date, streakOff:(rec&&rec.date===prev.session.date)?1:0}; prev=earlier; }
+    const rec=hist.find(o=>o.se.id===prev.session.id);
+    // it had a target → that decides; older sessions without one → did it fall below the session before?
+    const missed = rec ? !rec.hit : !!(earlier && (best(prev.sets)<best(earlier.sets)*0.995 || vol(prev.sets)<vol(earlier.sets)*0.98));
+    if(earlier && missed){ rough={tags:roughTags(prev.session), from:earlier.session.date}; prev=earlier; }
   }
   const withRough = r => !rough ? r : {...r, prev:lastPrev, excused:true,
     note:`Last time was a rough day (${rough.tags.join(", ").toLowerCase()}), so it doesn't count — planning from ${fmtDate(rough.from)} instead. `
-      +(r.note||"").replace("Last time felt easy","That one felt easy").replace("Last time was a grind","That one was a grind")
-        .replace("Came up short last time","Came up short then").replace("Beat last time:","Beat it:")};
+      +(r.note||"").replace("Came up short last time","Came up short then").replace("Beat last time:","Beat it:")};
   const sets = Math.max(1, ex.sets||3);
   const repMin = ex.repMin||8, repMax = ex.repMax||12, inc = ex.increment||2.5;
   // equivalent-machine mapping (hint, never override): no recent own history, but the linked
@@ -1280,9 +1343,9 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
         const baseO=Math.max(0,...oPrev.sets.map(s2=>+s2.weight||0));
         let oPlan=null;
         if(baseO>0){
-          const streakO=(await getMeta(progKey(other)))?.streak || 0;
-          if(streakO>=1) oPlan=normalizeSeed(oPrev.sets, oSets).seed;
-          else oPlan=volumeProgress(oPrev.sets,{sets:oSets,repMin:other.repMin||8,repMax:other.repMax||12,inc:oInc,pct:rpeTargetPct(volTarget(), oPrev.sets.map(s2=>s2.rpe))}).plan;
+          const paceO=progressPace(await targetHistory(other, State.activeSession?.id));
+          if(paceO.mode==="hold") oPlan=normalizeSeed(oPrev.sets, oSets).seed;
+          else oPlan=volumeProgress(oPrev.sets,{sets:oSets,repMin:other.repMin||8,repMax:other.repMax||12,inc:oInc,pct:paceO.pct}).plan;
         }
         if(oPlan){
           const mapped=oPlan.map(p=>({weight:Math.max(0, round(p.weight*rate, inc)), reps:Math.max(repMin, Math.min(repMax, p.reps)), target:p.reps}))
@@ -1323,22 +1386,29 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
   const bwBase = (isBW(ex) && State.bodyweightKg>0) ? State.bodyweightKg*bwCoef(ex.name) : 0;
   const seedSets = bwBase ? prev.sets.map(s=>({...s, weight:(+s.weight||0)+bwBase})) : prev.sets;
   const toAdded = p => bwBase ? p.map(s=>({...s, weight:round(Math.max(0, s.weight-bwBase), inc)})) : p;
-  // weighted → volume model. If you fell short of the target last time, HOLD (no progression);
-  // two short sessions running → ease back ~10% to rebuild. Otherwise climb by your target %.
+  // weighted → volume model, paced by your target record (progressPace): hit → your pace again;
+  // missed → HOLD (no progression) until you match it; just back from a hold → half pace for a bit.
   const pl = isPlate(ex);
-  const streak = Math.max(0, ((await getMeta(progKey(ex)))?.streak || 0) - (rough?rough.streakOff:0));
+  const pace = progressPace(hist), streak = pace.streak;
   let plan, note, kind, targetVol;
-  if(streak>=1){
-    // missed last time → hold the same target and keep trying until you hit it (no auto-deload)
-    const {seed,Vlast} = normalizeSeed(seedSets, sets);
+  if(pace.mode==="hold"){
+    // missed last time → HOLD: don't go up, don't go down. Repeat what you did — unless the session before
+    // was at the same weights and went better (a bad day), then repeat THAT. Never an auto-deload.
+    let {seed,Vlast} = normalizeSeed(seedSets, sets), backTo=null;
+    const before = await lastSetsFor(ex.id, State.activeSession?.id, new Set([prev.session.id, lastPrev.session.id]));
+    if(before){
+      const b = normalizeSeed(bwBase ? before.sets.map(x=>({...x, weight:(+x.weight||0)+bwBase})) : before.sets, sets);
+      const sameW = b.seed.map(x=>x.weight).join()===seed.map(x=>x.weight).join();
+      if(sameW && b.Vlast>Vlast){ seed=b.seed; Vlast=b.Vlast; backTo=before.session.date; }
+    }
     plan = toAdded(seed.map(s=>({weight:s.weight,reps:s.reps}))); targetVol = Vlast; kind = "hold";
     note = streak>=3
       ? `Still holding — ${streak} sessions at this target. Stick with it; if it's truly stuck, ease the weight down a notch yourself.`
+      : backTo ? `Came up short last time — back to your ${fmtDate(backTo)} numbers. Match them and we build from there.`
       : `Came up short last time — same weights and reps again. Nail every set and we add load next.`;
   } else {
-    // autoregulate the target by how the last session felt (Easy → push, Grind → ease)
-    const baseline = volTarget(), pct = rpeTargetPct(baseline, prev.sets.map(s=>s.rpe));
-    const feel = pct>baseline ? "Last time felt easy — let's push. " : pct<baseline ? "Last time was a grind — easing off a touch. " : "";
+    const pct = pace.pct;
+    const feel = pace.mode==="ease" ? `Easing back in after a hold — +${pct}% this time, full pace once two land. ` : "";
     const r = volumeProgress(seedSets, {sets,repMin,repMax,inc,pct});
     plan = toAdded(r.plan); targetVol = r.Vnew;
     kind = r.weightAdded ? "weight" : (r.repAdded ? "rep" : "repeat");
@@ -1369,7 +1439,7 @@ async function suggestNext(ex, opts={}){   // opts.peek: read-only preview (Toda
       }
     }
   }
-  return withRough({ plan: outPlan, note, kind, prev, targetVol, bwBase: bwBase||null });
+  return withRough({ plan: outPlan, note, kind, prev, targetVol, bwBase: bwBase||null, pace: pace.mode });
 }
 
 // classic double progression — used for bodyweight & sled-only, where true volume isn't computable
@@ -1379,22 +1449,19 @@ async function classicNext(ex, prev, {sets,repMin,repMax,inc}){
   const repsAt = atWork.map(s=>s.reps);
   const minReps = Math.min(...repsAt), maxReps = Math.max(...repsAt);
   const allTop = repsAt.every(r=>r>=repMax);
-  const rpe = atWork.map(s=>s.rpe).filter(Boolean);
-  const allEasy = rpe.length===atWork.length && rpe.every(r=>r==="easy");
-  const anyGrind = rpe.some(r=>r==="grind");
   const bw = isBW(ex);
   const loadStr = w => bw ? ((+w)>0 ? `+${fmtW(w,ex)}` : "bodyweight")
     : (isPlate(ex)&&(+w)===0 ? "sled only" : fmtW(w,ex));
   let plan, note, kind="rep";
-  if(allTop || (allEasy && minReps>=Math.floor((repMin+repMax)/2))){
+  if(allTop){
     const w = round(workW+inc, inc);
     plan = Array.from({length:sets},()=>({weight:w,reps:repMin,target:repMin}));
-    note = `${bw?"Add load":"Add weight"} → ${loadStr(w)} × ${repMin} — up from ${loadStr(workW)} last time. You ${allTop?`hit ${repMax}+ ${bw?"reps":"on every set"}`:"left reps in the tank"}.`;
+    note = `${bw?"Add load":"Add weight"} → ${loadStr(w)} × ${repMin} — up from ${loadStr(workW)} last time. You hit ${repMax}+ ${bw?"reps":"on every set"}.`;
     kind="weight";
   } else if(minReps>=repMin){
     const tgt = Math.min(maxReps+1, repMax);
     plan = Array.from({length:sets},()=>({weight:workW,reps:tgt,target:tgt}));
-    note = `${bw? (workW>0?loadStr(workW):"Bodyweight") : (isPlate(ex)&&workW===0?"Sled only":`Same weight ${fmtW(workW,ex)}`)} → push for ${tgt} reps.${anyGrind?" (last set was a grind — only if it moves.)":""}`;
+    note = `${bw? (workW>0?loadStr(workW):"Bodyweight") : (isPlate(ex)&&workW===0?"Sled only":`Same weight ${fmtW(workW,ex)}`)} → push for ${tgt} reps.`;
   } else {
     plan = Array.from({length:sets},()=>({weight:workW,reps:repMin,target:repMin}));
     note = `${bw?`Repeat ${loadStr(workW)} for ${repMin} reps`:`Repeat ${fmtW(workW,ex)} × ${repMin}`} — you missed the bottom of the range last time.`;
@@ -1421,13 +1488,10 @@ async function invertedNext(ex, prev, {sets,repMin,repMax,inc}){
   const repsAt = atWork.map(s=>s.reps);
   const minReps = Math.min(...repsAt), maxReps = Math.max(...repsAt);
   const allTop = repsAt.every(r=>r>=repMax);
-  const rpe = atWork.map(s=>s.rpe).filter(Boolean);
-  const allEasy = rpe.length===atWork.length && rpe.every(r=>r==="easy");
-  const anyGrind = rpe.some(r=>r==="grind");
   const loadStr = w => (+w)>0 ? `${fmtW(w,ex)} assist` : "unassisted";
   const mk = (w,r) => Array.from({length:sets},()=>({weight:w,reps:r,target:r}));
   let plan, note, kind="rep";
-  if(allTop || (allEasy && minReps>=Math.floor((repMin+repMax)/2))){
+  if(allTop){
     if(workW<=0){
       // already unassisted and hitting the top of the range — the machine has nothing left to give
       const tgt = Math.min(maxReps+1, repMax);
@@ -1437,13 +1501,13 @@ async function invertedNext(ex, prev, {sets,repMin,repMax,inc}){
       const w = Math.max(0, round(workW-inc, inc));
       plan = mk(w, repMin); kind="weight";
       note = w>0
-        ? `Less help → ${loadStr(w)} × ${repMin}, down from ${loadStr(workW)} last time. You ${allTop?`hit ${repMax}+ on every set`:"left reps in the tank"}.`
-        : `Drop the assistance entirely — try these unassisted for ${repMin}. You ${allTop?`hit ${repMax}+ on every set`:"left reps in the tank"} at ${loadStr(workW)}.`;
+        ? `Less help → ${loadStr(w)} × ${repMin}, down from ${loadStr(workW)} last time. You hit ${repMax}+ on every set.`
+        : `Drop the assistance entirely — try these unassisted for ${repMin}. You hit ${repMax}+ on every set at ${loadStr(workW)}.`;
     }
   } else if(minReps>=repMin){
     const tgt = Math.min(maxReps+1, repMax);
     plan = mk(workW, tgt);
-    note = `Same ${loadStr(workW)} → push for ${tgt} reps.${anyGrind?" (last set was a grind — only if it moves.)":""}`;
+    note = `Same ${loadStr(workW)} → push for ${tgt} reps.`;
   } else {
     plan = mk(workW, repMin); kind="repeat";
     note = `Repeat ${loadStr(workW)} for ${repMin} reps — you missed the bottom of the range last time.`;
@@ -1761,7 +1825,7 @@ async function seedDemoData(){
         if(stall) reps=[10,9,8][k];
         else reps=Math.max(4, Math.min(12, reps+repAdj));
         await DB.put("sets",{id:"demo-set-"+(sc++),sessionId:sid,exerciseId:e.id,weight:e.equipment==="bodyweight"?0:w,reps,
-          rpe:k===2?(rnd()<.35?"grind":rnd()<.5?"solid":"easy"):null,joint:false,order:order++,createdAt:new Date(t0.getTime()+order*150000).toISOString(),demo:true});
+          rpe:null,joint:false,order:order++,createdAt:new Date(t0.getTime()+order*150000).toISOString(),demo:true});
       }
     }
   }
@@ -1934,7 +1998,7 @@ function weekGlance(){
 }
 function viewStart(wrap){
   const plans=allPlans().filter(p=>p.items.length);   // empty drafts are managed in Library
-  wrap.append(weekGlance(), monthBanner());
+  wrap.append(weekGlance(), reportBanner("week"), reportBanner("month"));
   if(plans.length){
     const {plan:next, why}=nextPlan(plans);
     const others=plans.filter(p=>p!==next).sort((a,b)=>(b.gymId===State.currentGymId)-(a.gymId===State.currentGymId));   // this gym's plans first
@@ -2118,10 +2182,9 @@ function dropInsertIndex(sets){
    isCurrent = the exercise you're working on now (first not-done one).
    Layout: a set TABLE (SET · LAST · KG · REPS · ✓) — last time's set sits on the same row as this
    time's, suggested targets render muted until you touch or tick them, and the rare actions live
-   behind ⋯. "How did that feel?" only appears once every set is ticked, and answering it minimizes. */
+   behind ⋯. Once every set is ticked, a footer says what that means for next time (hit → up, short → hold). */
 const parseNum = v => { const n=parseFloat(String(v??"").replace(",",".")); return Number.isFinite(n)?n:0; };
 const shortSet = (ex,w,r) => isBW(ex) ? ((+w>0)?`+${w}×${r}`:`${r}`) : isInverted(ex) ? `−${w}×${r}` : `${w}×${r}`;
-const FEEL_LBL={easy:"Easy",solid:"Solid",grind:"Grind"};
 function weightHead(ex){
   const u=(ex?.unit||"kg").toUpperCase();
   return isInverted(ex)?"ASSIST" : isBW(ex)?"+"+u : u==="LVL"?"LEVEL" : u;
@@ -2161,7 +2224,7 @@ function loggerCard(item, isCurrent, ss){
   // ----- MINIMIZED (done) view: compact summary, tap to expand/edit -----
   if(item.collapsed){
     const logged=item.sets.filter(s=>s.done && s.reps>0);
-    const summary=(logged.length? logged.map(s=>fmtSetShort(ex,s.weight,s.reps)).join(" · ") : "No sets logged")+(item.rpe?` · ${FEEL_LBL[item.rpe]}`:"");
+    const summary=logged.length? logged.map(s=>fmtSetShort(ex,s.weight,s.reps)).join(" · ") : "No sets logged";
     const expand=()=>{ item.collapsed=false; persistSession(); render(); };
     return el("div",{class:"card done",role:"button",tabindex:"0","aria-label":`${ex?.name||"Exercise"} — done. Tap to edit`,
         onClick:expand, onKeydown:e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();expand();}}},
@@ -2277,23 +2340,24 @@ function loggerCard(item, isCurrent, ss){
   }
   card.append(foot);
 
-  // once every set is ticked: how did it feel? (tunes next time's target) — answering minimizes
+  // once every set is ticked: what that means for next time (from the numbers — no "how did it feel"),
+  // a joint flag, and minimize
   const allDone=item.sets.length>0 && item.sets.every(s=>s.done);
   if(allDone){
-    const choose=level=>{
-      item.rpe=level; item.sets.forEach(s=>{ if(s.done) s.rpe=level; });
-      item.collapsed=true; delete item.peek; stopRest(); persistSession(); render(); advanceToCurrent();
-    };
-    const feel=el("div",{class:"feelbox"},
-      el("div",{style:"font-weight:700"},"How did that feel?"),
-      el("div",{class:"small muted",style:"margin:2px 0 8px"},"Sets next time's target — Easy pushes harder, Grind eases off."));
-    const rpe=el("div",{class:"rpe"});
-    ["easy","solid","grind"].forEach(level=>rpe.append(el("button",{class:item.rpe===level?"on":"","aria-pressed":item.rpe===level?"true":"false",onClick:()=>choose(level)}, FEEL_LBL[level])));
-    feel.append(rpe, el("div",{class:"row between",style:"margin-top:6px"},
+    const box=el("div",{class:"donebox"});
+    if(item.targetVol>0){
+      const got=item.sets.filter(x=>x.done&&x.reps>0).reduce((t,x)=>t+((item.bwBase||0)+(+x.weight||0))*(+x.reps||0),0);
+      const hit=got>=item.targetVol*0.98, rough=isRoughDay(State.activeSession||{});
+      box.append(el("div",{class:"small",style:"font-weight:600;color:"+(hit?"var(--accent-2)":"var(--muted)")},
+        hit ? "Target hit — next time moves up again."
+          : rough ? "Short of the target — it's a rough day, so it won't count. Next time plans from your last normal session."
+          : "Short of the target — next time holds these numbers until you match them."));
+    }
+    box.append(el("div",{class:"row between"},
       el("button",{class:"jointtoggle"+(item.joint?" on":""),"aria-pressed":item.joint?"true":"false",onClick:()=>{item.joint=!item.joint;persistSession();render();}},
         ic("alert",14), item.joint?"Joint flagged — tap to clear":"Tweaked a joint?"),
-      el("button",{class:"linkbtn sm",onClick:()=>{ item.collapsed=true; delete item.peek; persistSession(); render(); advanceToCurrent(); }}, item.rpe?"Minimize":"Skip")));
-    card.append(feel);
+      el("button",{class:"linkbtn sm",onClick:()=>{ item.collapsed=true; delete item.peek; persistSession(); render(); advanceToCurrent(); }}, "Minimize")));
+    card.append(box);
   }
   return card;
 }
@@ -2500,49 +2564,27 @@ async function commitSession(opts={}){
   let ord=0; const nowIso=new Date().toISOString();
   const done = s.items.flatMap(it=>it.sets.filter(x=>x.done&&x.reps>0).map(x=>({
     id:uid(),sessionId:s.id,exerciseId:it.exerciseId,weight:+x.weight,reps:+x.reps,
-    rpe:x.rpe||it.rpe||null,joint:!!it.joint,order:ord++,createdAt:nowIso})));
+    rpe:null,joint:!!it.joint,order:ord++,createdAt:nowIso})));
   if(!done.length){
     if(!(await confirmSheet({title:"Nothing to save", message:"No sets are ticked as done. Discard this workout?", confirmLabel:"Discard workout", cancelLabel:"Keep logging", danger:true}))) return;
     State.activeSession=null; await setMeta("activeSession",null); render(); return;
   }
   // persist what was PRESCRIBED so Insights can score "did you hit your targets" later
-  const targets={}; s.items.forEach(it=>{ if(it.targetVol!=null) targets[it.exerciseId]=it.targetVol; });
+  // (tbw: the bodyweight share of a weighted-bodyweight target, so "did you hit it" uses the same scale)
+  const targets={}, tbw={}; s.items.forEach(it=>{ if(it.targetVol!=null){ targets[it.exerciseId]=it.targetVol; if(it.bwBase) tbw[it.exerciseId]=it.bwBase; } });
   const sessionRec={id:s.id,gymId:s.gymId,date:s.date,startedAt:s.startedAt,finishedAt:opts.stale?null:nowIso,
     ...(s.tags&&s.tags.length?{tags:s.tags}:{}), ...(s.note?{note:s.note}:{}),        // tagged mid-workout
-    ...(Object.keys(targets).length?{targets}:{}),
+    ...(Object.keys(targets).length?{targets}:{}), ...(Object.keys(tbw).length?{tbw}:{}),
     ...(s.planId?{planId:s.planId, planName:s.planName}:{})};
   await DB.put("sessions",sessionRec);
   if(s.planId) (State.planDays=State.planDays||[]).push({planId:s.planId, date:s.date});
   if(s.planId){ const plan=State.plans.find(p=>p.id===s.planId);   // plan usage: powers "done N days ago · M×"
     if(plan){ plan.lastUsedAt=s.date; plan.useCount=(plan.useCount||0)+1; await DB.put("plans",plan); } }
   for(const st of done) await DB.put("sets",st);
-  // miss-aware progression: did the logged volume hit the prescribed target? track the streak per exercise
-  for(const it of s.items){
-    if(it.targetVol==null) continue;                                      // no volume target (manual / bodyweight) → skip
-    const ex = State.exercises.find(e=>e.id===it.exerciseId); if(!ex) continue;
-    const got = it.sets.filter(x=>x.done&&x.reps>0).reduce((t,x)=>t+((it.bwBase||0)+(+x.weight||0))*(+x.reps||0),0);   // same scale the target was solved on
-    const met = got >= it.targetVol*0.98;                                 // within 2% counts as meeting it
-    const rec = await getMeta(progKey(ex)) || {streak:0};
-    await setMeta(progKey(ex), {streak: met?0:(rec.streak||0)+1, date:s.date});
-  }
-  // equivalent machines: refresh calibration ratios lazily; a mapped session's feel tunes them
+  // (hit/miss vs those targets is read back from history by targetHistory → progressPace — nothing else to track)
+  // equivalent machines: refresh calibration ratios lazily from the overlapping history
   const eqIds=new Set(s.items.map(it=>State.exercises.find(e=>e.id===it.exerciseId)?.equivId).filter(Boolean));
   for(const eid of eqIds) await recomputeCalib(eid);
-  for(const it of s.items){
-    if(it.kind!=="mapped") continue;
-    const ex=State.exercises.find(e=>e.id===it.exerciseId); if(!ex||!ex.equivId) continue;
-    const rec=await getMeta("calib:"+ex.equivId); if(!rec || !(rec.ratio>0)) continue;
-    const rpes=it.sets.filter(x=>x.done&&x.reps>0).map(x=>x.rpe||it.rpe).filter(Boolean);
-    if(!rpes.length) continue;
-    let f=1; if(rpes.includes("grind")) f=0.95; else if(rpes.every(r=>r==="easy")) f=1.05;
-    if(f===1) continue;
-    const isAnchor=linkedIds(ex.id).includes(rec.anchor);              // drift toward THIS machine's direction
-    const drifted=rec.ratio*(isAnchor?1/f:f);
-    const base=rec.fitted>0?rec.fitted:rec.ratio;
-    rec.ratio=Math.max(base*0.85, Math.min(base*1.15, drifted));       // total drift capped at ±15% of the fit
-    rec.updatedAt=new Date().toISOString();
-    await putCalib(ex.equivId, rec);
-  }
   _exStatus=null;   // training status changed
   State.activeSession=null; await setMeta("activeSession",null);
   const mins=sessionMins(sessionRec);
@@ -3581,7 +3623,7 @@ function viewHistory(){
 }
 // full breakdown for one past workout (opened from the History list). Read view = what you did;
 // the fix-it tools (edit sets, replace a wrong exercise, delete) live behind "Edit workout".
-function openSessionDetail(se, editing=false){
+function openSessionDetail(se, editing=false, sheetOpts={}){
   openSheet(relDate(se.date)||fmtDate(se.date),(body,close)=>{
     const mount=el("div",{}); body.append(mount);
     let ed=editing;
@@ -3663,7 +3705,7 @@ function openSessionDetail(se, editing=false){
       requestAnimationFrame(()=>{ const s2=sheetEl(); if(s2) s2.scrollTop=sc; });
     }
     build();
-  });
+  }, sheetOpts);
 }
 // "5.2 t" / "11.4k lb" — totals read better rounded; exact figures live in the exercise detail
 // (tonnage is summed in the exercises' own unit, which follows your unit setting — no conversion here)
@@ -3945,42 +3987,91 @@ function tagImpactCard(sessions, stats){
   else card.append(el("div",{class:"tiny muted",style:"margin-top:8px"},"Each workout is scored by how your lifts did vs their last normal session. Small numbers — a hint, not a verdict."));
   return card;
 }
-/* ---------- Month in review ----------
-   One page per calendar month: workouts vs goal, sets, load, the days you trained, records, key-lift
-   changes, body-area balance vs the month before, and how it went (tags). "Share as image" draws a
-   portrait card on the phone and hands it to the share sheet — nothing is uploaded by the app. */
+/* ---------- Week & month in review ----------
+   One page per week (Mon–Sun) or calendar month: workouts vs goal, sets, load, when you trained,
+   targets hit, records, key-lift changes, body-area balance vs the period before, and how it went
+   (tags). "Share as image" draws a portrait card on the phone and hands it to the share sheet —
+   nothing is uploaded by the app. */
 const ymOf = d => d.slice(0,7);
 const ymDate = ym => new Date(+ym.slice(0,4), +ym.slice(5,7)-1, 1);
 const monthLong = ym => ymDate(ym).toLocaleDateString(undefined,{month:"long", year:"numeric"});
 const monthOnly = ym => ymDate(ym).toLocaleDateString(undefined,{month:"long"});
 const prevYM = ym => { const d=ymDate(ym); d.setMonth(d.getMonth()-1); return localISO(d).slice(0,7); };
+const addDays = (iso,n) => { const d=new Date(iso+"T12:00:00"); d.setDate(d.getDate()+n); return localISO(d); };
+const shortDay = iso => new Date(iso+"T12:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"});
+const weekRange = mon => `${shortDay(mon)} – ${shortDay(addDays(mon,6))}`;
+const lastMonday = () => addDays(mondayOf(todayISO()),-7);
+// a report period: its dates, the period before it, and the words for both
+function monthPeriod(ym){
+  const pym=prevYM(ym), dim=k=>new Date(+k.slice(0,4), +k.slice(5,7), 0).getDate(), isCur=ym===todayISO().slice(0,7);
+  return {kind:"month", key:ym, start:ym+"-01", end:`${ym}-${dim(ym)}`, pstart:pym+"-01", pend:`${pym}-${dim(pym)}`, daysIn:dim(ym), isCur,
+    title:monthLong(ym), sub:isCur?"Your month so far":"Your month in review", label:monthOnly(ym), prevLabel:monthOnly(pym), vs:monthOnly(pym)};
+}
+function weekPeriod(mon){
+  const isCur=mon===mondayOf(todayISO()), isLast=mon===lastMonday();
+  return {kind:"week", key:mon, start:mon, end:addDays(mon,6), pstart:addDays(mon,-7), pend:addDays(mon,-1), daysIn:7, isCur,
+    title:isCur?"This week":isLast?"Last week":`Week of ${shortDay(mon)}`, sub:`${weekRange(mon)} · ${isCur?"your week so far":"your week in review"}`,
+    label:isCur?"This week":isLast?"Last week":weekRange(mon), prevLabel:isCur?"Last week":"The week before", vs:isCur?"last week":"the week before"};
+}
 // a lift's value at one session, in words: "est. 1RM 85kg" / "top set 7.5kg × 10" / "12 reps"
 function pointHeadline(st, e){
   if(st.unitLbl==="reps") return `${e.maxReps} reps`;
   if(st.acc) return `top set ${fmtW(e.top,st.ex)} × ${e.topReps}`;
   return `est. 1RM ${Math.round(e.m)}${st.ex.unit||"kg"}`;
 }
-function monthReport(ym, sessions, allSets){
-  const pym=prevYM(ym);
-  const ses=sessions.filter(x=>ymOf(x.date)===ym), ids=new Set(ses.map(x=>x.id));
-  const pses=sessions.filter(x=>ymOf(x.date)===pym), pids=new Set(pses.map(x=>x.id));
+const DAYFIX={Chest:"one push day",Shoulders:"one push day",Back:"one pull day",Legs:"one leg day",Arms:"an arm finisher",Core:"a core finisher"};
+// mt: your muscle-target overrides (meta "muscleTargets")
+function periodReport(P, sessions, allSets, mt={}){
+  const inP=d=>d>=P.start&&d<=P.end, inPrev=d=>d>=P.pstart&&d<=P.pend, exById=id=>State.exercises.find(e=>e.id===id);
+  const ses=sessions.filter(x=>inP(x.date)).sort((a,b)=>(a.date+(a.startedAt||"")).localeCompare(b.date+(b.startedAt||""))), ids=new Set(ses.map(x=>x.id));
+  const pses=sessions.filter(x=>inPrev(x.date)), pids=new Set(pses.map(x=>x.id));
   const sets=allSets.filter(x=>ids.has(x.sessionId)&&x.reps>0), psets=allSets.filter(x=>pids.has(x.sessionId)&&x.reps>0);
-  const daysIn=new Date(+ym.slice(0,4), +ym.slice(5,7), 0).getDate();
-  const isCur=ym===todayISO().slice(0,7);
-  const dayCount=isCur ? +todayISO().slice(8,10) : daysIn;                 // the current month counts "so far"
-  const goal=State.weeklyGoal ? Math.max(1,Math.round(State.weeklyGoal*dayCount/7)) : null;
+  const dayCount=P.isCur ? Math.round((new Date(todayISO()+"T12:00:00")-new Date(P.start+"T12:00:00"))/864e5)+1 : P.daysIn;   // the current period counts "so far"
+  const goal=State.weeklyGoal ? (P.kind==="week" ? State.weeklyGoal : Math.max(1,Math.round(State.weeklyGoal*dayCount/7))) : null;
   const mins=ses.map(sessionMins).filter(Boolean);
   const stats=buildStrengthStats(sessions, allSets), byKey=Object.fromEntries(stats.map(x=>[x.key,x]));
+  // key lifts: where the period ended vs your last normal session BEFORE it (within 8 weeks), else its first —
+  // so a lift done once this week still shows a change. Same rough-day rule as everywhere (trendEnds).
+  const cut=addDays(P.start,-56);
   const keys=keyLiftExercises().map(ex=>{ const st=byKey[ex.linkId||ex.id]; if(!st) return null; const vo=bestValOf(st);
-    const pts=st.dated.filter(e=>ymOf(e.d)===ym && vo(e)>0); if(!pts.length) return null;
-    const te=trendEnds(pts.map(p=>({v:vo(p), rough:p.rough})));            // same rough-day rule as everywhere
+    const pts=st.dated.filter(e=>inP(e.d) && vo(e)>0); if(!pts.length) return null;
+    const before=st.dated.filter(e=>e.d<P.start && e.d>=cut && vo(e)>0 && !e.rough).slice(-1);
+    const te=trendEnds([...before, ...pts].map(p=>({v:vo(p), rough:p.rough})));
     return {ex, st, n:pts.length, pct: te&&te.f>0 ? (te.l-te.f)/te.f*100 : null, last:pts[pts.length-1]}; }).filter(Boolean);
+  // targets: how many of the prescribed targets you hit (a miss on a tagged rough day isn't counted; a hit is)
+  // (short = lifts whose LAST target in the period was missed — the ones holding now)
+  const tgt={pres:0, hits:0, forgiven:0, short:[]}, lastOut=new Map();
+  for(const se of ses){ if(!se.targets) continue;
+    for(const [exId,tv] of Object.entries(se.targets)){ if(!(tv>0)) continue;
+      const hit=targetHit(se, exId, allSets);
+      if(!hit && isRoughDay(se)){ tgt.forgiven++; continue; }
+      tgt.pres++; if(hit) tgt.hits++;
+      const ex=exById(exId); if(ex){ const k=ex.linkId||ex.id; lastOut.delete(k); lastOut.set(k,{name:ex.name, hit}); } } }
+  tgt.short=[...lastOut.values()].filter(o=>!o.hit).map(o=>o.name);
+  // week only: the muscle furthest below its weekly target ("one fix"), and any muscle's best week yet
+  let fix=null, best=null;
+  if(P.kind==="week" && sets.length){
+    const sesById=Object.fromEntries(sessions.map(s=>[s.id,s]));
+    const mVol={}; sets.forEach(x=>{ const ex=exById(x.exerciseId); if(!ex) return;
+      if(ex.primary) mVol[ex.primary]=(mVol[ex.primary]||0)+1; if(ex.secondary) mVol[ex.secondary]=(mVol[ex.secondary]||0)+0.5; });
+    const trained8=new Set(), histWk={};
+    for(const x of allSets){ const se=sesById[x.sessionId]; if(!se||!(x.reps>0)) continue; const ex=exById(x.exerciseId); if(!ex) continue;
+      if(se.date<=P.end && se.date>=addDays(P.end,-56)){ if(ex.primary) trained8.add(ex.primary); if(ex.secondary) trained8.add(ex.secondary); }
+      const wk=mondayOf(se.date); if(wk<P.start && ex.primary) (histWk[ex.primary]=histWk[ex.primary]||{})[wk]=(histWk[ex.primary][wk]||0)+1; }
+    const targetOf=mk=> mt[mk]!=null ? mt[mk] : (trained8.has(mk)&&!NO_DEFAULT_TARGET.has(mk) ? 10 : null);
+    let worst=0;
+    for(const mk of trained8){ const t=targetOf(mk); if(!t) continue; const sh=t-(mVol[mk]||0);
+      if(sh>worst){ worst=sh; fix={mk, got:mVol[mk]||0, t}; } }
+    let bestV=0;
+    for(const [mk,v] of Object.entries(mVol)){ const prevMax=Math.max(0,...Object.values(histWk[mk]||{}));
+      if(v>prevMax && v>=3 && Object.keys(histWk[mk]||{}).length>=2 && v>bestV){ bestV=v; best={mk, v}; } }
+  }
   const tags={}; ses.forEach(x=>(x.tags||[]).forEach(t=>tags[t]=(tags[t]||0)+1));
-  return { ym, isCur, n:ses.length, pn:pses.length, setsN:sets.length, psetsN:psets.length, goal,
+  return { P, isCur:P.isCur, ses, n:ses.length, pn:pses.length, setsN:sets.length, psetsN:psets.length, goal,
     avgMins: mins.length?Math.round(mins.reduce((a,b)=>a+b,0)/mins.length):null,
-    ton: tonnageSum(sets, id=>State.exercises.find(e=>e.id===id)).kg, days:new Set(ses.map(x=>x.date)), daysIn,
-    wins: allWins(sessions, allSets).filter(w=>ymOf(w.date)===ym).filter((w,i,a)=>a.findIndex(x=>x.name===w.name)===i), keys,   // latest record per lift
-    reg: regionSets(sets), preg: psets.length?regionSets(psets):null, tags, rough: ses.filter(isRoughDay).length };
+    ton: tonnageSum(sets, exById).kg, days:new Set(ses.map(x=>x.date)),
+    wins: allWins(sessions, allSets).filter(w=>inP(w.date)).filter((w,i,a)=>a.findIndex(x=>x.name===w.name)===i), keys,   // latest record per lift
+    reg: regionSets(sets), preg: psets.length?regionSets(psets):null, tags, rough: ses.filter(isRoughDay).length, tgt, fix, best };
 }
 function monthGrid(ym, days){
   const first=ymDate(ym), off=(first.getDay()+6)%7, n=new Date(first.getFullYear(), first.getMonth()+1, 0).getDate(), today=todayISO();
@@ -3991,39 +4082,62 @@ function monthGrid(ym, days){
     g.append(el("span",{class:"mg-d"+(on?" on":"")+(iso>today?" fut":""),"aria-label":`${fmtDate(iso)}${on?" — trained":""}`}, String(d))); }
   return g;
 }
-async function openMonthReport(ym){
-  const [sessions, allSets]=await Promise.all([DB.all("sessions"), DB.all("sets")]);
-  const r=monthReport(ym, sessions, allSets);
-  if(!r.isCur){ try{ await setMeta("monthSeen", ym); }catch(_){} }
-  openSheet(monthLong(ym)+(r.isCur?" so far":""),(body)=>{
-    body.append(el("div",{class:"small muted",style:"margin:-4px 0 12px"}, r.isCur?"Your month so far":"Your month in review"));
-    if(!r.n){ body.append(el("p",{class:"muted"},"No workouts this month.")); return; }
+const openMonthReport = ym => openReport(monthPeriod(ym));
+async function openReport(P){
+  const [sessions, allSets, mt]=await Promise.all([DB.all("sessions"), DB.all("sets"), getMeta("muscleTargets")]);
+  const r=periodReport(P, sessions, allSets, mt||{}), wk=P.kind==="week";
+  // opening the report the Today banner points at retires that banner
+  if(wk ? P.key===lastMonday() : P.key===prevYM(todayISO().slice(0,7))){ try{ await setMeta(wk?"weekSeen":"monthSeen", P.key); }catch(_){} }
+  openSheet(P.title+(P.isCur?" so far":""),(body)=>{
+    body.append(el("div",{class:"small muted",style:"margin:-4px 0 12px"}, P.sub));
+    if(!r.n){ body.append(el("p",{class:"muted"},`No workouts this ${P.kind}.`)); return; }
     const grid=el("div",{class:"statgrid"});
     grid.append(statTile(r.goal?`${r.n}/${r.goal}`:r.n, r.goal?"workouts · goal":"workouts", r.goal&&r.n>=r.goal?"accent2":""),
       statTile(r.setsN.toLocaleString(),"working sets"), statTile(fmtTon(r.ton),"lifted"), statTile(r.avgMins!=null?r.avgMins+" min":"—","typical workout"));
     body.append(grid);
     if(r.pn){ const dW=r.n-r.pn, dS=r.psetsN?Math.round((r.setsN-r.psetsN)/r.psetsN*100):null;
       body.append(el("div",{class:"small muted",style:"margin-top:8px"},
-        `vs ${monthOnly(prevYM(ym))}: ${dW>0?"+":""}${dW} workout${Math.abs(dW)===1?"":"s"}${dS!=null?` · sets ${dS>=0?"+":""}${dS}%`:""}${r.isCur?" (so far)":""}`)); }
-    body.append(el("div",{class:"sectionhead"},`Days you trained · ${r.days.size}`), monthGrid(ym, r.days));
+        `vs ${P.vs}: ${dW>0?"+":""}${dW} workout${Math.abs(dW)===1?"":"s"}${dS!=null?` · sets ${dS>=0?"+":""}${dS}%`:""}${r.isCur?" (so far)":""}`)); }
+    if(wk){
+      body.append(el("div",{class:"sectionhead"},`Workouts · ${r.n}`));
+      r.ses.forEach(se=>{ const m=sessionMins(se), n=allSets.filter(x=>x.sessionId===se.id&&x.reps>0).length;
+        body.append(el("button",{class:"keyrow",onClick:()=>openSessionDetail(se,false,{stacked:true})},
+          el("div",{class:"grow"}, el("div",{class:"kr-name"}, se.planName||"Workout"),
+            el("div",{class:"small muted"}, [fmtDate(se.date), m?`${m} min`:null, `${n} set${n===1?"":"s"}`, isRoughDay(se)?roughTags(se).join(", ").toLowerCase():null].filter(Boolean).join(" · "))),
+          el("span",{class:"chev"},ic("chevron",16)))); });
+    } else body.append(el("div",{class:"sectionhead"},`Days you trained · ${r.days.size}`), monthGrid(P.key, r.days));
+    if(r.tgt.pres){ const pct=Math.round(r.tgt.hits/r.tgt.pres*100);
+      body.append(el("div",{class:"sectionhead"},"Targets"),
+        el("div",{style:"font-weight:700;color:"+(pct>=70?"var(--accent-2)":"var(--warn)")}, `Hit ${r.tgt.hits} of ${r.tgt.pres} (${pct}%)`),
+        el("div",{class:"small muted",style:"margin-top:2px"}, "Each lift's suggested weight × reps for that session."),
+        ...(r.tgt.short.length?[el("div",{class:"small",style:"margin-top:6px"}, el("b",{},`Ended the ${P.kind} short: `), r.tgt.short.slice(0,6).join(" · ")+(r.tgt.short.length>6?` +${r.tgt.short.length-6}`:""),
+          ...((P.isCur||P.key===lastMonday()||P.key===prevYM(todayISO().slice(0,7)))?[el("span",{class:"muted"}, " — next time each holds its numbers until you match them.")]:[]))]:[]),
+        ...(r.tgt.forgiven?[el("div",{class:"small muted",style:"margin-top:4px"},`${r.tgt.forgiven} miss${r.tgt.forgiven>1?"es":""} on rough days not counted.`)]:[])); }
     body.append(el("div",{class:"sectionhead"}, r.wins.length?`Records · ${r.wins.length} lift${r.wins.length===1?"":"s"}`:"Records"));
     if(r.wins.length){
-      r.wins.slice(0,10).forEach(w=>body.append(el("div",{class:"row between",style:"padding:8px 0;border-bottom:1px solid var(--line);gap:8px"},
+      const cap=wk?6:10;
+      r.wins.slice(0,cap).forEach(w=>body.append(el("div",{class:"row between",style:"padding:8px 0;border-bottom:1px solid var(--line);gap:8px"},
         el("div",{style:"min-width:0"}, el("div",{style:"font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},w.name), el("div",{class:"small muted"},fmtDate(w.date))),
         el("div",{class:"small",style:"color:var(--accent-2);font-weight:600;flex:none;display:inline-flex;align-items:center;gap:5px"}, ic("starfill",12), w.label))));
-      if(r.wins.length>10) body.append(el("div",{class:"small muted",style:"margin-top:6px"},`+${r.wins.length-10} more`));
-    } else body.append(el("p",{class:"small muted",style:"margin:0"},"No new records this month."));
+      if(r.wins.length>cap) body.append(el("div",{class:"small muted",style:"margin-top:6px"},`+${r.wins.length-cap} more`));
+    } else body.append(el("p",{class:"small muted",style:"margin:0"},`No new records this ${P.kind}.`));
     body.append(el("div",{class:"sectionhead"},"Key lifts"));
-    if(r.keys.length) r.keys.forEach(k=>body.append(el("button",{class:"keyrow",onClick:()=>openExerciseProgress(k.ex.id)},
-      el("div",{class:"grow"}, el("div",{class:"kr-name"},k.ex.name), el("div",{class:"small muted"}, `${pointHeadline(k.st,k.last)} · ${k.n} session${k.n===1?"":"s"}`)),
-      el("div",{class:"kr-pill"}, trendPill(k.pct)))));
-    else body.append(el("p",{class:"small muted",style:"margin:0"}, keyLiftExercises().length?"None of your key lifts were trained this month.":"Star your key lifts (Insights → Progress) to see them here."));
-    body.append(el("div",{class:"sectionhead"},"Balance · sets per body area"), radarChart(r.reg, r.preg), radarLegend(monthOnly(ym), r.preg?monthOnly(prevYM(ym)):null));
+    if(r.keys.length){
+      r.keys.forEach(k=>body.append(el("button",{class:"keyrow",onClick:()=>openExerciseProgress(k.ex.id)},
+        el("div",{class:"grow"}, el("div",{class:"kr-name"},k.ex.name), el("div",{class:"small muted"}, `${pointHeadline(k.st,k.last)} · ${k.n} session${k.n===1?"":"s"}`)),
+        el("div",{class:"kr-pill"}, trendPill(k.pct)))));
+      body.append(el("div",{class:"tiny muted",style:"margin-top:6px"},`Change vs your last session before this ${P.kind}.`));
+    } else body.append(el("p",{class:"small muted",style:"margin:0"}, keyLiftExercises().length?`None of your key lifts were trained this ${P.kind}.`:"Star your key lifts (Insights → Progress) to see them here."));
+    body.append(el("div",{class:"sectionhead"},"Balance · sets per body area"), radarChart(r.reg, r.preg), radarLegend(P.label, r.preg?P.prevLabel:null));
+    if(r.best) body.append(el("div",{class:"small",style:"margin-top:8px;color:var(--accent-2);font-weight:600"},
+      `Most ${(muscleLabel(r.best.mk)||r.best.mk).toLowerCase()} sets in a week yet (${r.best.v%1?r.best.v.toFixed(1):r.best.v})`));
+    if(r.fix) body.append(el("div",{class:"small muted",style:"margin-top:6px"},
+      `One fix: ${muscleLabel(r.fix.mk)||r.fix.mk} landed ${r.fix.got%1?r.fix.got.toFixed(1):r.fix.got} of ${r.fix.t} sets${r.isCur?" so far":""} — ${DAYFIX[regionOf(r.fix.mk)]||"one focused session"} covers it.`));
     const tagList=Object.entries(r.tags).sort((a,b)=>b[1]-a[1]);
     if(tagList.length) body.append(el("div",{class:"sectionhead"},"How it went"),
       el("div",{class:"small"}, tagList.map(([t,c])=>`${t} ×${c}`).join(" · ")),
       ...(r.rough?[el("div",{class:"small muted",style:"margin-top:4px"},`${r.rough} rough day${r.rough>1?"s":""} — a shortfall on those didn't count against your targets.`)]:[]));
-    body.append(el("button",{class:"btn",style:"margin-top:20px",onClick:()=>openMonthShare(r)}, ic("upload",16),"Share as image"));
+    body.append(el("button",{class:"btn",style:"margin-top:20px",onClick:()=>openReportShare(r)}, ic("upload",16),"Share as image"));
   },{full:true, stacked:!!document.querySelector(".sheet-bg")});
 }
 // the share card: 1080×1350 (portrait — fits Instagram, WhatsApp, Photos), drawn on the phone
@@ -4040,7 +4154,8 @@ function drawRadarCanvas(g, cur, prev, cx, cy, R, C, F){
     g.textAlign=Math.abs(Math.cos(a))<0.2?"center":Math.cos(a)>0?"left":"right"; g.fillText(k, cx+(R+28)*Math.cos(a), cy+(R+28)*Math.sin(a)); });
   g.textAlign="left"; g.textBaseline="alphabetic";
 }
-async function monthImage(r){
+async function reportImage(r){
+  const P=r.P, wk=P.kind==="week";
   try{ await document.fonts.ready; }catch(_){}
   const W=1080,H=1350,c=document.createElement("canvas"); c.width=W; c.height=H; const g=c.getContext("2d");
   const C={bg:"#0F1420",card:"#1B2333",line:"#2C3648",text:"#F8FAFC",muted:"#9FB0C3",accent:"#F97316",good:"#22C55E",warn:"#FBBF24",data:"#60A5FA"};
@@ -4049,9 +4164,11 @@ async function monthImage(r){
   const box=(x,y,w,h,rad)=>{ g.beginPath(); if(g.roundRect) g.roundRect(x,y,w,h,rad); else g.rect(x,y,w,h); };
   g.fillStyle=C.bg; g.fillRect(0,0,W,H);
   g.fillStyle=C.accent; g.font=F(700,34,true); g.fillText("NEXTSET",72,84);
-  g.fillStyle=C.text; g.font=F(700,84,true); g.fillText(fit(monthLong(r.ym)+(r.isCur?" so far":""),936),72,176);
-  g.fillStyle=C.muted; g.font=F(500,34); g.fillText(r.isCur?"My month so far":"My month in review",72,224);
-  [[r.goal?`${r.n}/${r.goal}`:String(r.n), r.goal?"workouts vs goal":"workouts"],[r.setsN.toLocaleString(),"working sets"],[fmtTon(r.ton),"lifted"],[`${r.days.size} days`,"in the gym"]]
+  g.fillStyle=C.text; g.font=F(700,84,true); g.fillText(fit(wk?weekRange(P.key):monthLong(P.key)+(r.isCur?" so far":""),936),72,176);
+  g.fillStyle=C.muted; g.font=F(500,34); g.fillText(`My ${P.kind} ${r.isCur?"so far":"in review"}`,72,224);
+  const t4 = !wk ? [`${r.days.size} days`,"in the gym"]
+    : r.tgt.pres>=5 ? [`${Math.round(r.tgt.hits/r.tgt.pres*100)}%`,"targets hit"] : [r.avgMins!=null?`${r.avgMins} min`:"—","typical workout"];
+  [[r.goal?`${r.n}/${r.goal}`:String(r.n), r.goal?"workouts vs goal":"workouts"],[r.setsN.toLocaleString(),"working sets"],[fmtTon(r.ton),"lifted"],t4]
     .forEach(([v,l],i)=>{ const x=72+(i%2)*478, y=258+Math.floor(i/2)*152;
       g.fillStyle=C.card; box(x,y,458,136,24); g.fill();
       g.fillStyle=C.text; g.font=F(700,62,true); g.fillText(fit(v,400),x+30,y+76);
@@ -4060,60 +4177,75 @@ async function monthImage(r){
   g.fillStyle=C.text; g.font=F(700,40,true); g.fillText(`Records · ${r.wins.length} lift${r.wins.length===1?"":"s"}`,72,y0); g.fillText("Key lifts",570,y0);
   g.font=F(500,28);
   r.wins.slice(0,4).forEach((w,i)=>{ const yy=y0+54+i*52; g.fillStyle=C.good; g.fillText("★",72,yy); g.fillStyle=C.text; g.fillText(fit(w.name,400),112,yy); });
-  if(!r.wins.length){ g.fillStyle=C.muted; g.fillText("None this month",72,y0+54); }
+  if(!r.wins.length){ g.fillStyle=C.muted; g.fillText(`None this ${P.kind}`,72,y0+54); }
   r.keys.slice(0,4).forEach((k,i)=>{ const yy=y0+54+i*52, p=k.pct;
     g.fillStyle=C.text; g.fillText(fit(k.ex.name,320),570,yy);
     g.fillStyle=p==null?C.muted:p>1?C.good:p<-1?C.warn:C.muted; g.textAlign="right";
     g.fillText(p==null?"—":`${p>=0?"+":"−"}${Math.abs(Math.round(p))}%`,1008,yy); g.textAlign="left"; });
   if(!r.keys.length){ g.fillStyle=C.muted; g.fillText("—",570,y0+54); }
   g.fillStyle=C.text; g.font=F(700,40,true); g.fillText("Balance",72,908);
-  if(r.preg){ g.font=F(500,24); g.fillStyle=C.muted; g.textAlign="right"; g.fillText(`dashed: ${monthOnly(prevYM(r.ym))}`,1008,908); g.textAlign="left"; }
+  if(r.preg){ g.font=F(500,24); g.fillStyle=C.muted; g.textAlign="right"; g.fillText(`dashed: ${wk?P.prevLabel.toLowerCase():P.prevLabel}`,1008,908); g.textAlign="left"; }
   drawRadarCanvas(g, r.reg, r.preg, 540, 1092, 132, C, F);
   g.fillStyle=C.muted; g.font=F(500,26); g.textAlign="center"; g.fillText("Tracked with NextSet", W/2, H-30); g.textAlign="left";
   return c;
 }
-async function openMonthShare(r){
-  const c=await monthImage(r);
+async function openReportShare(r){
+  const P=r.P, c=await reportImage(r);
   const blob=await new Promise(res=>c.toBlob(res,"image/png")); if(!blob){ toast("Couldn't make the image"); return; }
-  const url=URL.createObjectURL(blob), name=`nextset-${r.ym}.png`;
-  openSheet("Share your month",(body)=>{
-    body.append(el("img",{src:url,alt:`${monthLong(r.ym)} summary`,style:"width:100%;border-radius:12px;border:1px solid var(--line);display:block"}),
+  const url=URL.createObjectURL(blob), name=`nextset-${P.kind==="week"?"week-":""}${P.key}.png`;
+  const what=P.kind==="week"?weekRange(P.key):monthLong(P.key);
+  openSheet(`Share your ${P.kind}`,(body)=>{
+    body.append(el("img",{src:url,alt:`${what} summary`,style:"width:100%;border-radius:12px;border:1px solid var(--line);display:block"}),
       el("p",{class:"tiny muted",style:"margin:8px 0 0"},"Made on your phone — nothing leaves it until you share. It shows totals, records, key-lift % changes and balance; no notes, gyms or set-by-set weights."),
       el("button",{class:"btn",style:"margin-top:12px",onClick:async()=>{
         const file=new File([blob], name, {type:"image/png"});
-        try{ if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:`${monthLong(r.ym)} — NextSet`}); return; } }
+        try{ if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:`${what} — NextSet`}); return; } }
         catch(e){ if(e && e.name==="AbortError") return; }
         const a=document.createElement("a"); a.href=url; a.download=name; document.body.append(a); a.click(); a.remove(); toast("Image saved");
       }}, ic("upload",16), "Share"));
   },{stacked:true, onClose:()=>setTimeout(()=>URL.revokeObjectURL(url),1500)});
 }
-// Habits tab: every month with workouts, newest first
-function monthReportsCard(sessions){
-  const yms=[...new Set(sessions.map(x=>ymOf(x.date)))].sort().reverse();
-  if(!yms.length) return null;
-  const card=el("div",{class:"card"});
-  card.append(el("div",{class:"row between",style:"margin-bottom:2px"}, el("h2",{style:"margin:0"},"Monthly reports"), el("span",{class:"small muted"},"share as an image")));
-  (_showAllMonths?yms:yms.slice(0,4)).forEach(ym=>{ const n=sessions.filter(x=>ymOf(x.date)===ym).length, cur=ym===todayISO().slice(0,7);
-    card.append(el("button",{class:"keyrow",onClick:()=>openMonthReport(ym)},
-      el("div",{class:"grow"}, el("div",{class:"kr-name"}, monthLong(ym)+(cur?" (so far)":"")), el("div",{class:"small muted"}, `${n} workout${n===1?"":"s"}`)),
-      el("span",{class:"chev"},ic("chevron",16)))); });
-  if(yms.length>4) card.append(_showAllMonths ? showAllBtn("Show fewer",()=>{_showAllMonths=false;}) : showAllBtn(`Show all ${yms.length} months`,()=>{_showAllMonths=true;}));
+// Habits tab: Weeks | Months — every period with workouts, newest first
+function reportsCard(sessions){
+  if(!sessions.length) return null;
+  const card=el("div",{class:"card"}), list=el("div",{});
+  const chips=el("div",{class:"filterchips",style:"margin:8px 0 2px"});
+  const paint=()=>{
+    chips.replaceChildren(...[["week","Weeks"],["month","Months"]].map(([k,l])=>el("button",{class:"fchip"+(_reportTab===k?" on":""),"aria-pressed":_reportTab===k?"true":"false",
+      onClick:()=>{ _reportTab=k; _showAllReports=false; paint(); }}, l)));
+    list.replaceChildren();
+    const wk=_reportTab==="week";
+    const keys=[...new Set(sessions.map(x=>wk?mondayOf(x.date):ymOf(x.date)))].sort().reverse().slice(0, wk?26:120);
+    (_showAllReports?keys:keys.slice(0,4)).forEach(k=>{ const P=wk?weekPeriod(k):monthPeriod(k);
+      const n=sessions.filter(x=>x.date>=P.start&&x.date<=P.end).length;
+      list.append(el("button",{class:"keyrow",onClick:()=>openReport(P)},
+        el("div",{class:"grow"}, el("div",{class:"kr-name"}, (wk?P.label:P.title)+(P.isCur?" (so far)":"")),
+          el("div",{class:"small muted"}, [wk&&(P.isCur||k===lastMonday())?weekRange(k):null, `${n} workout${n===1?"":"s"}`].filter(Boolean).join(" · "))),
+        el("span",{class:"chev"},ic("chevron",16)))); });
+    if(keys.length>4) list.append(el("button",{class:"btn ghost sm",style:"width:100%;margin-top:4px",onClick:()=>{ _showAllReports=!_showAllReports; paint(); }},
+      ic("chevron",14), _showAllReports?"Show fewer":`Show all ${keys.length} ${wk?"weeks":"months"}`));
+  };
+  card.append(el("div",{class:"row between",style:"margin-bottom:2px"}, el("h2",{style:"margin:0"},"Reports"), el("span",{class:"small muted"},"share as an image")), chips, list);
+  paint();
   return card;
 }
-// Today, first week of a month: last month's report, one tap away (dismissible)
-function monthBanner(){
+// Today: last week's report Mon–Wed, last month's in a month's first 7 days — one tap away, dismissible
+function reportBanner(kind){
   const box=el("div",{});
   (async()=>{
-    const today=todayISO(); if(+today.slice(8,10)>7) return;
-    const ym=prevYM(today.slice(0,7)); if((await getMeta("monthSeen"))===ym) return;
-    const sessions=await DB.all("sessions"); const n=sessions.filter(x=>ymOf(x.date)===ym).length; if(!n) return;
-    const wins=new Set(allWins(sessions, await DB.all("sets")).filter(w=>ymOf(w.date)===ym).map(w=>w.name)).size;   // lifts with a record
+    const today=todayISO(), wk=kind==="week";
+    if(wk ? (new Date(today+"T12:00:00").getDay()+6)%7>2 : +today.slice(8,10)>7) return;
+    const P=wk?weekPeriod(lastMonday()):monthPeriod(prevYM(today.slice(0,7)));
+    if((await getMeta(wk?"weekSeen":"monthSeen"))===P.key) return;
+    const sessions=await DB.all("sessions"); const n=sessions.filter(x=>x.date>=P.start&&x.date<=P.end).length; if(!n) return;
+    const wins=new Set(allWins(sessions, await DB.all("sets")).filter(w=>w.date>=P.start&&w.date<=P.end).map(w=>w.name)).size;   // lifts with a record
     box.append(el("div",{class:"monthbanner"},
-      el("button",{class:"mb-main",onClick:()=>openMonthReport(ym).then(()=>box.remove())},
-        el("span",{class:"mb-eyebrow"},"Month in review"),
-        el("span",{class:"mb-title"}, `${monthOnly(ym)} · ${n} workout${n===1?"":"s"}${wins?` · records on ${wins} lift${wins===1?"":"s"}`:""}`),
+      el("button",{class:"mb-main",onClick:()=>openReport(P).then(()=>box.remove())},
+        el("span",{class:"mb-text"},
+          el("span",{class:"mb-eyebrow"}, wk?"Week in review":"Month in review"),
+          el("span",{class:"mb-title"}, `${wk?"Last week":P.label} · ${n} workout${n===1?"":"s"}${wins?` · ${wins} record${wins===1?"":"s"}`:""}`)),
         el("span",{class:"chev"},ic("chevron",16))),
-      el("button",{class:"sheetclose",style:"width:32px;height:32px;flex:none","aria-label":"Dismiss",onClick:async()=>{ await setMeta("monthSeen",ym); box.remove(); }}, ic("x",15))));
+      el("button",{class:"sheetclose",style:"width:32px;height:32px;flex:none","aria-label":"Dismiss",onClick:async()=>{ await setMeta(wk?"weekSeen":"monthSeen",P.key); box.remove(); }}, ic("x",15))));
   })();
   return box;
 }
@@ -4212,82 +4344,7 @@ function viewInsights(){
     const trained8=new Set();
     for(const x of allSets){ const d=dateOf(x); if(!d||daysAgo(d)>56)continue; const ex=exById(x.exerciseId); if(!ex)continue;
       if(ex.primary)trained8.add(ex.primary); if(ex.secondary)trained8.add(ex.secondary); }
-    const targetOf=mk=> targetsOverride[mk]!=null ? targetsOverride[mk] : (trained8.has(mk)&&mk!=="cardio" ? 10 : null);
-
-    // ===== Weekly recap — appears each Monday for the completed week (in the Habits tab), until dismissed =====
-    let recapEl=null;
-    const curMon=mondayOf(todayISO());
-    const prevMonD=new Date(curMon+"T12:00:00"); prevMonD.setDate(prevMonD.getDate()-7);
-    const prevMon=localISO(prevMonD);
-    if((await getMeta("lastRecapWeek"))!==curMon){
-      const rSessions=sessions.filter(s=>mondayOf(s.date)===prevMon);
-      if(rSessions.length){
-        const rIds=new Set(rSessions.map(s=>s.id));
-        const rSets=allSets.filter(x=>rIds.has(x.sessionId) && x.reps>0);
-        const mVol={};
-        rSets.forEach(x=>{const ex=exById(x.exerciseId); if(!ex)return;
-          if(ex.primary) mVol[ex.primary]=(mVol[ex.primary]||0)+1;
-          if(ex.secondary) mVol[ex.secondary]=(mVol[ex.secondary]||0)+0.5;});
-        const targetSum=[...trained8].reduce((t,mk)=>t+(targetOf(mk)||0),0);
-        // best moment — priority: a PR that week → biggest e1RM jump → most sets in a week for a muscle
-        const olderSets=allSets.filter(x=>{const d=dateOf(x); return d && x.reps>0 && mondayOf(d)<prevMon;});
-        let prText=null, bestJump=null;
-        const byExWeek={}; rSets.forEach(x=>{(byExWeek[x.exerciseId]=byExWeek[x.exerciseId]||[]).push(x);});
-        for(const [exId,list] of Object.entries(byExWeek)){
-          const ex=exById(exId); if(!ex) continue;
-          const before=olderSets.filter(x=>x.exerciseId===exId);
-          if(!before.length) continue;                      // first-ever week isn't a "PR"
-          const prB=computePRs(before, ex);
-          if(isBW(ex)){
-            const wr=Math.max(...list.map(x=>x.reps));
-            if(wr>prB.maxReps && !prText) prText=`New rep PR on ${ex.name} — ${wr} reps`;
-          } else {
-            const wb=Math.max(...list.map(x=>epley(x.weight,x.reps)));
-            if(wb>prB.best1rm && !prText) prText=isAccessory(ex)?`New best set on ${ex.name}`:`New est-1RM PR on ${ex.name}`;
-            if(prB.best1rm>0 && !isAccessory(ex)){ const j=(wb-prB.best1rm)/prB.best1rm;
-              if(j>0 && (!bestJump||j>bestJump.j)) bestJump={j, text:`${ex.name} est-1RM up ${Math.round(j*100)}% — biggest jump of the week`}; }
-          }
-        }
-        let muscleText=null;
-        if(!prText && !bestJump){
-          const histWk={};
-          allSets.forEach(x=>{const d=dateOf(x); if(!d||!(x.reps>0))return; const wk2=mondayOf(d); if(wk2>=prevMon)return;
-            const ex=exById(x.exerciseId); if(!ex||!ex.primary)return;
-            (histWk[ex.primary]=histWk[ex.primary]||{})[wk2]=(histWk[ex.primary][wk2]||0)+1;});
-          for(const [mk,v] of Object.entries(mVol)){
-            const prevMax=Math.max(0,...Object.values(histWk[mk]||{}));
-            if(v>prevMax && v>=3 && !muscleText) muscleText=`Most ${(muscleLabel(mk)||mk).toLowerCase()} sets in a week yet (${v%1?v.toFixed(1):v})`;
-          }
-        }
-        const bestMoment = prText || (bestJump&&bestJump.text) || muscleText || null;
-        // one fix — the muscle furthest below its weekly target, phrased as an action
-        let fix=null, worstShort=0;
-        for(const mk of trained8){ const t=targetOf(mk); if(!t) continue;
-          const short=t-(mVol[mk]||0);
-          if(short>worstShort){ worstShort=short; fix={mk, got:mVol[mk]||0, t}; } }
-        const DAYFIX={Chest:"one push day",Shoulders:"one push day",Back:"one pull day",Legs:"one leg day",Arms:"an arm finisher",Core:"a core finisher"};
-        // a Monday note, not furniture: one glanceable line, tap to expand, X to dismiss
-        const recap=el("div",{class:"recapbar"});
-        const sum=`${rSessions.length} workout${rSessions.length>1?"s":""} · ${rSets.length} sets${bestMoment?" · ★":""}`;
-        const det=el("div",{class:"recapdet",style:_recapOpen?"":"display:none"});
-        det.append(el("div",{class:"small",style:"margin-top:2px"},`${rSets.length} working sets last week${targetSum?` · weekly target ${targetSum}`:""}`));
-        if(bestMoment) det.append(el("div",{class:"small",style:"margin-top:4px;color:var(--accent-2);font-weight:600"}, bestMoment));
-        if(fix) det.append(el("div",{class:"small muted",style:"margin-top:4px"},
-          `One fix: ${muscleLabel(fix.mk)||fix.mk} landed ${fix.got%1?fix.got.toFixed(1):fix.got}/${fix.t} — ${DAYFIX[regionOf(fix.mk)]||"one focused session"} covers it.`));
-        const chev=el("span",{class:"chev",style:"transition:transform .15s;"+(_recapOpen?"transform:rotate(90deg)":"")},ic("chevron",16));
-        const head=el("button",{class:"recaphead","aria-expanded":_recapOpen?"true":"false",onClick:()=>{
-          _recapOpen=!_recapOpen; det.style.display=_recapOpen?"":"none";
-          chev.style.transform=_recapOpen?"rotate(90deg)":""; head.setAttribute("aria-expanded",_recapOpen?"true":"false");
-        }},
-          el("span",{class:"recap-eyebrow"},"Weekly recap"),
-          el("span",{class:"small",style:"font-weight:600;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"},sum),
-          chev);
-        recap.append(el("div",{class:"row",style:"gap:6px;align-items:center"}, head,
-          el("button",{class:"sheetclose",style:"width:32px;height:32px;flex:none","aria-label":"Dismiss recap",
-            onClick:async()=>{ await setMeta("lastRecapWeek",curMon); recap.remove(); }},ic("x",15))), det);
-        recapEl=recap;
-      }
-    }
+    const targetOf=mk=> targetsOverride[mk]!=null ? targetsOverride[mk] : (trained8.has(mk)&&!NO_DEFAULT_TARGET.has(mk) ? 10 : null);
 
     // ===== Habits (Q1: Am I consistent?) — measured against YOUR weekly goal, if you set one =====
     const year=new Date().getFullYear();
@@ -4331,8 +4388,7 @@ function viewInsights(){
     { let pres=0, hits=0, forgiven=0;
       for(const se of sessions){ if(!se.targets||daysAgo(se.date)>28)continue;
         for(const [exId,tv] of Object.entries(se.targets)){ if(!(tv>0))continue;
-          const got=allSets.reduce((t,x)=>x.sessionId===se.id&&x.exerciseId===exId?t+(+x.weight||0)*(+x.reps||0):t,0);
-          const hit=got>=tv*0.98;
+          const hit=targetHit(se, exId, allSets);
           if(!hit && isRoughDay(se)){ forgiven++; continue; }        // a miss on a rough day isn't counted; a hit is
           pres++; if(hit) hits++; } }
       if(pres>=5) poCard.append(el("div",{class:"small",style:"margin-top:8px;font-weight:600;color:"+(hits/pres>=0.7?"var(--accent-2)":"var(--warn)")},
@@ -4349,8 +4405,8 @@ function viewInsights(){
       el("div",{class:"small muted",style:"margin-top:6px"},"Each square is a day · tap one to open that workout."));
 
     // ---- Q1 assembled: consistency first ----
-    const monthCard=monthReportsCard(sessions);
-    secC.append(el("div",{class:"sectionhead qhead",style:"--qc:var(--sec-teal)"},"Am I consistent?"), ...(recapEl?[recapEl]:[]), ovCard, goalCard, calCard, ...(monthCard?[monthCard]:[]));
+    const repCard=reportsCard(sessions);
+    secC.append(el("div",{class:"sectionhead qhead",style:"--qc:var(--sec-teal)"},"Am I consistent?"), ovCard, goalCard, calCard, ...(repCard?[repCard]:[]));
 
     // ===== Muscle targets + breakdown (Q3: What should I change?) =====
     const inMR = d => muscleRange==="week" ? mondayOf(d)===thisWeek : daysAgo(d) <= ({"4wk":28,"12wk":84,"6mo":182}[muscleRange]||28);
@@ -4414,7 +4470,7 @@ function viewInsights(){
       muscleCards.push(hcard);
       // Push / pull / legs balance
       const S=(...ks)=>ks.reduce((t,k)=>t+(vol[k]||0),0);
-      const push=S("chest","front_delts","side_delts","triceps"), pull=S("lats","upper_back","rear_delts","biceps","forearms"), legs=S("quads","hamstrings","glutes","calves");
+      const push=S("chest","front_delts","side_delts","triceps"), pull=S("lats","upper_back","rear_delts","biceps","forearms"), legs=S("quads","hamstrings","glutes","adductors","calves");
       // spider: sets per body area for this range, dashed = the previous equal range (last week for "This week")
       const inPrev = d => muscleRange==="week" ? mondayOf(d)===WK[WK.length-2] : (()=>{ const a=daysAgo(d); return a>prevDays && a<=2*prevDays; })();
       const curR=regionSets(allSets.filter(x=>{ const d=dateOf(x); return d && inMR(d); }));
@@ -4944,9 +5000,9 @@ function openMuscleDetail(mk){
 /* ===== insights extras: PRs, per-exercise detail, body heatmap, ranged volume, calendar ===== */
 let muscleRange="week";   // muscle breakdown range: week / 4wk / 12wk / 6mo
 let insightsSection="consist";   // active Insights tab: consist | prog | mix | att — session-scoped
-let _recapOpen=false;            // weekly recap banner expanded — session-scoped
 let _insightsScroll=null; // set by an Insights filter tap so the re-render restores scroll instead of jumping to top
-let _showAllAlerts=false, _showAllMuscles=false, _showAllWins=false, _showAllMovers=false, _showAllMonths=false; // Insights long-list expanders — session-scoped
+let _showAllAlerts=false, _showAllMuscles=false, _showAllWins=false, _showAllMovers=false, _showAllReports=false; // Insights long-list expanders — session-scoped
+let _reportTab="week";            // Habits → Reports: weeks | months — session-scoped
 // "Show all N" ghost button used by both long Insights sections; preserves scroll on re-render
 function showAllBtn(label, onTap){
   return el("button",{class:"btn ghost sm",style:"width:100%;margin-top:4px",onClick:()=>{ _insightsScroll=window.scrollY; onTap(); render(); }}, ic("chevron",14), label);
@@ -5282,7 +5338,7 @@ function weekBars(vals, goal, labels){
    from the library (authoritative), and within-region specificity is refined by our own
    name rules (so "Side Lateral Raise" → Side Delts, not a generic "shoulders"). */
 const LIB_MUSCLE={                 // free-exercise-db muscle -> NextSet muscle key (region preserved)
-  abdominals:"core", abductors:"glutes", adductors:"quads", biceps:"biceps", calves:"calves",
+  abdominals:"core", abductors:"glutes", adductors:"adductors", biceps:"biceps", calves:"calves",
   chest:"chest", forearms:"forearms", glutes:"glutes", hamstrings:"hamstrings", lats:"lats",
   "lower back":"lower_back", "middle back":"upper_back", neck:"upper_back", quadriceps:"quads",
   shoulders:"front_delts", traps:"upper_back", triceps:"triceps",
@@ -5347,7 +5403,7 @@ function libToExercise(le){
   const mS = (le.secondaryMuscles&&le.secondaryMuscles.length)? mapLibMuscle(le.secondaryMuscles[0]) : null;
   const g = guessMuscles(le.name);
   let primary;
-  if(mP) primary = (g.primary && regionOf(g.primary)===regionOf(mP)) ? g.primary : mP;  // refine within region only
+  if(mP) primary = (g.primary && regionOf(g.primary)===regionOf(mP) && !(mP==="lats" && g.primary==="upper_back")) ? g.primary : mP;  // refine within region only
   else   primary = g.primary || null;
   let secondary = mS || g.secondary || null;
   if(secondary===primary) secondary=null;
@@ -5673,7 +5729,7 @@ function viewSettings(){
   // ----- Progression: volume-increase target -----
   const progCard=el("details",{class:"card advcard"});
   progCard.append(el("summary",{}, el("span",{class:"grow"}, el("h2",{style:"margin:0"},"Progression (advanced)"), el("span",{class:"small muted"},`Aim to beat last time by ${volTarget()}% a session`)), el("span",{class:"chev"},ic("chevron",16))),
-    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Each time you repeat an exercise, suggestions aim to beat your last session's total volume (weight × reps) by this much — your baseline “Solid” session. Rate a set Easy / Solid / Grind and the next target auto-adjusts: Easy pushes ~2.5× harder, Grind eases to ~½. Fall short and it holds until you hit it."));
+    el("p",{class:"small muted",style:"margin:-6px 0 12px"},"Each time you repeat an exercise, suggestions aim to beat your last session's total volume (weight × reps) by this much. Hit the target and the next one keeps the same pace. Fall short and the next session holds the same weights and reps until you match them; then it builds back at half pace for two sessions before returning to full pace. A miss on a day you tagged as rough doesn't count."));
   const vInp=el("input",{type:"number",inputMode:"numeric",min:"1",max:"25",step:"1",value:String(volTarget()),
     style:"width:84px;font-size:17px;font-weight:700;text-align:center;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 8px;color:var(--text)","aria-label":"Volume increase target percent"});
   const saveVol=async()=>{ let v=Math.round(+vInp.value); if(!Number.isFinite(v)||v<=0) v=4; v=Math.max(1,Math.min(25,v)); vInp.value=String(v); State.volTargetPct=v; await setMeta("volTargetPct",v); toast(`Targeting +${v}% volume each session`); };
