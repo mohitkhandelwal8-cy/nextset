@@ -503,32 +503,34 @@
   .hero-meta{font-size:15px;color:var(--muted)}
   .hero-why{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;margin-top:3px}
   .hero-prog{margin-top:10px;min-height:22px}
-  .btn.hero-start{min-height:56px;font-size:17px;border-radius:16px}
-  .uplist{background:var(--surface);border-radius:16px;padding:0 16px;margin:14px 0 12px}
-  .uprow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 12px;align-items:baseline;padding:11px 0;border-bottom:1px solid var(--line)}
-  .uprow:last-child{border-bottom:none}
+  .btn.hero-start{min-height:56px;font-size:17px;border-radius:16px;margin-top:14px}
+  .hero-head{display:flex;align-items:center;gap:8px}
+  .hero-head .hero-title{flex:1;min-width:0}
+  .hero-head .morebtn{margin-right:-10px}
+  .hero-sum{font-size:14px;font-weight:600;margin-top:10px;min-height:20px}
+  .hero-sum .up{color:var(--accent-2)} .hero-sum .hold{color:var(--warn)} .hero-sum .muted{font-weight:500}
   .up-name{font-size:15px;font-weight:600;display:flex;align-items:center;gap:5px;min-width:0}
   .up-nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .up-key{color:var(--accent);display:inline-flex;flex:none}
   .up-cue{font-size:13px;font-weight:600;white-space:nowrap}
   .up-cue.up{color:var(--accent-2)} .up-cue.hold,.up-cue.down{color:var(--warn)} .up-cue.new{color:var(--muted)}
   .up-tgt{font-size:13px;color:var(--muted);grid-column:1/-1;font-variant-numeric:tabular-nums}
-  .uprow.more{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 0}
-  .up-rest{font-size:13px;color:var(--muted);min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .up-edit{font-size:14px;font-weight:600;color:var(--text);min-height:40px;padding:0 2px;flex:none}
   .planlist{margin-bottom:8px}
   .planrow{display:flex;align-items:center;gap:8px;min-height:64px;padding:8px 0;border-top:1px solid var(--line)}
   .planrow .name{font-size:16px;font-weight:600}
   .planrow.add{width:100%;text-align:left;font-size:15px;font-weight:600;color:var(--text);gap:10px;min-height:54px;border-bottom:1px solid var(--line)}
   .morebtn{flex:none;width:40px;height:44px;display:inline-flex;align-items:center;justify-content:center;color:var(--muted);background:none;border:none}
-  .weekglance{display:flex;flex-direction:column;gap:10px;margin:2px 0 14px;cursor:pointer}
-  .wg-head{display:flex;justify-content:space-between;align-items:baseline}
+  .weekglance{display:flex;flex-direction:column;gap:8px;margin:2px 0 14px}
+  .wg-head{display:flex;justify-content:space-between;align-items:center;width:100%;min-height:36px;padding:0;background:none;border:none;color:var(--text);text-align:left}
+  .wg-count{display:inline-flex;align-items:center;gap:0}
+  .wg-count .ic{color:var(--muted);margin-left:4px}
   .wg-title{font-size:15px;font-weight:600}
   .wg-count{font-size:15px;color:var(--muted)} .wg-count b{color:var(--text);font-weight:600}
   .wg-days{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
   .wg-col{display:flex;flex-direction:column;align-items:center;gap:6px}
   .wg-l{font-size:11px;font-weight:600;color:var(--muted)} .wg-l.today{color:var(--accent)}
-  .wg-day{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--muted);background:var(--surface-2);font-variant-numeric:tabular-nums}
+  .wg-day{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--muted);background:var(--surface-2);font-variant-numeric:tabular-nums;border:none;padding:0}
+  button.wg-day{cursor:pointer} button.wg-day:active{opacity:.7}
   .wg-day.on{background:var(--text);color:var(--bg)}
   .wg-day.today{box-shadow:inset 0 0 0 2px var(--accent);background:transparent;color:var(--text);font-weight:600}
   .wg-day.on.today{background:var(--text);color:var(--bg);box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--accent)}
@@ -780,7 +782,7 @@ function updateRestPill(){ const p=document.getElementById("restPillClock"); if(
   if(_rest && Date.now()<_rest.endsAt){ p.textContent="Rest "+restLeftStr(); p.style.display=""; } else { p.textContent=""; p.style.display="none"; } }
 function round(n,step){ return Math.round(n/step)*step; }
 function epley(w,r){ return w*(1+r/30); } // est 1RM for trend
-const APP_VERSION = "v114"; // keep in sync with CACHE in sw.js
+const APP_VERSION = "v115"; // keep in sync with CACHE in sw.js
 
 /* ---------- inline SVG icons (Lucide-style, no emoji) ---------- */
 const ICONS = {
@@ -1842,7 +1844,8 @@ function render(){
   const noGyms = !State.gyms.length;
   // during first-run setup there are no tabs to switch between — hide the chrome
   document.querySelector(".tabbar").style.display = noGyms ? "none" : "";
-  $("#gymPick").style.display = noGyms ? "none" : "";
+  // History and Insights count every gym together — a gym chip there would read as a filter it isn't
+  $("#gymPick").style.display = (noGyms || currentTab==="history" || currentTab==="insights") ? "none" : "";
   $("#gearBtn").style.display = noGyms ? "none" : "";
   $("#gearBtn").classList.toggle("on", currentTab==="settings");
   $("#titleText").textContent = noGyms ? "NextSet" : (TAB_TITLES[currentTab]||"NextSet");
@@ -2117,25 +2120,26 @@ function nextPlan(plans){
   const plan=pool.slice().sort((a,b)=>(a.lastUsedAt||"").localeCompare(b.lastUsedAt||"") || (a.createdAt||"").localeCompare(b.createdAt||""))[0];
   return {plan, why: recent.length>1 ? "Next in your rotation — the one you did longest ago" : lastName ? "Next on your list" : ""};
 }
-// "This week": a circle per day (✓ = trained, today ringed) + the count against your goal — tap for Habits
+// "This week": a circle per day (✓ = trained, today ringed) + the count against your goal.
+// Tap a ✓ day → that workout; tap the "This week" line → Habits.
 function weekGlance(){
-  const box=el("div",{class:"weekglance",role:"button",tabindex:"0","aria-label":"This week — open your consistency"});
-  const go=()=>{ insightsSection="consist"; setTab("insights"); };
-  box.addEventListener("click",go);
-  box.addEventListener("keydown",e=>{ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); go(); } });
+  const box=el("div",{class:"weekglance"});
   (async()=>{
     const sessions=await DB.all("sessions");
     const mon=mondayOf(todayISO()), days=[], today=todayISO();
     for(let k=0;k<7;k++){ const d=new Date(mon+"T12:00:00"); d.setDate(d.getDate()+k); days.push(localISO(d)); }
-    const trained=new Set(sessions.map(x=>x.date));
+    const byDay={}; sessions.forEach(x=>{ const c=byDay[x.date]; if(!c || (x.startedAt||"")>(c.startedAt||"")) byDay[x.date]=x; });   // latest workout that day
     const n=sessions.filter(x=>mondayOf(x.date)===mon).length, goal=State.weeklyGoal;
     const grid=el("div",{class:"wg-days"});
-    days.forEach((d,k)=>{ const on=trained.has(d), td=d===today;
+    days.forEach((d,k)=>{ const se=byDay[d], td=d===today;
+      const cls="wg-day"+(se?" on":"")+(td?" today":""), label=String(+d.slice(8,10));
       grid.append(el("div",{class:"wg-col"},
         el("span",{class:"wg-l"+(td?" today":""),"aria-hidden":"true"},"MTWTFSS"[k]),
-        el("span",{class:"wg-day"+(on?" on":"")+(td?" today":""),"aria-label":`${fmtDate(d)}${on?" — trained":""}`}, on?ic("check",15):String(+d.slice(8,10))))); });
-    box.append(el("div",{class:"wg-head"}, el("span",{class:"wg-title"},"This week"),
-      el("span",{class:"wg-count"}, el("b",{},String(n)), goal?` of ${goal} workouts`:` workout${n===1?"":"s"}`)), grid);
+        se ? el("button",{type:"button",class:cls,"aria-label":`${fmtDate(d)} — open ${se.planName||"workout"}`,onClick:()=>openSessionDetail(se)}, ic("check",15))
+           : el("span",{class:cls,"aria-label":fmtDate(d)}, label))); });
+    box.append(el("button",{type:"button",class:"wg-head","aria-label":"This week — open your consistency",onClick:()=>{ insightsSection="consist"; setTab("insights"); }},
+      el("span",{class:"wg-title"},"This week"),
+      el("span",{class:"wg-count"}, el("b",{},String(n)), goal?`\u00a0of ${goal} workouts`:`\u00a0workout${n===1?"":"s"}`, ic("chevron",14))), grid);
   })();
   return box;
 }
@@ -2146,15 +2150,16 @@ function viewStart(wrap){
     const {plan:next, why}=nextPlan(plans);
     const others=plans.filter(p=>p!==next).sort((a,b)=>(b.gymId===State.currentGymId)-(a.gymId===State.currentGymId));   // this gym's plans first
     const n=next.items.length, usage=planUsageLbl(next);
-    const preview=el("div",{class:"uplist"}, el("div",{class:"uprow"}, el("span",{class:"up-tgt"},"Working out today's targets…")));
+    const summary=el("div",{class:"hero-sum"}, el("span",{class:"muted"},"Working out today's targets…"));
     wrap.append(el("div",{class:"herocard"},
       el("div",{class:"statuscard-eyebrow"},"Up next"),
-      el("div",{class:"hero-title"}, next.name),
+      el("div",{class:"hero-head"}, el("div",{class:"hero-title"}, next.name),
+        el("button",{class:"morebtn","aria-label":`Options for ${next.name}`,onClick:()=>openPlanMenu(next)}, ic("more",20))),
       el("div",{class:"hero-meta"}, `${n} exercise${n>1?"s":""} · ~${templateMinutes(next)} min${usage?` · ${usage}`:""}`),
       ...(why?[el("div",{class:"hero-why"}, ic("arrowright",14), why)]:[]),
-      preview,
+      summary,
       el("button",{class:"btn hero-start",onClick:()=>startSessionFromPlan(next)}, ic("play"), `Start ${next.name}`)));
-    planPreview(next).then(rows=>preview.replaceChildren(...rows)).catch(()=>preview.remove());
+    planProgressLine(next).then(node=>summary.replaceChildren(node)).catch(()=>summary.remove());
     const list=el("div",{class:"planlist"});
     if(others.length){
       wrap.append(el("div",{class:"regionhead"},"Other plans"));
@@ -2218,44 +2223,23 @@ function progCue(sug, ex){
   if(k==="new") return ["new","first time"];
   return ["new","→ match"];
 }
-// Up next, spelled out: each exercise with today's target and which way it moves (read-only peek).
-// Long plans show the first few and name the rest; "Edit" opens the plan.
-async function planPreview(plan, max=5){
-  const exs=plan.items.map(it=>resolveExerciseAtGym(it.exerciseId, State.currentGymId)).filter(Boolean);
-  const shown=exs.length>max ? exs.slice(0,max-1) : exs, rest=exs.slice(shown.length), rows=[];
-  for(const ex of shown){
-    const sug=await suggestNext(ex,{peek:true}), [cls,txt]=progCue(sug,ex);
-    rows.push(el("div",{class:"uprow"},
-      el("span",{class:"up-name"}, ...(isKeyLift(ex)?[el("span",{class:"up-key","aria-label":"key lift"},ic("starfill",11))]:[]), el("span",{class:"up-nm"},ex.name)),
-      el("span",{class:"up-cue "+cls}, txt),
-      el("span",{class:"up-tgt"}, fmtTargets({sets:sug.plan||[],kind:sug.kind},ex)||`${ex.repMin}–${ex.repMax} reps`)));
-  }
-  rows.push(el("div",{class:"uprow more"},
-    el("span",{class:"up-rest"}, rest.length?`+ ${rest.map(e=>e.name).join(", ")}`:""),
-    el("button",{class:"up-edit",onClick:()=>openPlanEditor(plan)},"Edit")));
-  return rows;
-}
 // "↑ 2 heavier · 3 more reps" for a plan, from the engine's own suggestions (read-only peek)
 async function planProgressLine(plan){
-  let heavier=0, reps=0, hold=0, first=0; const keys=[];
+  let heavier=0, reps=0, hold=0, first=0;
   for(const it of plan.items){
     const ex=resolveExerciseAtGym(it.exerciseId, State.currentGymId); if(!ex) continue;
     const sug=await suggestNext(ex,{peek:true});
     if(sug.kind==="weight") heavier++; else if(sug.kind==="rep") reps++; else if(sug.kind==="new") first++; else hold++;
-    if(isKeyLift(ex) && sug.plan && sug.kind!=="new") keys.push({ex, sug});
   }
-  // key lifts named, with today's ask — "★ Bench Press · 65kg × 8 · 8 · 8 ↑"
-  const keyLines=keys.slice(0,3).map(({ex,sug})=>el("div",{class:"keyline"},
-    el("span",{class:"ks"},ic("starfill",12)), el("b",{},ex.name), el("span",{class:"muted"}," · "+fmtTargets({sets:sug.plan,kind:sug.kind},ex)),
-    (sug.kind==="weight"||sug.kind==="rep")?el("span",{class:"up"}," ↑"):""));
   const parts=[];
-  if(heavier) parts.push(el("span",{class:"progpill up"},`↑ ${heavier} heavier`));
-  if(reps) parts.push(el("span",{class:"progpill up"},`↑ ${reps} more reps`));
-  if(hold) parts.push(el("span",{class:"progpill hold"},`→ ${hold} hold`));
-  if(first) parts.push(el("span",{class:"progpill hold"},`${first} new lift${first>1?"s":""} — log a first set`));
-  if(!parts.length && !keyLines.length) return el("span");
-  return el("div",{}, ...(parts.length?[el("div",{class:"row",style:"gap:6px;flex-wrap:wrap"},...parts)]:[]),
-    ...(keyLines.length?[el("div",{style:"margin-top:8px"}, ...keyLines)]:[]));
+  if(heavier) parts.push(el("span",{class:"up"},`↑ ${heavier} heavier`));
+  if(reps) parts.push(el("span",{class:"up"},`↑ ${reps} more reps`));
+  if(hold) parts.push(el("span",{class:"hold"},`→ ${hold} hold`));
+  if(first) parts.push(el("span",{class:"muted"},`${first} new`));
+  if(!parts.length) return el("span");
+  const line=el("span",{});
+  parts.forEach((p2,i)=>{ if(i) line.append(el("span",{class:"muted"}," · ")); line.append(p2); });
+  return line;
 }
 
 function muscleTags(ex){
